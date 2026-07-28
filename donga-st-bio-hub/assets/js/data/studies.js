@@ -66,59 +66,72 @@ window.DATA_STUDIES = [
    순서 = 화면의 컬럼 순서입니다. 공정 흐름대로 배양 → 정제 → 분석.
 
    정제(downstream) 그룹의 값은 원본 Excel 에 없어 downstream.js 가
-   Study 성격에 맞춰 생성합니다. 스키마는 여기 한 곳에만 둡니다. */
+   Study 성격에 맞춰 생성합니다. 스키마는 여기 한 곳에만 둡니다.
+
+   ── lo / hi 는 규격이 아닙니다 ──────────────────────────────────────────
+   **물리적으로 나올 수 있는 입력 범위**입니다. 오타와 단위 착각을 잡는
+   그물이지, 합격 여부를 가르는 기준이 아닙니다.
+     예) Viability 597% → 소수(0.597)를 % 로 잘못 넣은 것
+         Titer 1.4 mg/L → g/L 값을 mg/L 칸에 넣은 것
+   합격 기준(규격)은 아직 없으며, 들어오면 별도 필드로 붙습니다.
+
+   cumulative: true 인 항목은 배양이 진행되며 쌓이는 값이라 전일보다
+   낮아지면 경고합니다. */
 window.DATA_ANALYTE_GROUPS = [
   { id: "upstream", team: "upstream", label: "배양", items: [
-    { key: "ivcd",           label: "IVCD",            unit: "10⁶ cells/mL", dp: 1 },
-    { key: "maxVCD",         label: "Max VCD",         unit: "10⁶ cells/mL", dp: 2 },
-    { key: "finalVCD",       label: "Final VCD",       unit: "10⁶ cells/mL", dp: 2 },
-    { key: "finalViability", label: "Final Viability", unit: "%",            dp: 1 }
+    { key: "ivcd",           label: "IVCD",            unit: "10⁶ cells/mL", dp: 1, lo: 0, hi: 5000, cumulative: true },
+    { key: "maxVCD",         label: "Max VCD",         unit: "10⁶ cells/mL", dp: 2, lo: 0, hi: 200 },
+    { key: "finalVCD",       label: "Final VCD",       unit: "10⁶ cells/mL", dp: 2, lo: 0, hi: 200 },
+    { key: "finalViability", label: "Final Viability", unit: "%",            dp: 1, lo: 0, hi: 100 }
   ]},
   { id: "titer", team: "upstream", label: "Titer & qP", items: [
-    { key: "titerHCCF", label: "Titer HCCF", unit: "mg/L",        dp: 1 },
-    { key: "qP",        label: "qP",         unit: "pg/cell·day", dp: 2 }
+    { key: "titerHCCF", label: "Titer HCCF", unit: "mg/L",        dp: 1, lo: 0, hi: 20000 },
+    { key: "qP",        label: "qP",         unit: "pg/cell·day", dp: 2, lo: 0, hi: 500 }
   ]},
 
   { id: "downstream", team: "downstream", label: "정제",
     note: "Protein A → CEX → AEX 3-step 정제", items: [
-    { key: "proteinAYield", label: "Protein A Step Yield", unit: "%",     dp: 1 },
-    { key: "cexYield",      label: "CEX Step Yield",       unit: "%",     dp: 1 },
-    { key: "aexYield",      label: "AEX Step Yield",       unit: "%",     dp: 1 },
-    { key: "totalYield",    label: "Total Yield",          unit: "%",     dp: 1 },
-    { key: "monomerPurity", label: "SEC-HPLC Monomer",     unit: "%",     dp: 2 },
-    { key: "hcp",           label: "HCP",                  unit: "ppm",   dp: 1 },
-    { key: "residualDNA",   label: "Residual DNA",         unit: "pg/mg", dp: 2 }
+    { key: "proteinAYield", label: "Protein A Step Yield", unit: "%",     dp: 1, lo: 0, hi: 100 },
+    { key: "cexYield",      label: "CEX Step Yield",       unit: "%",     dp: 1, lo: 0, hi: 100 },
+    { key: "aexYield",      label: "AEX Step Yield",       unit: "%",     dp: 1, lo: 0, hi: 100 },
+    { key: "totalYield",    label: "Total Yield",          unit: "%",     dp: 1, lo: 0, hi: 100 },
+    { key: "monomerPurity", label: "SEC-HPLC Monomer",     unit: "%",     dp: 2, lo: 0, hi: 100 },
+    { key: "hcp",           label: "HCP",                  unit: "ppm",   dp: 1, lo: 0, hi: 1000000 },
+    { key: "residualDNA",   label: "Residual DNA",         unit: "pg/mg", dp: 2, lo: 0, hi: 100000 }
   ]},
 
   { id: "seHPLC", team: "analytics", label: "SE-HPLC", note: "간이정제(Protein A) 후", items: [
-    { key: "hmw",  label: "HMW",  unit: "%", dp: 1 },
-    { key: "main", label: "Main", unit: "%", dp: 1 },
-    { key: "lmw",  label: "LMW",  unit: "%", dp: 1 }
+    { key: "hmw",  label: "HMW",  unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "main", label: "Main", unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "lmw",  label: "LMW",  unit: "%", dp: 1, lo: 0, hi: 100 }
   ]},
   { id: "ieHPLC", team: "analytics", label: "IE-HPLC", note: "간이정제(Protein A) 후", items: [
-    { key: "acidic",       label: "Acidic",             unit: "%", dp: 1 },
-    { key: "main",         label: "Main",               unit: "%", dp: 1 },
-    { key: "basic",        label: "Basic",              unit: "%", dp: 1 },
-    { key: "basicUnknown", label: "Basic Unknown Peak", unit: "%", dp: 1 }
+    { key: "acidic",       label: "Acidic",             unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "main",         label: "Main",               unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "basic",        label: "Basic",              unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "basicUnknown", label: "Basic Unknown Peak", unit: "%", dp: 1, lo: 0, hi: 100 }
   ]},
   { id: "nGlycan", team: "analytics", label: "N-glycan", items: [
-    { key: "g0f",          label: "G0F",               unit: "%", dp: 1 },
-    { key: "g1f",          label: "G1F",               unit: "%", dp: 1 },
-    { key: "highMannose",  label: "High mannose",      unit: "%", dp: 1 },
-    { key: "sialicAcid",   label: "Sialic acid",       unit: "%", dp: 1 },
-    { key: "afucosylated", label: "Afucosylated form", unit: "%", dp: 1 }
+    { key: "g0f",          label: "G0F",               unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "g1f",          label: "G1F",               unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "highMannose",  label: "High mannose",      unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "sialicAcid",   label: "Sialic acid",       unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "afucosylated", label: "Afucosylated form", unit: "%", dp: 1, lo: 0, hi: 100 }
   ]},
   { id: "ceSdsNR", team: "analytics", label: "CE-SDS NR", items: [
-    { key: "monomer", label: "Monomer", unit: "%", dp: 1 },
-    { key: "h2l1",    label: "2H1L",    unit: "%", dp: 1 }
+    { key: "monomer", label: "Monomer", unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "h2l1",    label: "2H1L",    unit: "%", dp: 1, lo: 0, hi: 100 }
   ]},
   { id: "ceSdsR", team: "analytics", label: "CE-SDS R", items: [
-    { key: "lc",   label: "LC",    unit: "%", dp: 2 },
-    { key: "hc",   label: "HC",    unit: "%", dp: 2 },
-    { key: "lcHc", label: "LC+HC", unit: "%", dp: 2 },
-    { key: "nghc", label: "NGHC",  unit: "%", dp: 2 }
+    { key: "lc",   label: "LC",    unit: "%", dp: 2, lo: 0, hi: 100 },
+    { key: "hc",   label: "HC",    unit: "%", dp: 2, lo: 0, hi: 100 },
+    { key: "lcHc", label: "LC+HC", unit: "%", dp: 2, lo: 0, hi: 100 },
+    { key: "nghc", label: "NGHC",  unit: "%", dp: 2, lo: 0, hi: 100 }
   ]}
 ];
+
+/* 일자별 Titer 입력 범위 — 배양이 진행되며 쌓이는 누적값입니다 */
+window.DATA_TITER_ITEM = { label: "Titer", unit: "mg/L", dp: 0, lo: 0, hi: 20000, cumulative: true };
 
 window.DATA_TITER_DAYS = ["D10","D11","D12","D13","D14","D15","D16","D17","D18","D19","D20"];
 

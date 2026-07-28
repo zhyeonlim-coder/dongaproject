@@ -11,9 +11,21 @@
    시각은 초 단위까지 로컬 시간으로 기록합니다 (UTC 변환 금지 — KST 사용자가
    오전에 전날 날짜를 보게 됩니다).
 
-     Entries.addSample({ batchId, name })      → 중복 검증 + 작성자/일시 기록
-     Entries.setValue(scope, field, value)     → Create/Update 자동 판별
-     Entries.getValue(scope, field)            → { value, createdBy, createdAt, history }
+   ── 수정 사유는 필수입니다 ─────────────────────────────────────────────
+   "무엇이 언제 누구에 의해 바뀌었나"만 남기고 "왜"가 비어 있으면 이력은
+   반쪽입니다. 값이 실제로 바뀌는 저장은 사유 없이는 거부합니다.
+
+     최초 입력            사유 불필요
+     기존 값 수정          사유 필수
+     Excel 원본 덮어쓰기    사유 필수 + 원본 값을 이력 첫 항목으로 보존
+                          (그러지 않으면 원본이 조용히 사라집니다)
+
+     Entries.addSample({ batchId, name })   → 중복 검증 + 작성자/일시 기록
+     Entries.setValue(scope, field, value, reason, opts)
+        opts = { baseValue }  Excel 등 화면에 보이던 원본 값
+     Entries.getValue(scope, field)         → { value, createdBy, createdAt, history }
+
+   값은 VAL 형식({num,qual,miss})으로 저장합니다 — 자세한 건 value.js 참고.
    ========================================================================== */
 
 window.Entries = (function () {
@@ -135,40 +147,88 @@ window.Entries = (function () {
     return out;
   }
 
+  const MIN_REASON = 2;
+
+  /* 사유가 필요한 저장인지 미리 알려 줍니다 — 화면이 사유 입력창을
+     띄울지 판단할 때 씁니다. 규칙을 화면에 복사하지 않기 위해 여기 둡니다. */
+  function needsReason(scope, field, value, opts) {
+    const prev = state.values[keyOf(scope, field)];
+    if (prev) return !window.VAL.same(prev.value, value);
+    const base = opts && opts.baseValue;
+    if (base === null || base === undefined) return false;
+    return !window.VAL.same(base, value);        // Excel 원본을 바꾸는 경우
+  }
+
   /* 저장. 기존 값이 있으면 덮어쓰지 않고 history 에 누적합니다. */
-  function setValue(scope, field, value, reason) {
+  function setValue(scope, field, value, reason, opts) {
     const k = keyOf(scope, field);
     const now = stamp(), user = who();
     const prev = state.values[k];
+    /* 값의 모양은 부르는 쪽이 정합니다 — 측정값은 VAL 객체, 날짜·자유 텍스트는
+       그대로. 여기서 일괄 변환하면 날짜가 "미측정"으로 바뀌어 버립니다. */
+    const val = value;
+    const why = String(reason || "").trim();
+    const o = opts || {};
 
+    /* ── 최초 입력 ── */
     if (!prev) {
+      const base = (o.baseValue === undefined) ? null : o.baseValue;
+      const overwritesBase = base !== null && !window.VAL.same(base, val);
+
+      if (overwritesBase && why.length < MIN_REASON) {
+        return { ok: false, action: "Update", needReason: true,
+                 reason: "원본 값을 바꾸려면 사유를 입력해야 합니다." };
+      }
+
       state.values[k] = {
-        value: value,
+        value: val,
         createdBy: user, createdAt: now,
-        updatedBy: null, updatedAt: null,
-        action: "Create",
-        history: []
+        updatedBy: overwritesBase ? user : null,
+        updatedAt: overwritesBase ? now : null,
+        action: overwritesBase ? "Update" : "Create",
+        /* 원본을 이력 0번으로 남겨 둡니다 — 이렇게 해야 나중에
+           "원래 Excel 값이 무엇이었나"를 되짚을 수 있습니다. */
+        history: overwritesBase
+          ? [{ previousValue: base, previousSource: o.baseSource || "원본",
+               changedBy: user, changedAt: now, reason: why }]
+          : []
       };
       emit("value");
-      return { ok: true, action: "Create", record: state.values[k] };
+      return { ok: true, action: state.values[k].action, record: state.values[k] };
     }
 
-    // 값이 실제로 달라졌을 때만 이력을 남깁니다 (같은 값 재저장은 무시)
-    if (String(prev.value) === String(value)) return { ok: true, action: "None", record: prev };
+    /* ── 같은 값 재저장은 무시 ── */
+    if (window.VAL.same(prev.value, val)) return { ok: true, action: "None", record: prev };
+
+    /* ── 값 변경 — 사유 필수 ── */
+    if (why.length < MIN_REASON) {
+      return { ok: false, action: "Update", needReason: true,
+               reason: "값을 바꾸려면 변경 사유를 입력해야 합니다." };
+    }
 
     prev.history.push({
       previousValue: prev.value,
       changedBy: user,
       changedAt: now,
-      reason: reason || null
+      reason: why
     });
-    prev.value = value;
+    prev.value = val;
     prev.updatedBy = user;
     prev.updatedAt = now;
     prev.action = "Update";
     emit("value");
     return { ok: true, action: "Update", record: prev };
   }
+
+  /* 자주 쓰는 사유 — 매번 문장을 새로 짜게 하면 "수정"처럼 무의미한
+     한 단어만 남습니다. 고르고 필요하면 덧붙이는 편이 낫습니다. */
+  const REASON_PRESETS = [
+    "오기 정정 (전사 오류)",
+    "재측정 결과 반영",
+    "단위 환산 오류 정정",
+    "시험 무효 처리 후 재시험",
+    "장비 재보정 후 재산출"
+  ];
 
   /* 입력 필드 옆에 붙일 캡션 문자열 */
   function caption(rec) {
@@ -184,7 +244,7 @@ window.Entries = (function () {
   return {
     getSamples, getSamplesByStudy, addSample, deactivateSample,
     getGroups, addGroup, removeGroup,
-    getValue, getScopeValues, setValue,
+    getValue, getScopeValues, setValue, needsReason, REASON_PRESETS,
     caption, hasHistory, stamp, stampHuman, who,
     subscribe, reset,
     state: () => state

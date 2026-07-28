@@ -76,11 +76,9 @@
     } else {
       const titers = nums(batches, b => b.upstream.titerHCCF);
       const viab = nums(batches, b => b.upstream.finalViability);
-      let filled = 0, total = 0;
-      batches.forEach(b => window.DATA_ANALYTE_GROUPS.forEach(g => {
-        if (g.empty) return;
-        g.items.forEach(it => { total++; if (window.Repo.valueOf(b, g.id, it.key) !== null) filled++; });
-      }));
+      /* "해당 없음"으로 표시한 칸은 분모에서 빠집니다 (repo.completeness) */
+      const c = window.Repo.completeness(batches, window.DATA_ANALYTE_GROUPS);
+      const filled = c.filled, total = c.total;
       cards = [
         { k: "배치", v: batches.length, u: "건" },
         { k: "최고 Titer HCCF", v: titers.length ? fmt(Math.max.apply(null, titers), 1) : L.empty, u: "mg/L" },
@@ -376,8 +374,10 @@
     Object.keys(st.values).forEach(k => {
       const rec = st.values[k];
       const scope = k.split("|")[0], field = k.split("|")[1];
+      const last = rec.history && rec.history.length ? rec.history[rec.history.length - 1] : null;
       items.push({ scope, field, by: rec.updatedBy || rec.createdBy,
-                   at: rec.updatedAt || rec.createdAt, action: rec.action, value: rec.value });
+                   at: rec.updatedAt || rec.createdAt, action: rec.action, value: rec.value,
+                   reason: last ? last.reason : null });
     });
     st.samples.forEach(s => items.push({ scope: "batch:" + s.batchId, field: L.ui.sampleName + " 생성: " + s.name,
       by: s.createdBy, at: s.createdAt, action: "Create", value: null }));
@@ -385,19 +385,29 @@
 
     if (!items.length) return '<p style="font-size:12.5px;color:var(--c-text-mute);margin:0">' +
       'EBR 입력 기록이 없습니다.</p>';
-    return items.slice(0, 8).map(i =>
-      '<div class="rail-event">' +
+    /* 값 표기는 VAL 을 거칩니다 — {num,qual,miss} 객체를 그대로 찍으면
+       화면에 [object Object] 가 나옵니다. */
+    const showVal = v => (v === null || v === undefined) ? null
+      : (window.VAL && window.VAL.isVal(v) ? window.VAL.format(v) : String(v));
+
+    return items.slice(0, 8).map(function (i) {
+      const shown = showVal(i.value);
+      return '<div class="rail-event">' +
         '<span class="rail-event-bar" style="background:' +
           (i.action === "Update" ? "var(--c-warn)" : "var(--c-accent)") + '"></span>' +
         '<span style="min-width:0;flex:1">' +
           '<span style="display:block;font-size:12.5px;font-weight:500">' + esc(i.field) +
-            (i.value !== null ? ' = <span class="mono">' + esc(i.value) + '</span>' : "") + '</span>' +
+            (shown !== null ? ' = <span class="mono">' + esc(shown) + '</span>' : "") + '</span>' +
           '<span style="display:block;font-size:10.5px;color:var(--c-text-mute)" class="mono">' +
             esc(i.scope) + ' · ' + esc(i.by) + ' · ' + esc(E.stampHuman(i.at)) + '</span>' +
+          (i.reason
+            ? '<span style="display:block;font-size:10.5px;color:var(--c-text-mute)">사유: ' +
+              esc(i.reason) + '</span>' : "") +
         '</span>' +
         '<span class="badge badge-' + (i.action === "Update" ? "warn" : "ok") + '" style="font-size:10px">' +
           (i.action === "Update" ? L.ui.auditUpdated : L.ui.auditCreated) + '</span>' +
-      '</div>').join("");
+      '</div>';
+    }).join("");
   }
 
   /* ── 다가오는 일정 — 일정 관리 화면과 같은 소스(HubCalendar) ────────── */

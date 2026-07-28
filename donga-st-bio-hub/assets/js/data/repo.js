@@ -50,15 +50,11 @@ window.Repo = (function () {
     const studyId = ids.length === 1 ? ids[0] : null;
     return ok(window.DATA_TEAMS.map(t => {
       const groups = window.DATA_ANALYTE_GROUPS.filter(g => g.team === t.id && !g.empty);
-      let filled = 0, total = 0;
-      batches.forEach(b => groups.forEach(g => g.items.forEach(it => {
-        total++;
-        if (valueOf(b, g.id, it.key) !== null) filled++;
-      })));
+      const c = completeness(batches, groups);
       return {
         studyId, team: t.id, ko: t.ko, short: t.short, color: t.color,
-        groupCount: groups.length, filled, total,
-        hasData: filled > 0,
+        groupCount: groups.length, filled: c.filled, total: c.total,
+        hasData: c.filled > 0,
         defined: groups.length > 0
       };
     }));
@@ -77,6 +73,46 @@ window.Repo = (function () {
     let studies = window.DATA_STUDIES.filter(x => x.projectId === s.scopeId);
     if (s.studyId) studies = studies.filter(x => x.id === s.studyId);
     return studies;
+  }
+
+  /* ── 완성도 집계 ────────────────────────────────────────────────────────
+     "몇 칸이 채워졌나"를 셀 때는 EBR 입력을 반영해야 합니다. 특히
+     **해당 없음(NA)** 은 분모에서 빼야 맞습니다 — 존재하지 않는 항목을
+     미입력으로 세면 완성도가 영원히 100%가 되지 않습니다.
+     불검출(ND)은 시험을 수행한 결과이므로 채워진 것으로 셉니다.
+
+     그래프는 이 경로를 쓰지 않고 원본(Excel)만 씁니다. 원본과 입력값이
+     한 선에 섞이면 화면에서 어느 쪽인지 구분할 수 없기 때문입니다. */
+
+  /* 스키마 좌표(groupId, key) → EBR 필드 키. ebr-page 의 명명과 같아야 합니다. */
+  function fieldKey(groupId, key) {
+    return (groupId === "upstream" || groupId === "titer") ? key : groupId + "_" + key;
+  }
+
+  /* "filled" | "empty" | "excluded" */
+  function cellState(batch, groupId, key) {
+    const rec = window.Entries
+      ? window.Entries.getValue("batch:" + batch.id, fieldKey(groupId, key)) : null;
+    if (rec && window.VAL) {
+      if (!window.VAL.countsTowardCompleteness(rec.value)) return "excluded";
+      return window.VAL.isFilled(rec.value) ? "filled" : "empty";
+    }
+    return valueOf(batch, groupId, key) !== null ? "filled" : "empty";
+  }
+
+  /* 배치 묶음의 완성도 — 그룹 목록을 받아 filled/total 을 셉니다 */
+  function completeness(batches, groups) {
+    let filled = 0, total = 0;
+    (batches || []).forEach(b => (groups || []).forEach(g => {
+      if (g.empty) return;
+      g.items.forEach(function (it) {
+        const s = cellState(b, g.id, it.key);
+        if (s === "excluded") return;              // 해당 없음 — 분모에서 제외
+        total++;
+        if (s === "filled") filled++;
+      });
+    }));
+    return { filled, total };
   }
 
   function valueOf(batch, groupId, key) {
@@ -269,11 +305,8 @@ window.Repo = (function () {
     const titers = nums(b => b.upstream.titerHCCF);
     const viab = nums(b => b.upstream.finalViability);
 
-    let filled = 0, total = 0;
-    bs.forEach(b => window.DATA_ANALYTE_GROUPS.forEach(g => {
-      if (g.empty) return;
-      g.items.forEach(it => { total++; if (valueOf(b, g.id, it.key) !== null) filled++; });
-    }));
+    const c = completeness(bs, window.DATA_ANALYTE_GROUPS);
+    const filled = c.filled, total = c.total;
 
     return ok({
       studyId, batchCount: bs.length,
@@ -290,6 +323,7 @@ window.Repo = (function () {
     getScopeOptions, getTeamDataSets, getTeamDataSetsForSelection,
     getBatches, getBatch, getBatchesByStudy, resolveBatches,
     getAnalyteGroups, getActiveTiterDays, getDaySeries,
+    fieldKey, cellState, completeness,
     getFilterOptions, searchStudies,
     dataClass, colInClass, classMatchesTerm, getDataClasses,
     projectLabel, studyOf, valueOf,

@@ -1688,6 +1688,50 @@ tr.is-picked:hover > td { background: var(--c-accent-bg-2); }
 }
 .chart-swap { animation: chartSwap 260ms var(--ease) both; }
 
+/* --------------------------------------------------------------------------
+   EBR 입력 — 값 상태 · 검증 메시지 · 변경 사유
+   -------------------------------------------------------------------------- */
+
+/* 필드 한 칸. .ebr-cell(라벨+입력) 아래로 메시지와 사유 입력이 붙습니다. */
+.ebr-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+/* 사유를 묻는 동안에는 한 줄을 다 씁니다 — 좁은 칸에서 사유를 쓰게 하면
+   결국 "수정" 두 글자만 남습니다. */
+.ebr-field.is-asking { grid-column: 1 / -1; }
+
+.ebr-input.is-missing { background: var(--c-paper); color: var(--c-text-mute); font-style: italic; }
+.ebr-input.is-bounded { border-color: var(--c-accent-mid); }
+.ebr-input.is-invalid { border-color: var(--c-risk); background: #FEF6F6; }
+.ebr-input.is-warned  { border-color: #E0A85C; background: #FFFBF4; }
+
+/* 결측 사유 꼬리표 — 색만으로 구분하지 않도록 글자를 함께 씁니다 */
+.miss-tag {
+  display: inline-block;
+  font-size: 10px; font-weight: 700;
+  border-radius: var(--r-sm);
+  padding: 1px 5px;
+}
+.miss-nm  { background: var(--c-paper-2); color: var(--c-text-mute); }
+.miss-na  { background: var(--c-paper-2); color: var(--c-text-mute); }
+.miss-nd  { background: #EAF6EE; color: #14632F; }
+.miss-inv { background: #FBEBEB; color: #9B1C1C; }
+
+.field-msg { display: none; margin: 0; font-size: 11.5px; line-height: 1.65; }
+.field-msg.is-error { display: block; color: var(--c-risk); font-weight: 500; }
+.field-msg.is-warn  { display: block; color: #8A4308; }
+.field-msg.is-warn::before  { content: "주의 · "; font-weight: 700; }
+.field-msg.is-error::before { content: "오류 · "; font-weight: 700; }
+
+.reason-row {
+  border: 1px solid #E0A85C;
+  background: #FFFBF4;
+  border-radius: var(--r-md);
+  padding: var(--s-3);
+}
+.reason-head { font-size: 11.5px; font-weight: 600; color: #8A4308; margin-bottom: 6px; }
+.reason-ctl { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
+.reason-ctl .ebr-input { flex: 1; min-width: 200px; }
+
 /* K-Ron */
 .kron-head {
   display: flex;

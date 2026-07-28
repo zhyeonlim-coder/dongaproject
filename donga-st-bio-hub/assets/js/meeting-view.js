@@ -483,8 +483,10 @@ window.MeetingView = (function () {
     const out = [];
     batches.forEach(b => window.DATA_ANALYTE_GROUPS.forEach(g => {
       if (g.empty) return;
-      g.items.forEach(it => {
-        if (window.Repo.valueOf(b, g.id, it.key) === null)
+      g.items.forEach(function (it) {
+        /* "해당 없음"으로 표시한 칸은 확인 대상이 아닙니다 —
+           없는 항목을 회의 때마다 짚으면 진짜 미측정이 묻힙니다. */
+        if (window.Repo.cellState(b, g.id, it.key) === "empty")
           out.push({ batch: b.id, group: g.label, item: it.label, team: g.team });
       });
     }));
