@@ -1586,8 +1586,231 @@ body.mm-open { overflow: hidden; }
   .factor-row { grid-template-columns: 1fr; }
 }
 
+/* --------------------------------------------------------------------------
+   12. 접기/펼치기 · 통계 표 · 회의 모드 필터 · K-Ron
+   -------------------------------------------------------------------------- */
+
+/* 접기/펼치기 — ANOVA 표처럼 "필요할 때만 펴는" 보조 정보 */
+.disclose {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
+.disclose > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--r-md);
+}
+.disclose > summary::-webkit-details-marker { display: none; }
+.disclose > summary::before {
+  content: "";
+  width: 8px; height: 8px;
+  border-right: 2px solid var(--c-text-soft);
+  border-bottom: 2px solid var(--c-text-soft);
+  transform: rotate(-45deg);
+  transition: transform 160ms var(--ease);
+  flex: none;
+}
+.disclose[open] > summary::before { transform: rotate(45deg); }
+.disclose > summary:hover { background: var(--c-paper); }
+.disclose > summary:focus-visible { outline: 2px solid var(--c-accent); outline-offset: -2px; }
+.disclose-note {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--c-text-mute);
+}
+
+/* 통계 표 */
+.stat-tbl .row-sub  > td:first-child,
+.stat-tbl .row-sub  > th:first-child { padding-left: var(--s-6); color: var(--c-text-mute); }
+.stat-tbl .row-head > td,
+.stat-tbl .row-head > th { font-weight: 700; }
+.stat-tbl .row-total > td,
+.stat-tbl .row-total > th { border-top: 2px solid var(--c-border-str); font-weight: 600; }
+
+/* 유의성 표기 — 색에만 기대지 않도록 기호를 함께 씁니다 */
+.sig {
+  display: inline-block;
+  min-width: 34px;
+  font-family: var(--font-data);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.sig-yes { color: #14632F; }
+.sig-no  { color: var(--c-text-soft); font-weight: 400; }
+
+/* 회의 모드 — 필터 바 · 선택 가능한 항목 칩 · 선택된 행 */
+.mm-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: flex-end;
+}
+.mm-chip {
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--c-text);
+  cursor: pointer;
+  transition: border-color 140ms var(--ease), background 140ms var(--ease);
+}
+.mm-chip:hover { border-color: var(--c-accent-mid); }
+.mm-chip[aria-pressed="true"] {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: #fff;
+}
+.mm-chip-count {
+  font-family: var(--font-data);
+  font-size: 10.5px;
+  opacity: .75;
+  margin-left: 5px;
+}
+tr.is-picked > td { background: var(--c-accent-bg); }
+tr.is-pickable { cursor: pointer; }
+tr.is-pickable:hover > td { background: var(--c-paper); }
+tr.is-picked:hover > td { background: var(--c-accent-bg-2); }
+
+/* 차트가 바뀔 때의 전환 — 값이 갑자기 튀지 않고 갈아 끼워지도록 */
+@keyframes chartSwap {
+  from { opacity: 0; transform: translateY(6px) scale(.995); }
+  to   { opacity: 1; transform: none; }
+}
+.chart-swap { animation: chartSwap 260ms var(--ease) both; }
+
+/* K-Ron */
+.kron-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.kron-mark {
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(140deg, #0F766E, #0369A1);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: -.02em;
+  flex: none;
+}
+.kron-panel {
+  border: 1px solid var(--c-border);
+  border-left: 3px solid #0F766E;
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+  padding: var(--s-4);
+}
+.kron-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--c-paper-2);
+  overflow: hidden;
+  min-width: 64px;
+}
+.kron-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #0F766E;
+}
+.kron-cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 11px;
+  background: var(--c-surface);
+  cursor: pointer;
+}
+.kron-cite:hover { border-color: #0F766E; color: #0F766E; }
+
+/* 업로드 영역 */
+.drop {
+  border: 1.5px dashed var(--c-border-str);
+  border-radius: var(--r-md);
+  padding: var(--s-5);
+  text-align: center;
+  background: var(--c-paper);
+  transition: border-color 140ms var(--ease), background 140ms var(--ease);
+}
+.drop.is-over { border-color: var(--c-accent); background: var(--c-accent-bg); }
+.drop-file {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 7px var(--s-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-surface);
+  font-size: 12px;
+}
+
+/* 챗봇 말풍선 */
+.chat-log {
+  display: grid;
+  gap: var(--s-3);
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.chat-turn { display: flex; }
+.chat-turn.is-me { justify-content: flex-end; }
+.chat-bubble {
+  max-width: min(92%, 660px);
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-4);
+  font-size: 13px;
+  line-height: 1.75;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+.chat-turn.is-me .chat-bubble {
+  background: var(--c-navy-700);
+  border-color: var(--c-navy-700);
+  color: #fff;
+}
+.chat-quote {
+  border-left: 3px solid var(--c-accent-mid);
+  background: var(--c-paper);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  padding: var(--s-3);
+  margin-top: var(--s-2);
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+.chat-quote mark {
+  background: #FDF0C8;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+@media (max-width: 720px) {
+  .mm-toolbar > * { width: 100%; }
+  .chat-bubble { max-width: 100%; }
+}
+
 @media print {
   .sidebar, .topbar, .scrim { display: none; }
   .shell { grid-template-columns: 1fr; }
   .card { box-shadow: none; }
+  /* 보고서로 뽑을 때 ANOVA 표는 접혀 있어도 펼쳐서 인쇄합니다 */
+  .disclose > summary::before { display: none; }
+  details.disclose:not([open]) > *:not(summary) { display: revert; }
 }

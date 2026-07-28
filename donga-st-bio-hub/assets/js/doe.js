@@ -4,6 +4,9 @@
    Implements:
      · Design generation   Full Factorial 2^k, Box-Behnken, Central Composite
      · Model fitting       ordinary least squares via normal equations
+     · Inference           coefficient se / t / p, ANOVA with sequential SS,
+                           lack-of-fit vs pure error split (t·F tail
+                           probabilities computed, not looked up)
      · Response surface    evaluation on a grid
      · Contour rendering   marching squares iso-lines over a heatmap
      · 3D surface          isometric projection, painter's algorithm
@@ -19,6 +22,29 @@ window.DOE = (function () {
   "use strict";
 
   /* ── Linear algebra ─────────────────────────────────────────────────── */
+
+  // Gauss-Jordan inverse. Needed for coefficient standard errors:
+  // Var(β) = σ²·(XtX)⁻¹, so the diagonal gives se(βⱼ).
+  function invert(A) {
+    const n = A.length;
+    const M = A.map((row, i) =>
+      row.slice().concat(Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))));
+    for (let c = 0; c < n; c++) {
+      let piv = c;
+      for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+      if (Math.abs(M[piv][c]) < 1e-12) return null;
+      if (piv !== c) { const t = M[piv]; M[piv] = M[c]; M[c] = t; }
+      const pv = M[c][c];
+      for (let k = c; k < 2 * n; k++) M[c][k] /= pv;
+      for (let r = 0; r < n; r++) {
+        if (r === c) continue;
+        const f = M[r][c];
+        if (!f) continue;
+        for (let k = c; k < 2 * n; k++) M[r][k] -= f * M[c][k];
+      }
+    }
+    return M.map(row => row.slice(n));
+  }
 
   // Solve A·x = b by Gaussian elimination with partial pivoting.
   // Returns null when the system is singular beyond a small ridge.
@@ -43,6 +69,75 @@ window.DOE = (function () {
       x[r] = s / M[r][r];
     }
     return x;
+  }
+
+  /* ── Distributions ──────────────────────────────────────────────────────
+     p-value 를 표로만 두면 자유도가 바뀔 때마다 틀립니다. t·F 분포의 꼬리
+     확률을 직접 계산합니다 — 둘 다 정규화 불완전 베타 함수 I_x(a,b) 하나로
+     표현됩니다.
+
+       두쪽 t 검정   P(|T| > t)  = I_{df/(df+t²)}(df/2, 1/2)
+       F 상측 꼬리   P(F' > F)   = I_{df2/(df2+df1·F)}(df2/2, df1/2)
+
+     I_x(a,b)는 연분수 전개(Lermis-Thompson)로, logΓ는 Lanczos 근사로 구합니다.
+     배정밀도 범위에서 소수점 아래 10자리 수준까지 맞습니다. */
+
+  function logGamma(x) {
+    const g = 7;
+    const c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+               771.32342877765313, -176.61502916214059, 12.507343278686905,
+               -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+    if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - logGamma(1 - x);
+    x -= 1;
+    let a = c[0];
+    const t = x + g + 0.5;
+    for (let i = 1; i < g + 2; i++) a += c[i] / (x + i);
+    return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+  }
+
+  function betacf(a, b, x) {
+    const MAXIT = 300, EPS = 3e-14, FPMIN = 1e-300;
+    const qab = a + b, qap = a + 1, qam = a - 1;
+    let c = 1, d = 1 - (qab * x) / qap;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    d = 1 / d;
+    let h = d;
+    for (let m = 1; m <= MAXIT; m++) {
+      const m2 = 2 * m;
+      let aa = (m * (b - m) * x) / ((qam + m2) * (a + m2));
+      d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN;
+      c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN;
+      d = 1 / d; h *= d * c;
+      aa = (-(a + m) * (qab + m) * x) / ((a + m2) * (qap + m2));
+      d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN;
+      c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN;
+      d = 1 / d;
+      const del = d * c;
+      h *= del;
+      if (Math.abs(del - 1) < EPS) break;
+    }
+    return h;
+  }
+
+  function betai(a, b, x) {
+    if (!isFinite(x) || x <= 0) return 0;
+    if (x >= 1) return 1;
+    const bt = Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b) +
+                        a * Math.log(x) + b * Math.log(1 - x));
+    return x < (a + 1) / (a + b + 2)
+      ? (bt * betacf(a, b, x)) / a
+      : 1 - (bt * betacf(b, a, 1 - x)) / b;
+  }
+
+  /* 두쪽 검정 p-value */
+  function pFromT(t, df) {
+    if (!isFinite(t) || !(df > 0)) return NaN;
+    return betai(df / 2, 0.5, df / (df + t * t));
+  }
+  /* F 상측 꼬리 p-value */
+  function pFromF(F, df1, df2) {
+    if (!isFinite(F) || F <= 0 || !(df1 > 0) || !(df2 > 0)) return NaN;
+    return betai(df2 / 2, df1 / 2, df2 / (df2 + df1 * F));
   }
 
   /* ── Design generation ──────────────────────────────────────────────── */
@@ -192,13 +287,137 @@ window.DOE = (function () {
     const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
     const dfRes = y.length - p;
     const r2adj = (ssTot > 0 && dfRes > 0) ? 1 - (ssRes / dfRes) / (ssTot / (y.length - 1)) : NaN;
+    const mse = dfRes > 0 ? ssRes / dfRes : NaN;
+
+    /* ── 계수별 표준오차 · t · p ────────────────────────────────────────
+       Var(β) = σ²·(XtX)⁻¹. 잔차 자유도가 0이면 σ² 을 추정할 수 없으므로
+       p-value 를 만들지 않고 NaN 으로 둡니다 — 0 이나 1 로 채우면
+       "유의하다/아니다" 를 근거 없이 주장하게 됩니다. */
+    const Cinv = dfRes > 0 ? invert(XtX) : null;
+    const se = Cinv ? beta.map((_, j) => Math.sqrt(Math.max(0, mse * Cinv[j][j]))) : null;
+    const tval = se ? beta.map((b, j) => (se[j] > 0 ? b / se[j] : NaN)) : null;
+    const pval = tval ? tval.map(t => pFromT(t, dfRes)) : null;
 
     return {
       ok: true, ts, beta, r2, r2adj, n: y.length, p,
       rmse: Math.sqrt(ssRes / Math.max(1, dfRes)),
+      ssRes, ssTot, dfRes, mse, se, tval, pval,
+      anova: anova(plan, X, y, ts, idx, ssRes, ssTot, dfRes, mse),
       fitted, usedIdx: idx,
       predict: (x) => rowVector(x, ts).reduce((s, v, a) => s + v * beta[a], 0)
     };
+  }
+
+  /* ── ANOVA ──────────────────────────────────────────────────────────────
+     항 그룹(선형 → 교호작용 → 2차)을 순서대로 넣으면서 잔차제곱합이 얼마나
+     줄어드는지 보는 **순차 제곱합(Type I SS)** 입니다. 상용 DoE 도구가 쓰는
+     기본 분해와 같습니다. 항을 넣는 순서가 바뀌면 값도 바뀌므로, 화면에
+     "선형 → 교호작용 → 2차 순서" 라고 밝혀 둡니다.
+
+     중심점처럼 같은 조건을 반복한 run 이 있으면 잔차를
+       순수오차(Pure Error) — 같은 조건끼리의 흩어짐
+       적합결여(Lack of Fit) — 모형이 설명하지 못한 체계적 편차
+     로 더 쪼갭니다. 적합결여가 유의하면 R²가 높아도 모형이 부족한 것입니다. */
+  function anova(plan, X, y, ts, idx, ssRes, ssTot, dfRes, mse) {
+    const n = y.length;
+
+    /* 부분 모형의 잔차제곱합 — 순차 SS 를 얻으려면 중첩 모형을 다시 적합합니다 */
+    function ssResOf(cols) {
+      const q = cols.length;
+      const A = Array.from({ length: q }, () => new Array(q).fill(0));
+      const bvec = new Array(q).fill(0);
+      for (let r = 0; r < X.length; r++) {
+        for (let a = 0; a < q; a++) {
+          bvec[a] += X[r][cols[a]] * y[r];
+          for (let b = 0; b < q; b++) A[a][b] += X[r][cols[a]] * X[r][cols[b]];
+        }
+      }
+      const bb = solve(A, bvec);
+      if (!bb) return null;
+      let ss = 0;
+      for (let r = 0; r < X.length; r++) {
+        let yh = 0;
+        for (let a = 0; a < q; a++) yh += X[r][cols[a]] * bb[a];
+        ss += Math.pow(y[r] - yh, 2);
+      }
+      return ss;
+    }
+
+    const GROUPS = [
+      { kind: "lin",  label: "선형 (Linear)" },
+      { kind: "int2", label: "교호작용 (Interaction)" },
+      { kind: "quad", label: "2차 (Quadratic)" }
+    ];
+
+    const seq = [];
+    let used = [0];               // 절편만 있는 모형의 잔차제곱합 = 수정 총 제곱합
+    let prev = ssTot;
+    GROUPS.forEach(function (g) {
+      const add = ts.map((t, i) => i).filter(i => ts[i].kind === g.kind);
+      if (!add.length) return;
+      used = used.concat(add);
+      const cur = ssResOf(used);
+      if (cur === null) return;
+      seq.push({ label: g.label, df: add.length, ss: Math.max(0, prev - cur) });
+      prev = cur;
+    });
+
+    /* ── 순수오차 / 적합결여 ── */
+    const bySig = {};
+    idx.forEach(function (runIdx, r) {
+      const sig = plan.coded[runIdx].map(v => (+v).toFixed(6)).join("|");
+      (bySig[sig] = bySig[sig] || []).push(y[r]);
+    });
+    let ssPE = 0, dfPE = 0;
+    Object.keys(bySig).forEach(function (k) {
+      const g = bySig[k];
+      if (g.length < 2) return;
+      const m = g.reduce((s, v) => s + v, 0) / g.length;
+      g.forEach(v => { ssPE += Math.pow(v - m, 2); });
+      dfPE += g.length - 1;
+    });
+    const dfLOF = dfRes - dfPE;
+    const ssLOF = ssRes - ssPE;
+    const hasLOF = dfPE > 0 && dfLOF > 0;
+
+    const dfModel = ts.length - 1;
+    const ssModel = ssTot - ssRes;
+    const msModel = dfModel > 0 ? ssModel / dfModel : NaN;
+
+    const rows = [{
+      source: "모형 (Model)", df: dfModel, ss: ssModel, ms: msModel,
+      f: dfRes > 0 ? msModel / mse : NaN,
+      p: dfRes > 0 ? pFromF(msModel / mse, dfModel, dfRes) : NaN,
+      head: true
+    }];
+
+    seq.forEach(function (s) {
+      const ms = s.df > 0 ? s.ss / s.df : NaN;
+      rows.push({
+        source: "  " + s.label, df: s.df, ss: s.ss, ms: ms,
+        f: dfRes > 0 ? ms / mse : NaN,
+        p: dfRes > 0 ? pFromF(ms / mse, s.df, dfRes) : NaN,
+        sub: true
+      });
+    });
+
+    rows.push({ source: "잔차 (Residual)", df: dfRes, ss: ssRes, ms: mse, f: NaN, p: NaN });
+
+    if (hasLOF) {
+      const msLOF = ssLOF / dfLOF, msPE = ssPE / dfPE;
+      rows.push({
+        source: "  적합결여 (Lack of Fit)", df: dfLOF, ss: ssLOF, ms: msLOF,
+        f: msPE > 0 ? msLOF / msPE : NaN,
+        p: msPE > 0 ? pFromF(msLOF / msPE, dfLOF, dfPE) : NaN,
+        sub: true, lof: true
+      });
+      rows.push({ source: "  순수오차 (Pure Error)", df: dfPE, ss: ssPE, ms: msPE,
+                  f: NaN, p: NaN, sub: true });
+    }
+
+    rows.push({ source: "합계 (Total)", df: n - 1, ss: ssTot, ms: NaN, f: NaN, p: NaN, total: true });
+
+    return { rows, hasLOF, dfPE, dfLOF, seqOrder: seq.map(s => s.label) };
   }
 
   /* ── Optimisation over the coded space ──────────────────────────────── */
@@ -422,6 +641,8 @@ window.DOE = (function () {
 
   return {
     DESIGNS, generate, fit, optimise, grid, contourSVG, surface3D,
-    codedToActual, demoResponses, ramp, terms
+    codedToActual, demoResponses, ramp, terms,
+    /* 통계 함수는 화면에서 직접 쓰지 않지만, 검증용으로 노출해 둡니다 */
+    pFromT, pFromF, betai, invert
   };
 })();

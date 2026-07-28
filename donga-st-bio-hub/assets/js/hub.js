@@ -2,9 +2,10 @@
    DoE & R&D Intelligence Hub
 
    Three sub-tabs:
-     1. DoE 조건 설계 & 분석  — real design generation, OLS fit, RSM surface
+     1. DoE 조건 설계 & 분석  — real design generation, OLS fit, RSM surface,
+                                ANOVA with computed p-values
      2. AI 자연어 검색        — mock RAG + similar-batch recommendation
-     3. 학술 문헌 & 특허      — searchable corpus with a summary viewer
+     3. 학술 문헌 & 특허      — 케이론(K-Ron) 화면. 구현은 kron.js.
 
    The DoE maths lives in doe.js and is genuinely computed. The AI tab is a
    mock (see ai-hub section below) and says so on screen.
@@ -16,7 +17,9 @@
   const user = window.Shell.mount({ page: "hub" });
   if (!user) return;
 
-  const L = window.LAB, S = window.Store, D = window.DOE;
+  /* LAB 은 문헌 목록에만 쓰였고 그 화면이 kron.js 로 옮겨가면서 필요 없어졌습니다.
+     Store 는 DoE 예측값과 기존 배치 실적을 비교할 때 씁니다. */
+  const S = window.Store, D = window.DOE;
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.prototype.slice.call((r || document).querySelectorAll(s));
   const esc = (s) => String(s).replace(/[&<>"']/g, c =>
@@ -31,7 +34,7 @@
       { label: "Intelligence Hub", items: [
         { key: "doe", ko: "DoE 조건 설계 & 분석", active: tab === "doe", color: "var(--c-accent-mid)" },
         { key: "ai",  ko: "AI 자연어 검색",       active: tab === "ai",  color: "#6D28D9" },
-        { key: "lit", ko: "학술 문헌 & 특허",     active: tab === "lit", color: "#0F766E" }
+        { key: "lit", ko: "학술 문헌 & 특허 (K-Ron)", active: tab === "lit", color: "#0F766E" }
       ]},
       { label: "바로가기", items: [
         { ko: "대시보드", href: "dashboard.html" },
@@ -249,6 +252,8 @@
       '<div class="eyebrow" style="margin-bottom:var(--s-3)">회귀계수 · Model coefficients</div>' +
       '<div class="tbl-scroll">' + coefTable(m) + '</div>' +
 
+      '<div style="margin-top:var(--s-4)">' + anovaBlock(m) + '</div>' +
+
       '<div class="rule-hair" style="margin:var(--s-6) 0 var(--s-5)"></div>' +
       '<div class="eyebrow" style="margin-bottom:var(--s-3)">기존 Batch 실적과 비교</div>' + compare(opt.y) +
       '</div>';
@@ -274,20 +279,110 @@
       '<span style="color:var(--c-text-mute)">' + esc(k) + '</span><span class="mono" style="font-weight:600">' +
       esc(v) + '</span></div>';
   }
+  /* p-value 표기 — 0.0000 으로 반올림해 버리면 "정확히 0" 처럼 읽히므로
+     아주 작은 값은 부등호로 씁니다. */
+  function pText(p) {
+    if (p === null || p === undefined || !isFinite(p)) return "—";
+    if (p < 0.0001) return "&lt;0.0001";
+    return p.toFixed(4);
+  }
+  /* 유의성 — 색만으로 구분하지 않도록 기호를 함께 표시합니다 */
+  function sigMark(p) {
+    if (p === null || p === undefined || !isFinite(p))
+      return '<span class="sig sig-no">—</span>';
+    if (p < 0.001) return '<span class="sig sig-yes">***</span>';
+    if (p < 0.01)  return '<span class="sig sig-yes">**</span>';
+    if (p < 0.05)  return '<span class="sig sig-yes">*</span>';
+    return '<span class="sig sig-no">n.s.</span>';
+  }
+
   function coefTable(m) {
     const max = Math.max.apply(null, m.beta.slice(1).map(Math.abs)) || 1;
-    return '<table class="tbl"><thead><tr><th scope="col">항</th><th scope="col">계수</th>' +
+    const hasP = !!m.pval;
+    return '<table class="tbl stat-tbl"><thead><tr>' +
+      '<th scope="col">항</th><th scope="col">계수</th>' +
+      (hasP ? '<th scope="col">표준오차</th><th scope="col">t</th>' +
+              '<th scope="col">p-value</th><th scope="col">유의성</th>' : "") +
       '<th scope="col">영향도</th></tr></thead><tbody>' +
       m.ts.map((t, i) => {
         const b = m.beta[i], w = i === 0 ? 0 : (Math.abs(b) / max) * 100;
+        const p = hasP ? m.pval[i] : null;
         return '<tr><td class="mono" style="font-weight:600">' + esc(t.label) + '</td>' +
           '<td class="mono">' + (b >= 0 ? "+" : "") + b.toFixed(4) + '</td>' +
+          (hasP
+            ? '<td class="mono">' + m.se[i].toFixed(4) + '</td>' +
+              '<td class="mono">' + (isFinite(m.tval[i]) ? m.tval[i].toFixed(3) : "—") + '</td>' +
+              '<td class="mono"' + (isFinite(p) && p < 0.05 ? ' style="font-weight:700"' : "") + '>' +
+                pText(p) + '</td>' +
+              '<td>' + sigMark(p) + '</td>'
+            : "") +
           '<td><div style="height:6px;background:var(--c-paper-2);border-radius:3px;overflow:hidden;min-width:70px">' +
           '<div style="height:100%;width:' + w.toFixed(1) + '%;background:' +
           (b >= 0 ? "var(--c-accent-mid)" : "#B45309") + ';border-radius:3px"></div></div></td></tr>';
       }).join("") + '</tbody></table>' +
-      '<p style="font-size:11px;color:var(--c-text-mute);margin:var(--s-3) 0 0">' +
-      '계수는 코드화 변수(−1~+1) 기준이라 서로 직접 비교할 수 있습니다. 파란색 양의 효과, 주황색 음의 효과.</p>';
+      '<p style="font-size:11px;color:var(--c-text-mute);margin:var(--s-3) 0 0;line-height:1.7">' +
+      '계수는 코드화 변수(−1~+1) 기준이라 서로 직접 비교할 수 있습니다. 파란색 양의 효과, 주황색 음의 효과.<br>' +
+      (hasP
+        ? '유의성 <b>***</b> p&lt;0.001 · <b>**</b> p&lt;0.01 · <b>*</b> p&lt;0.05 · <b>n.s.</b> 유의하지 않음 ' +
+          '(잔차 자유도 ' + m.dfRes + ', 두쪽 t 검정)'
+        : '잔차 자유도가 0이라 오차를 추정할 수 없어 p-value를 계산하지 않았습니다 — ' +
+          '중심점 반복을 늘리거나 run을 추가하세요.') +
+      '</p>';
+  }
+
+  /* ── ANOVA 분석표 (접기/펼치기) ─────────────────────────────────────────
+     회의·보고 자리에서 "이 모델을 믿어도 되나"를 판단하는 근거입니다.
+     기본은 접어 두고, 필요할 때만 펼칩니다. 인쇄 시에는 항상 펼쳐집니다. */
+  function anovaBlock(m) {
+    const A = m.anova;
+    if (!A || !A.rows || !A.rows.length) return "";
+
+    const num = (v, dp) => (v === null || v === undefined || !isFinite(v)) ? "—" : v.toFixed(dp);
+    const modelP = A.rows[0] ? A.rows[0].p : NaN;
+    const lof = A.rows.find(r => r.lof);
+
+    const verdict = isFinite(modelP) && modelP < 0.05
+      ? "모형 유의 (p " + (modelP < 0.0001 ? "< 0.0001" : "= " + modelP.toFixed(4)) + ")"
+      : isFinite(modelP) ? "모형 유의하지 않음 (p = " + modelP.toFixed(4) + ")" : "판정 불가";
+
+    return '<details class="disclose">' +
+      '<summary>ANOVA 분석표 · Analysis of Variance' +
+        '<span class="disclose-note">' + esc(verdict) + '</span></summary>' +
+
+      '<div style="padding:0 var(--s-4) var(--s-4)">' +
+        '<div class="tbl-scroll"><table class="tbl stat-tbl">' +
+        '<thead><tr>' +
+          '<th scope="col">Source</th><th scope="col">DF</th><th scope="col">SS</th>' +
+          '<th scope="col">MS</th><th scope="col">F-value</th>' +
+          '<th scope="col">p-value</th><th scope="col">유의성</th>' +
+        '</tr></thead><tbody>' +
+        A.rows.map(r =>
+          '<tr class="' + (r.head ? "row-head" : r.sub ? "row-sub" : r.total ? "row-total" : "") + '">' +
+            '<td>' + esc(r.source.trim()) + '</td>' +
+            '<td class="mono">' + r.df + '</td>' +
+            '<td class="mono">' + num(r.ss, 5) + '</td>' +
+            '<td class="mono">' + num(r.ms, 5) + '</td>' +
+            '<td class="mono">' + num(r.f, 3) + '</td>' +
+            '<td class="mono"' + (isFinite(r.p) && r.p < 0.05 ? ' style="font-weight:700"' : "") + '>' +
+              pText(r.p) + '</td>' +
+            '<td>' + (isFinite(r.p) ? sigMark(r.p) : '<span class="sig sig-no">—</span>') + '</td>' +
+          '</tr>').join("") +
+        '</tbody></table></div>' +
+
+        '<p style="font-size:11.5px;color:var(--c-text-mute);margin:var(--s-4) 0 0;line-height:1.8">' +
+          '제곱합은 <b>순차 제곱합(Type I SS)</b>입니다 — ' +
+          (A.seqOrder.length ? esc(A.seqOrder.join(" → ")) : "모형") +
+          ' 순서로 항을 넣으며 잔차가 줄어드는 양을 나눈 값이라, 순서를 바꾸면 값도 달라집니다.<br>' +
+          (A.hasLOF
+            ? '중심점처럼 같은 조건을 반복한 run이 있어 잔차를 <b>적합결여</b>와 <b>순수오차</b>로 나눴습니다. ' +
+              '적합결여가 유의하면(p&lt;0.05) R²가 높아도 모형 항이 부족하다는 뜻입니다' +
+              (lof && isFinite(lof.p)
+                ? ' — 현재 p = ' + (lof.p < 0.0001 ? "< 0.0001" : lof.p.toFixed(4)) +
+                  (lof.p < 0.05 ? ' 로 <b>모형 재검토가 필요합니다</b>.' : ' 로 부적합 근거는 없습니다.')
+                : '.')
+            : '반복 run이 없어 적합결여와 순수오차를 분리할 수 없습니다 — 중심점 반복을 2회 이상 두면 분리됩니다.') +
+        '</p>' +
+      '</div></details>';
   }
   function compare(pred) {
     const bs = S.batches().filter(b => b.prj === window.Shell.project());
@@ -448,97 +543,27 @@
   }
 
   /* ══════════════════════════════════════════════════════════════════════
-     3. Literature & patents
+     3. 학술 문헌 & 특허 — 케이론(K-Ron) 화면
+     화면 구성은 kron.js 가 전부 담당합니다. 상태(질의 결과 · 업로드 문서 ·
+     대화 기록)를 그 모듈이 들고 있어야 탭을 옮겼다 돌아와도 살아남습니다.
      ══════════════════════════════════════════════════════════════════════ */
-  let litQuery = "", litKind = "전체", litOpen = null;
-
-  function litView() {
-    const kinds = ["전체", "논문", "특허", "내부보고서"];
-    const list = L.LITERATURE.filter(x =>
-      (litKind === "전체" || x.kind === litKind) &&
-      (!litQuery || (x.title_ko + x.title_en + x.src + x.summary + x.tag)
-        .toLowerCase().indexOf(litQuery.toLowerCase()) > -1));
-
-    return '<section class="card">' +
-      '<div class="card-head" style="flex-wrap:wrap;gap:var(--s-3)">' +
-        '<div><h2 class="card-title">학술 문헌 &amp; 특허 검색</h2>' +
-          '<p class="card-sub">논문 · 특허 · 내부 R&amp;D 보고서 통합 검색 — ' + list.length + '건</p></div>' +
-        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-          kinds.map(k => '<button class="btn btn-ghost btn-sm" data-kind="' + esc(k) + '"' +
-            (k === litKind ? ' style="background:var(--c-navy-700);color:#fff;border-color:var(--c-navy-700)"' : "") +
-            '>' + esc(k) + '</button>').join("") + '</div>' +
-      '</div>' +
-      '<div class="card-body" style="padding-bottom:var(--s-4)">' +
-        '<div style="position:relative">' +
-          '<label class="sr-only" for="lit-q">문헌 검색</label>' +
-          '<input class="input" id="lit-q" type="search" value="' + esc(litQuery) + '" ' +
-            'placeholder="키워드, 저널명, 저자로 검색">' +
-        '</div></div>' +
-      (list.length ? list.map(x =>
-        '<div class="lit-item" data-lit="' + esc(x.id) + '" aria-expanded="' + (litOpen === x.id) + '">' +
-          '<div style="display:flex;gap:var(--s-3);align-items:flex-start">' +
-            '<span class="lit-kind lit-kind-' + esc(x.kind) + '">' + esc(x.kind) + '</span>' +
-            '<div style="min-width:0;flex:1">' +
-              '<div style="font-size:13.5px;font-weight:600;margin-bottom:3px">' + esc(x.title_ko) + '</div>' +
-              // mute, not soft: expanded rows sit on --c-accent-bg where soft is 4.42:1
-              '<div style="font-size:11.5px;color:var(--c-text-mute);margin-bottom:5px">' + esc(x.title_en) + '</div>' +
-              '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:11.5px;color:var(--c-text-mute)">' +
-                '<span class="mono">' + esc(x.src) + '</span><span>·</span><span class="mono">' + x.year + '</span>' +
-                '<span>·</span><span>' + esc(x.authors) + '</span>' +
-                (x.cited ? '<span class="badge">인용 ' + x.cited + '</span>' : "") +
-                '<span class="badge badge-accent">' + esc(x.tag) + '</span>' +
-              '</div>' +
-              (litOpen === x.id
-                ? '<div style="margin-top:var(--s-4);padding:var(--s-4);background:var(--c-surface);' +
-                  'border:1px solid var(--c-border);border-radius:var(--r-md)">' +
-                  '<div class="eyebrow" style="margin-bottom:var(--s-2)">원문 요약</div>' +
-                  '<p style="font-size:13px;line-height:1.8;margin:0">' + esc(x.summary) + '</p>' +
-                  '<div style="display:flex;gap:var(--s-2);margin-top:var(--s-4)">' +
-                    '<button class="btn btn-ghost btn-sm" data-stop="1">원문 열기</button>' +
-                    '<button class="btn btn-ghost btn-sm" data-stop="1">내 보관함에 저장</button>' +
-                  '</div></div>'
-                : "") +
-            '</div>' +
-            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-              'aria-hidden="true" style="color:var(--c-text-soft);flex:none;transform:rotate(' +
-              (litOpen === x.id ? "180" : "0") + 'deg)"><path d="m6 9 6 6 6-6"/></svg>' +
-          '</div></div>').join("")
-        : '<div class="empty"><div class="empty-title">검색 결과가 없습니다</div>' +
-          '<div class="empty-body">다른 키워드를 입력하거나 종류 필터를 해제해 보세요.</div></div>') +
-      '</section>';
-  }
-
-  function wireLit() {
-    const q = $("#lit-q");
-    q.addEventListener("input", function () {
-      litQuery = this.value;
-      const pos = this.selectionStart;
-      paint();
-      const n = $("#lit-q");
-      if (n) { n.focus(); n.setSelectionRange(pos, pos); }
-    });
-    $$("[data-kind]").forEach(b => b.addEventListener("click", () => { litKind = b.dataset.kind; paint(); }));
-    $$("[data-lit]").forEach(b => b.addEventListener("click", e => {
-      if (e.target.closest("[data-stop]")) return;
-      litOpen = litOpen === b.dataset.lit ? null : b.dataset.lit;
-      paint();
-    }));
-    $$("[data-stop]").forEach(b => b.addEventListener("click", e => e.stopPropagation()));
-  }
+  function kronView() { return window.KRon.view(); }
+  function wireKron() { window.KRon.wire(); }
 
   /* ── Paint ──────────────────────────────────────────────────────────── */
   function paint() {
     paintSubnav();
-    const titles = { doe: "DoE 조건 설계 & 분석", ai: "AI 자연어 검색 & 유사실험 추천", lit: "학술 문헌 & 특허 검색" };
+    const titles = { doe: "DoE 조건 설계 & 분석", ai: "AI 자연어 검색 & 유사실험 추천",
+                     lit: "학술 문헌 & 특허 · 케이론(K-Ron)" };
     $("#page-title").textContent = titles[tab];
-    $("#hub-tabs").innerHTML = [["doe", "DoE 설계 & 분석"], ["ai", "AI 검색"], ["lit", "문헌 & 특허"]]
+    $("#hub-tabs").innerHTML = [["doe", "DoE 설계 & 분석"], ["ai", "AI 검색"], ["lit", "K-Ron · 문헌 & 특허"]]
       .map(([k, ko]) => '<button class="track-tab" data-tab="' + k + '" aria-selected="' + (tab === k) + '" ' +
         'style="min-height:38px;padding:0 var(--s-5)">' + esc(ko) + '</button>').join("");
     $$("[data-tab]").forEach(b => b.addEventListener("click", () => { tab = b.dataset.tab; location.hash = tab; paint(); }));
 
     const host = $("#hub-body");
-    host.innerHTML = tab === "doe" ? doeView() : tab === "ai" ? aiView() : litView();
-    if (tab === "doe") wireDoe(); else if (tab === "ai") wireAI(); else wireLit();
+    host.innerHTML = tab === "doe" ? doeView() : tab === "ai" ? aiView() : kronView();
+    if (tab === "doe") wireDoe(); else if (tab === "ai") wireAI(); else wireKron();
   }
 
   window.Shell.on("project", paint);
