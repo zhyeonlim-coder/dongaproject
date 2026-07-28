@@ -1689,6 +1689,32 @@ tr.is-picked:hover > td { background: var(--c-accent-bg-2); }
 .chart-swap { animation: chartSwap 260ms var(--ease) both; }
 
 /* --------------------------------------------------------------------------
+   조회 조건 패널 — [조회] 버튼 방식
+   -------------------------------------------------------------------------- */
+.selector-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  padding: var(--s-4) var(--s-5) 0;
+}
+.selector-dirty {
+  font-size: 11.5px;
+  color: #8A4308;
+  background: #FFF7EA;
+  border: 1px solid #F0DCC0;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+/* 미적용 변경이 있는 동안에는 조회 버튼이 눈에 띄어야 합니다 */
+.selector.is-dirty #sel-apply { box-shadow: 0 0 0 3px rgba(2, 132, 199, .18); }
+
+@media (max-width: 720px) {
+  .selector-actions { padding: var(--s-4) var(--s-4) 0; }
+  .selector-actions .btn { flex: 1; }
+}
+
+/* --------------------------------------------------------------------------
    EBR 입력 — 값 상태 · 검증 메시지 · 변경 사유
    -------------------------------------------------------------------------- */
 

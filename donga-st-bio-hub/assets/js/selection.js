@@ -24,7 +24,7 @@ window.Scope = (function () {
   /* v3 — 기반 Study / 미지정 개념을 폐지하면서 저장 형식이 바뀌었습니다.
      예전 키(v2)에 남아 있던 "platform:STD-0045" 같은 값은 더 이상 유효하지
      않으므로 키를 올려 자동으로 버립니다. */
-  const KEY = "hub.selection.v3";
+  const KEY = "hub.selection.v4";
   const EMPTY = {
     scopeKind: null,   // 항상 "project" (과제 외 최상위 범위는 없습니다)
     scopeId: null,
@@ -32,8 +32,15 @@ window.Scope = (function () {
     team: null,
     q: "",
     dataClass: null,   // 예전 "Study 유형(type)" 을 대체하는 측정 항목 축
-    status: null
+    status: null,
+    from: "",          // 기간 시작 (YYYY-MM-DD)
+    to: "",            // 기간 종료
+    sort: "date-desc"  // 조회 결과 정렬 — 기본은 최신 날짜순
   };
+
+  /* 조회 조건으로 취급하는 필드. [조회] 버튼이 이것들을 한 번에 적용하고,
+     [초기화] 는 이것들만 비웁니다 (과제 선택은 상단 셀렉터 소관이라 제외). */
+  const FILTER_KEYS = ["studyId", "team", "q", "dataClass", "status", "from", "to", "sort"];
 
   const subs = [];
   let state;
@@ -107,10 +114,36 @@ window.Scope = (function () {
 
   function setFilter(patch) {
     let changed = false;
-    ["q", "dataClass", "status"].forEach(k => {
+    ["q", "dataClass", "status", "from", "to", "sort"].forEach(k => {
       if (patch.hasOwnProperty(k) && state[k] !== patch[k]) { state[k] = patch[k]; changed = true; }
     });
     if (changed) emit("filter");
+    return get();
+  }
+
+  /* [조회] — 여러 조건을 **한 번에** 적용합니다.
+     하나씩 set 하면 그때마다 화면이 다시 그려져, 중간 상태가 눈에 보이고
+     계산도 조건 수만큼 반복됩니다. 조회는 한 번의 갱신이어야 합니다. */
+  function apply(patch) {
+    const p = patch || {};
+    let changed = false;
+    FILTER_KEYS.forEach(function (k) {
+      if (!p.hasOwnProperty(k)) return;
+      const v = (k === "q") ? (p[k] || "") : (p[k] || (k === "sort" ? EMPTY.sort : null));
+      const norm = (k === "from" || k === "to") ? (p[k] || "") : v;
+      if (state[k] !== norm) { state[k] = norm; changed = true; }
+    });
+    /* Study 가 바뀌면 그 아래 팀 선택은 의미가 없을 수 있지만, 조회 버튼은
+       사용자가 고른 조합을 그대로 적용해야 하므로 여기서 지우지 않습니다. */
+    emit(changed ? "apply" : "apply-nochange");
+    return get();
+  }
+
+  /* [초기화] — 조회 조건만 비웁니다. 과제 선택까지 풀면 화면이 통째로
+     비어 버려서, 초기화가 아니라 로그아웃처럼 느껴집니다. */
+  function clearFilters() {
+    FILTER_KEYS.forEach(k => { state[k] = EMPTY[k]; });
+    emit("reset-filters");
     return get();
   }
 
@@ -119,6 +152,7 @@ window.Scope = (function () {
     if (key === "studyId") return setStudy(null);
     if (key === "team") return setTeam(null);
     if (key === "q") return setFilter({ q: "" });
+    if (key === "period") return setFilter({ from: "", to: "" });
     if (key === "dataClass" || key === "status") { const p = {}; p[key] = null; return setFilter(p); }
     return get();
   }
@@ -133,7 +167,14 @@ window.Scope = (function () {
     if (state.q && state.q.trim()) n++;
     if (state.dataClass) n++;
     if (state.status) n++;
+    if (state.from || state.to) n++;
     return n;
+  }
+
+  function periodLabel() {
+    if (!state.from && !state.to) return null;
+    if (state.from && state.to) return state.from + " ~ " + state.to;
+    return state.from ? state.from + " 이후" : state.to + " 이전";
   }
 
   /* 현재 선택에 해당하는 배치 — 화면들이 반복 구현하지 않도록 여기 한 곳에 */
@@ -169,8 +210,12 @@ window.Scope = (function () {
     return () => { const i = subs.indexOf(fn); if (i > -1) subs.splice(i, 1); };
   }
 
+  /* 현재 선택에 해당하는 시료 — 분석값은 시료에 붙습니다 */
+  function samples() { return window.Repo.resolveSamples(get()); }
+
   return {
-    get, setScope, setStudy, setTeam, setFilter, clearOne, reset,
-    activeCount, batches, describe, subscribe, skipsStudyStep
+    get, setScope, setStudy, setTeam, setFilter, apply, clearFilters, clearOne, reset,
+    activeCount, periodLabel, batches, samples, describe, subscribe, skipsStudyStep,
+    FILTER_KEYS
   };
 })();

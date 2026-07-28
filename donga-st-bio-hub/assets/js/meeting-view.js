@@ -42,6 +42,13 @@ window.MeetingView = (function () {
   };
 
   let batches = [];      // 현재 범위의 배치 (render 시 채움)
+  let samples = [];      // 현재 범위의 시료 — 분석 탭의 행 단위
+
+  /* 분석값은 시료에 붙으므로 분석 탭만 행 단위가 다릅니다.
+     종합·배양·정제 탭은 배치 행이고, 분석 항목은 대표 시료 값을 보여줍니다. */
+  function isSampleGrain() { return view.tab === "analytics"; }
+  function rows() { return isSampleGrain() ? samples : batches; }
+  function rowLabel(r) { return r.name || r.id; }
 
   /* ══════════════════════════════════════════════════════════════════════
      측정 항목 정의 — 탭마다 다릅니다
@@ -62,7 +69,9 @@ window.MeetingView = (function () {
       unit: it.unit,
       dp: it.dp,
       team: g.team,
-      get: b => window.Repo.valueOf(b, g.id, it.key)
+      get: r => (isSampleGrain() && g.team === "analytics")
+        ? window.Repo.valueOfSample(r, g.id, it.key)
+        : window.Repo.valueOf(r, g.id, it.key)
     });
 
     if (tab === "all") {
@@ -111,22 +120,23 @@ window.MeetingView = (function () {
     return hit.length ? hit : all;
   }
 
-  /* 검색어로 배치 좁히기 (항목명으로 검색한 경우에는 배치를 줄이지 않습니다) */
+  /* 검색어로 행 좁히기 (항목명으로 검색한 경우에는 행을 줄이지 않습니다) */
   function visibleBatches() {
     const term = view.q.trim().toLowerCase();
-    let rows = batches;
+    let list = rows();
     if (term) {
-      const byId = rows.filter(b => String(b.id).toLowerCase().indexOf(term) > -1);
-      if (byId.length) rows = byId;
+      const hit = list.filter(r =>
+        (rowLabel(r) + " " + (r.batchId || "") + " " + (r.stage || "")).toLowerCase().indexOf(term) > -1);
+      if (hit.length) list = hit;
     }
-    return rows;
+    return list;
   }
 
-  /* 그래프 대상 — 고른 배치가 있으면 그것만 */
+  /* 그래프 대상 — 고른 행이 있으면 그것만 */
   function chartBatches() {
     const vis = visibleBatches();
     if (!view.picked.length) return vis;
-    const sel = vis.filter(b => view.picked.indexOf(b.id) > -1);
+    const sel = vis.filter(r => view.picked.indexOf(r.id) > -1);
     return sel.length ? sel : vis;
   }
 
@@ -247,7 +257,7 @@ window.MeetingView = (function () {
     const host = $("#mm-chips");
     if (!host) return;
     const mv = visibleMetrics();
-    const filled = m => batches.filter(b => {
+    const filled = m => rows().filter(b => {
       const v = m.get(b);
       return v !== null && v !== undefined && isFinite(v);
     }).length;
@@ -276,7 +286,7 @@ window.MeetingView = (function () {
   function sortedRows() {
     const mv = visibleMetrics();
     const m = mv.find(x => x.key === view.sortKey);
-    const val = b => (view.sortKey === "id" ? b.id : (m ? m.get(b) : null));
+    const val = b => (view.sortKey === "id" ? rowLabel(b) : (m ? m.get(b) : null));
     return visibleBatches().slice().sort(function (a, b) {
       const va = val(a), vb = val(b);
       if (va === null && vb === null) return 0;
@@ -303,13 +313,16 @@ window.MeetingView = (function () {
     host.innerHTML =
       '<div class="card-head" style="padding-bottom:var(--s-3)"><div>' +
         '<h2 class="card-title">데이터 테이블</h2>' +
-        '<p class="card-sub">행을 누르면 그 배치만 그래프에 남습니다 (여러 개 선택 가능) · ' +
-          rows.length + '개 배치 · ' + mv.length + '개 항목</p></div>' +
+        '<p class="card-sub">행을 누르면 그 ' + (isSampleGrain() ? "시료" : "배치") +
+          '만 그래프에 남습니다 (여러 개 선택 가능) · ' +
+          rows.length + (isSampleGrain() ? '개 시료 · ' : '개 배치 · ') +
+          mv.length + '개 항목' +
+          (isSampleGrain() ? ' · 분석값은 시료에 기록됩니다' : "") + '</p></div>' +
         (view.picked.length
           ? '<span class="badge badge-accent">' + view.picked.length + '건 선택</span>' : "") +
       '</div>' +
       '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
-        '<th scope="col">Exp. No.</th>' +
+        '<th scope="col">' + (isSampleGrain() ? "시료" : "Exp. No.") + '</th>' +
         mv.map(m => '<th scope="col" style="border-top:2px solid ' + teamColor(m.team) + '">' +
           esc(m.label) + '<br><span style="font-weight:400;text-transform:none">' +
           esc(m.unit) + '</span></th>').join("") +
@@ -318,8 +331,11 @@ window.MeetingView = (function () {
         const on = view.picked.indexOf(b.id) > -1;
         return '<tr class="is-pickable' + (on ? " is-picked" : "") + '" data-pick="' + esc(b.id) + '" ' +
           'tabindex="0" role="button" aria-pressed="' + on + '" ' +
-          'aria-label="' + esc(b.id) + (on ? " 선택됨" : "") + '">' +
-          '<td class="mono" style="font-weight:600">' + esc(b.id) + '</td>' +
+          'aria-label="' + esc(rowLabel(b)) + (on ? " 선택됨" : "") + '">' +
+          '<td class="mono" style="font-weight:600">' + esc(rowLabel(b)) +
+            (isSampleGrain() && b.stage
+              ? '<br><span style="font-weight:400;font-size:10px;color:var(--c-text-mute)">' +
+                esc(b.stage) + '</span>' : "") + '</td>' +
           mv.map(function (m) {
             const v = m.get(b);
             return (v === null || v === undefined || !isFinite(v))
@@ -369,7 +385,7 @@ window.MeetingView = (function () {
       return;
     }
 
-    const cats = bs.map(b => b.id);
+    const cats = bs.map(rowLabel);
     const series = ms.map((m, i) => ({
       name: m.label + (m.unit ? " (" + m.unit + ")" : ""),
       color: PALETTE[i % PALETTE.length],
@@ -470,9 +486,9 @@ window.MeetingView = (function () {
       ];
     }
     return [
-      { k: "CE-SDS Monomer", v: avg(num(b => b.analytics.ceSdsNR.monomer)), u: "%" },
-      { k: "IE-HPLC Main", v: avg(num(b => b.analytics.ieHPLC.main)), u: "%" },
-      { k: "SE-HPLC Main", v: avg(num(b => b.analytics.seHPLC.main)), u: "%" }
+      { k: "CE-SDS Monomer", v: avg(num(b => window.Repo.valueOf(b, "ceSdsNR", "monomer"))), u: "%" },
+      { k: "IE-HPLC Main", v: avg(num(b => window.Repo.valueOf(b, "ieHPLC", "main"))), u: "%" },
+      { k: "SE-HPLC Main", v: avg(num(b => window.Repo.valueOf(b, "seHPLC", "main"))), u: "%" }
     ];
   }
 
@@ -525,13 +541,22 @@ window.MeetingView = (function () {
 
     Promise.all([
       window.Scope.batches(),
-      window.Repo.getTeamDataSetsForSelection(sel)
+      window.Repo.getTeamDataSetsForSelection(sel),
+      window.Scope.samples()
     ]).then(function (r) {
       batches = r[0];
       const teamSets = r[1];
+      samples = r[2];
 
-      /* 범위가 바뀌면 사라진 배치의 선택은 버립니다 */
-      view.picked = view.picked.filter(id => batches.some(b => b.id === id));
+      if (!batches.length) {
+        $("#mv-body").innerHTML = '<div class="empty"><div class="empty-title">' + esc(L.noResult) +
+          '</div><div class="empty-body">' + esc(L.noResultHint) + '</div></div>';
+        return;
+      }
+
+      /* 범위가 바뀌면 사라진 행의 선택은 버립니다 */
+      const ids = rows().map(x => x.id);
+      view.picked = view.picked.filter(id => ids.indexOf(id) > -1);
 
       $("#mv-body").innerHTML =
         filterBar() +

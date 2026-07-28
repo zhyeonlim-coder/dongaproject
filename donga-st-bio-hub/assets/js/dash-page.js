@@ -50,7 +50,7 @@
   }
 
   /* ── KPI — 팀을 고르면 그 팀 지표로 바뀝니다 ────────────────────────── */
-  function kpiRow(batches, team) {
+  function kpiRow(batches, team, samples) {
     let cards;
 
     if (team === "downstream") {
@@ -64,11 +64,13 @@
         { k: "최대 HCP", v: hcp.length ? fmt(Math.max.apply(null, hcp), 1) : L.empty, u: "ppm" }
       ];
     } else if (team === "analytics") {
-      const mono = nums(batches, b => b.analytics.ceSdsNR.monomer);
-      const sia = nums(batches, b => b.analytics.nGlycan.sialicAcid);
-      const se = nums(batches, b => b.analytics.seHPLC.main);
+      /* 분석 KPI 는 시료 기준입니다 — 배치로 세면 한 배치의 두 시료가 하나로 묻힙니다 */
+      const ss = samples || [];
+      const mono = nums(ss, s => window.Repo.valueOfSample(s, "ceSdsNR", "monomer"));
+      const sia = nums(ss, s => window.Repo.valueOfSample(s, "nGlycan", "sialicAcid"));
+      const se = nums(ss, s => window.Repo.valueOfSample(s, "seHPLC", "main"));
       cards = [
-        { k: "배치", v: batches.length, u: "건" },
+        { k: "시료", v: ss.length, u: "건" },
         { k: "평균 SE-HPLC Main", v: fmt(avg(se), 1), u: "%" },
         { k: "평균 CE-SDS Monomer", v: fmt(avg(mono), 1), u: "%" },
         { k: "평균 Sialic acid", v: fmt(avg(sia), 1), u: "%" }
@@ -163,9 +165,9 @@
       ];
     }
     return [
-      { k: "CE-SDS Monomer", v: fmt(avg(nums(batches, b => b.analytics.ceSdsNR.monomer)), 1), u: "%" },
-      { k: "IE-HPLC Main", v: fmt(avg(nums(batches, b => b.analytics.ieHPLC.main)), 1), u: "%" },
-      { k: "N-glycan G0F", v: fmt(avg(nums(batches, b => b.analytics.nGlycan.g0f)), 1), u: "%" }
+      { k: "CE-SDS Monomer", v: fmt(avg(nums(batches, b => window.Repo.valueOf(b, "ceSdsNR", "monomer"))), 1), u: "%" },
+      { k: "IE-HPLC Main", v: fmt(avg(nums(batches, b => window.Repo.valueOf(b, "ieHPLC", "main"))), 1), u: "%" },
+      { k: "N-glycan G0F", v: fmt(avg(nums(batches, b => window.Repo.valueOf(b, "nGlycan", "g0f"))), 1), u: "%" }
     ];
   }
 
@@ -179,9 +181,9 @@
       '<div class="card-body">' + inner + '</div></section>';
   }
 
-  /* 여러 시리즈를 배치 축에 세우는 막대 그래프 + 범례 + 대체 표 */
+  /* 여러 시리즈를 행(배치 또는 시료) 축에 세우는 막대 그래프 + 범례 + 대체 표 */
   function barBlock(batches, cfg) {
-    const cats = batches.map(b => b.id);
+    const cats = batches.map(b => b.name || b.id);
     const series = cfg.series.map((s, i) => ({
       name: s.name, color: s.color || PALETTE[i % PALETTE.length],
       data: batches.map(s.get)
@@ -204,21 +206,29 @@
           s.data[i] === null || !isFinite(s.data[i]) ? L.empty : String(s.data[i])))));
   }
 
-  /* 화면에 실제로 보이는 표 (대체 표가 아니라 데이터 자체를 보여줄 때) */
-  function visibleTable(batches, cols, caption) {
+  /* 화면에 실제로 보이는 표 (대체 표가 아니라 데이터 자체를 보여줄 때).
+     nameOf / subOf 를 주면 첫 열을 그 값으로 그립니다 (시료 표에서 사용). */
+  function visibleTable(rows, cols, caption, nameOf, subOf) {
+    const head = nameOf ? "시료" : "Exp. No.";
     return '<div class="tbl-scroll"><table class="tbl">' +
       (caption ? '<caption class="sr-only">' + esc(caption) + '</caption>' : "") +
-      '<thead><tr><th scope="col">Exp. No.</th>' +
+      '<thead><tr><th scope="col">' + head + '</th>' +
         cols.map(c => '<th scope="col">' + esc(c.label) +
           '<br><span style="font-weight:400;text-transform:none">' + esc(c.unit) + '</span></th>').join("") +
       '</tr></thead><tbody>' +
-      batches.map(b => '<tr><td class="mono" style="font-weight:600">' + esc(b.id) + '</td>' +
-        cols.map(c => {
-          const v = c.get(b);
-          return (v === null || v === undefined || !isFinite(v))
-            ? '<td class="na">' + L.empty + '</td>'
-            : '<td class="mono">' + Number(v).toFixed(c.dp) + '</td>';
-        }).join("") + '</tr>').join("") +
+      rows.map(function (r) {
+        const sub = subOf ? subOf(r) : null;
+        return '<tr><td class="mono" style="font-weight:600">' +
+          esc(nameOf ? nameOf(r) : r.id) +
+          (sub ? '<br><span style="font-weight:400;font-size:10.5px;color:var(--c-text-mute)">' +
+                 esc(sub) + '</span>' : "") + '</td>' +
+          cols.map(function (c) {
+            const v = c.get(r);
+            return (v === null || v === undefined || !isFinite(v))
+              ? '<td class="na">' + L.empty + '</td>'
+              : '<td class="mono">' + Number(v).toFixed(c.dp) + '</td>';
+          }).join("") + '</tr>';
+      }).join("") +
       '</tbody></table></div>';
   }
 
@@ -315,56 +325,71 @@
         ], "정제 데이터"));
   }
 
-  /* ── 바이오분석팀 ───────────────────────────────────────────────────── */
-  function analyticsSection(batches) {
-    const g = k => (b => b.analytics.nGlycan[k]);
+  /* ── 바이오분석팀 ───────────────────────────────────────────────────────
+     분석값은 배치가 아니라 **시료**에 붙습니다. 한 배치에서 여러 시료를
+     시험했다면 그래프에도 시료마다 한 칸씩 서야 합니다 — 배치로 묶으면
+     어느 시료의 값인지 사라집니다. */
+  function analyticsSection(samples) {
+    const v = (gid, key) => (s => window.Repo.valueOfSample(s, gid, key));
 
-    return card("N-glycan 프로파일", "당쇄 조성 — 시알산(Sialic acid)과 High mannose는 품질에 직결됩니다",
-        barBlock(batches, {
+    return card("N-glycan 프로파일",
+        "당쇄 조성 — 시알산(Sialic acid)과 High mannose는 품질에 직결됩니다 · 가로축은 시료",
+        barBlock(samples, {
           title: "N-glycan 프로파일",
           series: [
-            { name: "G0F (%)",          get: g("g0f"),          color: "#0F766E" },
-            { name: "G1F (%)",          get: g("g1f"),          color: "#0369A1" },
-            { name: "High mannose (%)", get: g("highMannose"),  color: "#B45309" },
-            { name: "Sialic acid (%)",  get: g("sialicAcid"),   color: "#B91C1C" },
-            { name: "Afucosylated (%)", get: g("afucosylated"), color: "#7C3AED" }
+            { name: "G0F (%)",          get: v("nGlycan", "g0f"),          color: "#0F766E" },
+            { name: "G1F (%)",          get: v("nGlycan", "g1f"),          color: "#0369A1" },
+            { name: "High mannose (%)", get: v("nGlycan", "highMannose"),  color: "#B45309" },
+            { name: "Sialic acid (%)",  get: v("nGlycan", "sialicAcid"),   color: "#B91C1C" },
+            { name: "Afucosylated (%)", get: v("nGlycan", "afucosylated"), color: "#7C3AED" }
           ]
         }), teamColor("analytics")) +
 
       card("Main peak 순도", "SE-HPLC · CE-SDS 기준 순도 (Purity)",
-        barBlock(batches, {
+        barBlock(samples, {
           title: "Main peak 순도",
           min: 80,
           series: [
-            { name: "SE-HPLC Main (%)",     get: b => b.analytics.seHPLC.main,     color: "#0F766E" },
-            { name: "CE-SDS NR Monomer (%)", get: b => b.analytics.ceSdsNR.monomer, color: "#0369A1" },
-            { name: "CE-SDS R LC+HC (%)",   get: b => b.analytics.ceSdsR.lcHc,     color: "#7C3AED" }
+            { name: "SE-HPLC Main (%)",      get: v("seHPLC", "main"),     color: "#0F766E" },
+            { name: "CE-SDS NR Monomer (%)", get: v("ceSdsNR", "monomer"), color: "#0369A1" },
+            { name: "CE-SDS R LC+HC (%)",    get: v("ceSdsR", "lcHc"),     color: "#7C3AED" }
           ]
         })) +
 
       card("IE-HPLC 전하 변이 분포", "Acidic · Main · Basic 비율",
-        barBlock(batches, {
+        barBlock(samples, {
           title: "IE-HPLC 전하 변이",
           series: [
-            { name: "Acidic (%)", get: b => b.analytics.ieHPLC.acidic, color: "#B45309" },
-            { name: "Main (%)",   get: b => b.analytics.ieHPLC.main,   color: "#0369A1" },
-            { name: "Basic (%)",  get: b => b.analytics.ieHPLC.basic,  color: "#7C3AED" }
+            { name: "Acidic (%)", get: v("ieHPLC", "acidic"), color: "#B45309" },
+            { name: "Main (%)",   get: v("ieHPLC", "main"),   color: "#0369A1" },
+            { name: "Basic (%)",  get: v("ieHPLC", "basic"),  color: "#7C3AED" }
           ]
-        }));
+        })) +
+
+      card("시료 목록", "배치마다 채취한 시료와 채취 시점",
+        visibleTable(samples, [
+          { label: "SE-HPLC Main", unit: "%", dp: 1, get: v("seHPLC", "main") },
+          { label: "IE-HPLC Main", unit: "%", dp: 1, get: v("ieHPLC", "main") },
+          { label: "CE-SDS Monomer", unit: "%", dp: 1, get: v("ceSdsNR", "monomer") },
+          { label: "Sialic acid", unit: "%", dp: 1, get: v("nGlycan", "sialicAcid") }
+        ], "시료별 분석 결과", s => s.name,
+           s => (s.batchId || "") + (s.stage ? " · " + s.stage : "")));
   }
 
-  /* 팀을 고르지 않았으면 세 팀을 순서대로. 골랐으면 그 팀만. */
-  function chartSections(team, batches) {
+  /* 팀을 고르지 않았으면 세 팀을 순서대로. 골랐으면 그 팀만.
+     배양·정제는 배치 축, 분석은 시료 축입니다. */
+  function chartSections(team, batches, samples) {
     if (!batches.length) {
-      return '<div class="empty"><div class="empty-title">이 범위에 배치가 없습니다</div></div>';
+      return '<div class="empty"><div class="empty-title">' + esc(L.noResult) + '</div>' +
+        '<div class="empty-body">' + esc(L.noResultHint) + '</div></div>';
     }
     const head = ko => '<div class="eyebrow" style="margin:var(--s-6) 0 var(--s-3)">' + esc(ko) + '</div>';
     if (team === "upstream")   return upstreamSection(batches);
     if (team === "downstream") return downstreamSection(batches);
-    if (team === "analytics")  return analyticsSection(batches);
+    if (team === "analytics")  return analyticsSection(samples);
     return head("배양공정팀") + upstreamSection(batches) +
            head("정제공정팀") + downstreamSection(batches) +
-           head("바이오분석팀") + analyticsSection(batches);
+           head("바이오분석팀 · 시료 " + samples.length + "건") + analyticsSection(samples);
   }
 
   /* ── 최근 입력 (Audit 피드) ─────────────────────────────────────────── */
@@ -457,12 +482,13 @@
     Promise.all([
       window.Scope.batches(),
       window.Repo.searchStudies(sel.q, sel),
-      window.Repo.getTeamDataSetsForSelection(sel)
+      window.Repo.getTeamDataSetsForSelection(sel),
+      window.Scope.samples()
     ]).then(function (r) {
-      const batches = r[0], studies = r[1], teamSets = r[2];
+      const batches = r[0], studies = r[1], teamSets = r[2], samples = r[3];
       $("#page-title").textContent = desc.scope + (desc.study ? " · " + desc.study : "") +
         (desc.team ? " · " + desc.team : "");
-      $("#kpi").innerHTML = kpiRow(batches, sel.team);
+      $("#kpi").innerHTML = kpiRow(batches, sel.team, samples);
 
       const showTeams = !!sel.studyId;
 
@@ -479,7 +505,7 @@
 
         scheduleStrip() +
 
-        chartSections(sel.team, batches) +
+        chartSections(sel.team, batches, samples) +
 
         '<section class="card"><div class="card-head"><div>' +
           '<h2 class="card-title">최근 EBR 입력</h2>' +

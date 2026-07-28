@@ -80,22 +80,32 @@
   /* ── 값 조회 — Entries 우선, 없으면 Excel ───────────────────────────── */
   function scopeKey() { return sampleId ? "sample:" + sampleId : "batch:" + batchId; }
 
+  function currentSample() {
+    if (!sampleId) return null;
+    return window.Repo.samplesOfBatch(batchId).find(s => s.id === sampleId) || null;
+  }
+
   function excelValue(batch, src) {
     if (!src || !batch) return null;
     if (src[0] === "upstream")   return batch.upstream[src[1]];
     if (src[0] === "titer")      return batch.upstream.titer[src[1]];
     if (src[0] === "downstream") return batch.downstream ? batch.downstream[src[1]] : null;
     if (src[0] === "meta")       return batch[src[1]];
-    const g = batch.analytics[src[0]];
+    /* 분석 항목 — 값은 시료에 붙습니다 */
+    const s = currentSample();
+    if (!s || !s.analytics) return null;
+    const g = s.analytics[src[0]];
     return g ? g[src[1]] : null;
   }
 
   function effective(batch, f) {
     const rec = E.getValue(scopeKey(), f.k);
     if (rec) return { value: rec.value, rec, fromExcel: false };
-    /* Sample 단위 입력에서는 Excel 원본을 그대로 보여주지 않습니다 —
-       Excel 값은 Batch 측정치이고 Sample 은 그 하위 분취라 다른 대상입니다. */
-    if (sampleId) return { value: null, rec: null, fromExcel: false };
+    /* 배양·정제는 배치 속성이라 Sample 을 골랐어도 배치 값을 물려받지 않습니다.
+       분석은 시료 속성이므로 고른 시료의 원본 값을 보여줍니다. */
+    const isAnalytics = f.src && ["upstream", "titer", "downstream", "meta"].indexOf(f.src[0]) === -1;
+    if (sampleId && !isAnalytics) return { value: null, rec: null, fromExcel: false };
+    if (!sampleId && isAnalytics) return { value: null, rec: null, fromExcel: false };
     return { value: excelValue(batch, f.src), rec: null, fromExcel: true };
   }
 
@@ -121,24 +131,45 @@
     }
 
     window.Scope.batches().then(function (batches) {
-      if (!batches.length) { gate("이 범위에 배치가 없습니다."); return; }
+      if (!batches.length) { gate(L.noResult + " " + L.noResultHint); return; }
       if (!batchId || !batches.some(b => b.id === batchId)) batchId = batches[0].id;
       const batch = batches.find(b => b.id === batchId);
-      const samples = E.getSamples(batchId);
+      const samples = window.Repo.samplesOfBatch(batchId);
       if (sampleId && !samples.some(s => s.id === sampleId)) sampleId = null;
+
+      /* 분석 서식은 시료를 골라야 열립니다 — 분석값은 배치가 아니라
+         특정 시료의 측정 결과라, 배치에 저장하면 어느 시료 값인지 잃습니다.
+         시료가 하나뿐이면 자동으로 그것을 잡아 클릭 한 번을 아낍니다. */
+      const isAnalyticsTeam = sel.team === "analytics";
+      if (isAnalyticsTeam && !sampleId && samples.length === 1) sampleId = samples[0].id;
+      if (isAnalyticsTeam && !sampleId) {
+        gateSample(batches, samples);
+        return;
+      }
 
       const groups = FIELDS[sel.team]();
       const teamKo = (window.DATA_TEAMS.find(t => t.id === sel.team) || {}).ko || sel.team;
+      const smp = currentSample();
 
       $("#form-host").innerHTML =
         '<section class="card" style="border-top:3px solid ' +
           ((window.DATA_TEAMS.find(t => t.id === sel.team) || {}).color || "var(--c-accent)") + '">' +
           '<div class="card-head" style="flex-wrap:wrap;gap:var(--s-3)">' +
             '<div><h2 class="card-title">' + esc(teamKo) + ' 서식</h2>' +
-            '<p class="card-sub">' + (sampleId ? esc(L.ui.sampleName) + " 단위 입력" : "Batch 단위 입력") +
+            '<p class="card-sub">' +
+              (isAnalyticsTeam
+                ? '시료 <b>' + esc(smp ? smp.name : "") + '</b> 단위 입력' +
+                  (smp && smp.stage ? ' · ' + esc(smp.stage) : "")
+                : sampleId ? esc(L.ui.sampleName) + " 단위 입력" : "Batch 단위 입력") +
             ' · 저장 시 작성자와 시각이 자동 기록됩니다</p></div>' +
             targetPicker(batches, samples) +
           '</div>' +
+
+          (isAnalyticsTeam
+            ? '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' +
+              '분석 결과는 <b>시료</b>에 기록됩니다. 같은 배치에서 채취한 다른 시료는 ' +
+              '위 시료 선택으로 전환하세요 — 배치 하나에 여러 시료의 값을 나란히 남길 수 있습니다.' +
+              '</div></div>' : "") +
 
           (sel.team === "downstream"
             ? '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' +
@@ -163,7 +194,7 @@
           '</div>' +
         '</section>';
 
-      wireForm(batch, groups);
+      wireForm(batch, groups, batches);
     });
   }
 
@@ -172,22 +203,81 @@
       '<p style="font-size:13.5px;color:var(--c-text-mute);margin:0">' + esc(msg) + '</p></div>';
   }
 
+  /* 분석 서식 진입 전 시료 선택 — 시료가 여럿일 때만 나옵니다 */
+  function gateSample(batches, samples) {
+    $("#form-host").innerHTML =
+      '<section class="card"><div class="card-head"><div>' +
+        '<h2 class="card-title">시료를 선택하세요</h2>' +
+        '<p class="card-sub">분석 결과는 배치가 아니라 시료에 기록됩니다 — ' +
+        '어느 시료를 측정한 값인지 남기기 위해서입니다</p></div>' +
+        targetPicker(batches, samples) + '</div>' +
+      '<div class="card-body">' +
+        (samples.length
+          ? '<div style="display:grid;gap:var(--s-2)">' + samples.map(s =>
+              '<button class="selector-result" data-smp="' + esc(s.id) + '">' +
+                '<span style="flex:1;min-width:0">' +
+                  '<span class="selector-result-name">' + esc(s.name) + '</span>' +
+                  '<span class="selector-result-meta">' +
+                    esc(s.stage || "채취 시점 미입력") +
+                    (s.collectedAt ? " · " + esc(s.collectedAt) : "") +
+                    (s.note ? " · " + esc(s.note) : "") + '</span></span>' +
+                '<span class="badge' + (s.source === "user" ? " badge-accent" : "") + '" ' +
+                  'style="font-size:10px">' +
+                  (s.source === "user" ? "직접 등록" : s.primary ? "기본 시료" : "추가 시료") +
+                '</span></button>').join("") + '</div>'
+          : '<div class="empty"><div class="empty-title">이 배치에 등록된 시료가 없습니다</div>' +
+            '<div class="empty-body">위 [' + esc(L.ui.addSample) + '] 로 시료를 먼저 만드세요.</div></div>') +
+      '</div></section>';
+
+    wireTarget(batches);
+    $$("[data-smp]", $("#form-host")).forEach(b => b.addEventListener("click", function () {
+      sampleId = b.dataset.smp;
+      render();
+    }));
+  }
+
   /* Batch / Sample 선택 + Sample 생성 */
   function targetPicker(batches, samples) {
+    const analytics = window.Scope.get().team === "analytics";
     return '<div style="display:flex;gap:var(--s-3);align-items:end;flex-wrap:wrap">' +
       '<label class="ebr-cell" style="min-width:130px"><span>Batch</span>' +
         '<select class="ebr-input" id="pick-batch">' +
           batches.map(b => '<option value="' + esc(b.id) + '"' +
             (b.id === batchId ? " selected" : "") + '>' + esc(b.id) + '</option>').join("") +
         '</select></label>' +
-      '<label class="ebr-cell" style="min-width:170px"><span>' + esc(L.ui.sampleName) + '</span>' +
+      '<label class="ebr-cell" style="min-width:190px"><span>시료 (' + samples.length + '건)</span>' +
         '<select class="ebr-input" id="pick-sample">' +
-          '<option value="">— Batch 단위 —</option>' +
+          /* 분석 서식에서는 "Batch 단위" 선택지를 주지 않습니다 —
+             고를 수 있게 두면 시료에 붙어야 할 값이 배치로 새어 들어갑니다. */
+          (analytics ? '<option value="">— 시료 선택 —</option>' : '<option value="">— Batch 단위 —</option>') +
           samples.map(s => '<option value="' + esc(s.id) + '"' +
-            (s.id === sampleId ? " selected" : "") + '>' + esc(s.name) + '</option>').join("") +
+            (s.id === sampleId ? " selected" : "") + '>' + esc(s.name) +
+            (s.stage ? " · " + esc(s.stage) : "") + '</option>').join("") +
         '</select></label>' +
       '<button class="btn btn-ghost btn-sm" id="new-sample">' + esc(L.ui.addSample) + '</button>' +
     '</div>';
+  }
+
+  /* Batch·Sample 선택은 폼이 있든 없든 같은 방식으로 동작해야 합니다 */
+  function wireTarget(batches) {
+    const pb = $("#pick-batch");
+    if (pb) pb.addEventListener("change", function () {
+      batchId = this.value; sampleId = null; render();
+    });
+    const ps = $("#pick-sample");
+    if (ps) ps.addEventListener("change", function () {
+      sampleId = this.value || null; render();
+    });
+    const ns = $("#new-sample");
+    if (ns) ns.addEventListener("click", function () {
+      const batch = batches.find(b => b.id === batchId);
+      const name = window.prompt("시료 이름을 입력하세요\n(예: " + batchId + "-S2, AEX 용출 후)");
+      if (name === null) return;
+      const r = E.addSample({ batchId, studyId: batch ? batch.studyId : null, name });
+      if (!r.ok) { window.alert(r.reason); return; }
+      sampleId = r.sample.id;
+      render();
+    });
   }
 
   /* ── 값 타입 ────────────────────────────────────────────────────────────
@@ -304,21 +394,8 @@
   }
 
   /* ── 저장 ───────────────────────────────────────────────────────────── */
-  function wireForm(batch, groups) {
-    $("#pick-batch").addEventListener("change", function () {
-      batchId = this.value; sampleId = null; render();
-    });
-    $("#pick-sample").addEventListener("change", function () {
-      sampleId = this.value || null; render();
-    });
-    $("#new-sample").addEventListener("click", function () {
-      const name = window.prompt(L.ui.sampleName + " 이름을 입력하세요\n(예: " + batchId + "-S1, pH 6.0 조건군)");
-      if (name === null) return;
-      const r = E.addSample({ batchId, studyId: batch.studyId, name });
-      if (!r.ok) { window.alert(r.reason); return; }
-      sampleId = r.sample.id;
-      render();
-    });
+  function wireForm(batch, groups, batches) {
+    wireTarget(batches);
 
     const all = groups.reduce((a, g) => a.concat(g.items), []);
 

@@ -21,15 +21,17 @@
   const esc = (s) => String(s).replace(/[&<>"']/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-  /* 다중 정렬 — [{key, dir}] 순서대로 우선순위 */
-  let sorts = [{ key: "id", dir: 1 }];
+  /* 다중 정렬 — [{key, dir}] 순서대로 우선순위.
+     비어 있으면 조회 조건의 정렬(최신 날짜순 등)을 그대로 씁니다.
+     컬럼을 눌러 직접 정렬한 순간부터 이쪽이 우선합니다. */
+  let sorts = [];
   let groupBy = "batch";        // "batch" | "sample"
   let colFilters = {};          // { colKey: "부분일치 문자열" }
 
   window.Shell.subnav([
     { label: "조회 단위", items: [
-      { key: "batch",  ko: "배치별",           active: true },
-      { key: "sample", ko: "샘플별 모아보기",  active: false }
+      { key: "batch",  ko: "배치별",       active: true },
+      { key: "sample", ko: "시료별",       active: false }
     ]},
     { label: "바로가기", items: [
       { ko: "대시보드", href: "dashboard.html" },
@@ -113,14 +115,21 @@
     if (key.indexOf("downstream.") === 0)
       return row.downstream ? row.downstream[key.slice(11)] : null;
     if (key.indexOf(".") > -1) {
+      /* 분석값은 시료에 붙습니다. 배치별 보기에서는 그 배치의 대표 시료 값을
+         보여주고, 샘플별 보기에서는 그 행의 시료 값을 보여줍니다. */
       const p = key.split(".");
-      return row.analytics && row.analytics[p[0]] ? row.analytics[p[0]][p[1]] : null;
+      return row._sample ? window.Repo.valueOfSample(row._sample, p[0], p[1]) : null;
     }
     if (row.upstream && row.upstream[key] !== undefined) return row.upstream[key];
     return row[key] === undefined ? null : row[key];
   }
 
-  /* ── 행 구성 ────────────────────────────────────────────────────────── */
+  /* ── 행 구성 ──────────────────────────────────────────────────────────
+     배치별 보기: 한 배치 = 한 행. 분석 컬럼은 그 배치의 대표 시료 값.
+     샘플별 보기: 한 시료 = 한 행. 분석 컬럼은 그 시료의 값.
+
+     배치별 보기에서 분석값이 대표 시료 것이라는 사실은 화면에 밝힙니다 —
+     한 배치에 시료가 여럿일 때 어느 값인지 모르면 잘못 읽습니다. */
   function buildRows(batches, studies) {
     const teamById = {};
     window.DATA_TEAMS.forEach(t => { teamById[t.id] = t; });
@@ -134,19 +143,23 @@
       });
     };
 
-    if (groupBy === "batch") return batches.map(decorate);
+    if (groupBy === "batch") {
+      return batches.map(b => Object.assign(decorate(b), {
+        _sample: window.Repo.primarySample(b.id)
+      }));
+    }
 
-    /* 샘플별 모아보기 — Batch 하위 Sample 을 행으로 펼칩니다.
-       Sample 이 없는 Batch 는 "(샘플 미생성)" 한 줄로 남겨 존재를 숨기지 않습니다. */
     const out = [];
-    batches.forEach(b => {
+    batches.forEach(function (b) {
       const d = decorate(b);
-      const samples = window.Entries.getSamples(b.id);
+      const samples = window.Repo.samplesOfBatch(b.id);
       if (!samples.length) {
-        out.push(Object.assign({}, d, { sampleName: null, sampleId: null }));
+        out.push(Object.assign({}, d, { sampleName: null, sampleId: null, _sample: null }));
         return;
       }
-      samples.forEach(s => out.push(Object.assign({}, d, { sampleName: s.name, sampleId: s.id })));
+      samples.forEach(s => out.push(Object.assign({}, d, {
+        sampleName: s.name, sampleId: s.id, sampleStage: s.stage, _sample: s
+      })));
     });
     return out;
   }
@@ -216,7 +229,12 @@
       rows = applySort(rows);
 
       const cols = columns(titerDays);
-      $("#count").textContent = rows.length + (groupBy === "sample" ? "행 (샘플별)" : "개 배치") +
+      const sortLabel = window.Repo.SORTS[sel.sort] || window.Repo.SORTS[window.Repo.DEFAULT_SORT];
+      const undated = window.Repo.undatedExcluded(sel);
+      $("#count").textContent = rows.length + (groupBy === "sample" ? "행 (시료별)" : "개 배치") +
+        " · " + sortLabel +
+        (window.Scope.periodLabel() ? " · " + window.Scope.periodLabel() : "") +
+        (undated ? " · 날짜 미기재 " + undated + "건 제외" : "") +
         " · " + (titerDays.length ? "Titer " + titerDays[0] + "~" + titerDays[titerDays.length - 1] : "Titer 미입력");
 
       paintSampleBar(batches);
@@ -249,8 +267,9 @@
                   esc(c.type === "n" ? Number(v).toFixed(c.dp) : v) + '</td>';
               }).join("") + '</tr>').join("") +
             '</tbody></table></div>'
-        : '<div class="empty"><div class="empty-title">조건에 맞는 데이터가 없습니다</div>' +
-          '<div class="empty-body">컬럼 필터나 조건 칩을 해제해 보세요.</div></div>';
+        : '<div class="empty"><div class="empty-title">' + esc(L.noResult) + '</div>' +
+          '<div class="empty-body">' + esc(L.noResultHint) +
+          ' 표 안의 컬럼 필터도 함께 확인하세요.</div></div>';
 
       $$("[data-sort]").forEach(b => b.addEventListener("click", e => toggleSort(b.dataset.sort, e.shiftKey)));
       $$("[data-cf]").forEach(function (inp) {
@@ -274,7 +293,7 @@
     const host = $("#sort-chips");
     const labelOf = k => (cols.find(c => c.key === k) || {}).label || k;
     const filterKeys = Object.keys(colFilters).filter(k => colFilters[k]);
-    if (sorts.length <= 1 && !filterKeys.length) { host.innerHTML = ""; return; }
+    if (!sorts.length && !filterKeys.length) { host.innerHTML = ""; return; }
 
     host.innerHTML =
       sorts.map((s, i) =>
@@ -289,9 +308,9 @@
           '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
           'stroke-width="3" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></span>').join("");
 
+    /* 정렬을 모두 풀면 조회 조건의 정렬로 되돌아갑니다 */
     $$("[data-unsort]").forEach(b => b.addEventListener("click", () => {
       sorts = sorts.filter(s => s.key !== b.dataset.unsort);
-      if (!sorts.length) sorts = [{ key: "id", dir: 1 }];
       render();
     }));
     $$("[data-unfilter]").forEach(b => b.addEventListener("click", () => {
@@ -304,7 +323,7 @@
     const host = $("#sample-bar");
     if (groupBy !== "sample") { host.innerHTML = ""; return; }
 
-    const total = batches.reduce((n, b) => n + window.Entries.getSamples(b.id).length, 0);
+    const total = batches.reduce((n, b) => n + window.Repo.samplesOfBatch(b.id).length, 0);
     host.innerHTML =
       '<div class="card"><div class="card-body" style="display:flex;gap:var(--s-3);align-items:end;flex-wrap:wrap">' +
         '<label class="ebr-cell" style="min-width:150px"><span>' + esc(L.ui.sampleName) + ' 추가 대상 Batch</span>' +
@@ -387,7 +406,13 @@
   }
 
   window.StudySelector.mount($("#selector"));
-  window.Scope.subscribe(function () { paintClassFilter(); render(); });
+  window.Scope.subscribe(function (sel, reason) {
+    paintClassFilter();
+    /* [조회]·[초기화]·과제 전환으로 조건이 새로 적용되면 직접 건 컬럼 정렬을
+       풀고 조회 정렬(기본 최신 날짜순)로 되돌립니다. */
+    if (reason === "apply" || reason === "reset-filters" || reason === "scope") sorts = [];
+    render();
+  });
   window.Entries.subscribe(render);
   $("#export").addEventListener("click", exportCSV);
   paintClassFilter();

@@ -89,32 +89,63 @@ window.Repo = (function () {
     return (groupId === "upstream" || groupId === "titer") ? key : groupId + "_" + key;
   }
 
-  /* "filled" | "empty" | "excluded" */
-  function cellState(batch, groupId, key) {
-    const rec = window.Entries
-      ? window.Entries.getValue("batch:" + batch.id, fieldKey(groupId, key)) : null;
+  function stateOfRecord(rec, fallback) {
     if (rec && window.VAL) {
       if (!window.VAL.countsTowardCompleteness(rec.value)) return "excluded";
       return window.VAL.isFilled(rec.value) ? "filled" : "empty";
     }
-    return valueOf(batch, groupId, key) !== null ? "filled" : "empty";
+    return fallback !== null && fallback !== undefined ? "filled" : "empty";
   }
 
-  /* 배치 묶음의 완성도 — 그룹 목록을 받아 filled/total 을 셉니다 */
+  /* "filled" | "empty" | "excluded" — 배치 단위 (분석은 대표 시료 기준) */
+  function cellState(batch, groupId, key) {
+    const isAnalytics = groupId !== "upstream" && groupId !== "titer" && groupId !== "downstream";
+    if (isAnalytics) {
+      const s = primarySample(batch.id);
+      return s ? cellStateSample(s, groupId, key) : "empty";
+    }
+    const rec = window.Entries
+      ? window.Entries.getValue("batch:" + batch.id, fieldKey(groupId, key)) : null;
+    return stateOfRecord(rec, valueOf(batch, groupId, key));
+  }
+
+  /* 시료 단위 */
+  function cellStateSample(sample, groupId, key) {
+    const rec = window.Entries
+      ? window.Entries.getValue("sample:" + sample.id, fieldKey(groupId, key)) : null;
+    const g = sample.analytics ? sample.analytics[groupId] : null;
+    const raw = g ? g[key] : null;
+    return stateOfRecord(rec, raw === undefined ? null : raw);
+  }
+
+  /* 완성도 — 배양·정제는 배치 칸을, 분석은 **시료 칸**을 셉니다.
+     시료를 채취해 놓고 분석하지 않았으면 그만큼 덜 찬 것이 맞습니다. */
   function completeness(batches, groups) {
     let filled = 0, total = 0;
-    (batches || []).forEach(b => (groups || []).forEach(g => {
-      if (g.empty) return;
-      g.items.forEach(function (it) {
-        const s = cellState(b, g.id, it.key);
-        if (s === "excluded") return;              // 해당 없음 — 분모에서 제외
-        total++;
-        if (s === "filled") filled++;
+    const tally = function (state) {
+      if (state === "excluded") return;            // 해당 없음 — 분모에서 제외
+      total++;
+      if (state === "filled") filled++;
+    };
+    (batches || []).forEach(function (b) {
+      const samples = samplesOfBatch(b.id);
+      (groups || []).forEach(function (g) {
+        if (g.empty) return;
+        if (g.team === "analytics") {
+          samples.forEach(s => g.items.forEach(it => tally(cellStateSample(s, g.id, it.key))));
+        } else {
+          g.items.forEach(it => tally(cellState(b, g.id, it.key)));
+        }
       });
-    }));
+    });
     return { filled, total };
   }
 
+  /* ── 값 읽기 ────────────────────────────────────────────────────────────
+     배양·정제는 배치 속성이고, 분석은 시료 속성입니다.
+     배치로 분석값을 물으면 그 배치의 **대표 시료** 값을 돌려줍니다 —
+     배치 한 줄짜리 화면(KPI·요약)이 계속 동작해야 하기 때문입니다.
+     시료별로 봐야 하는 화면은 valueOfSample 을 씁니다. */
   function valueOf(batch, groupId, key) {
     if (groupId === "upstream" || groupId === "titer") {
       const v = batch.upstream ? batch.upstream[key] : null;
@@ -125,9 +156,57 @@ window.Repo = (function () {
       const v = batch.downstream ? batch.downstream[key] : null;
       return v === undefined ? null : v;
     }
-    const g = batch.analytics ? batch.analytics[groupId] : null;
+    const s = primarySample(batch.id);
+    return s ? valueOfSample(s, groupId, key) : null;
+  }
+
+  /* ── 시료(Sample) ───────────────────────────────────────────────────────
+     Excel 유래 시료(DATA_SAMPLES) + 사용자가 EBR 에서 추가한 시료(Entries)를
+     한 목록으로 합칩니다. 화면이 두 출처를 따로 알 필요가 없도록. */
+  function samplesOfBatch(batchId) {
+    const base = (window.DATA_SAMPLES || [])
+      .filter(s => s.active !== false && s.batchId === batchId);
+    const user = (window.Entries ? window.Entries.getSamples(batchId) : []).map(s => ({
+      id: s.id, batchId: s.batchId, studyId: s.studyId, name: s.name,
+      stage: null, collectedAt: s.createdAt ? String(s.createdAt).slice(0, 10) : null,
+      source: "user", primary: false, active: true,
+      note: s.note || null, analytics: null
+    }));
+    return base.concat(user);
+  }
+
+  /* 대표 시료 — 배치 단위로 분석값을 하나만 보여야 할 때 씁니다 */
+  function primarySample(batchId) {
+    const list = samplesOfBatch(batchId);
+    return list.find(s => s.primary) || list[0] || null;
+  }
+
+  /* 시료의 분석값. EBR 입력이 있으면 그쪽이 원본보다 우선합니다. */
+  function valueOfSample(sample, groupId, key) {
+    if (!sample) return null;
+    if (window.Entries && window.VAL) {
+      const rec = window.Entries.getValue("sample:" + sample.id, fieldKey(groupId, key));
+      if (rec) return window.VAL.numeric(rec.value);
+    }
+    const g = sample.analytics ? sample.analytics[groupId] : null;
     const v = g ? g[key] : null;
     return v === undefined ? null : v;
+  }
+
+  /* 선택 범위의 시료 목록 — 배치를 먼저 좁힌 뒤 그 하위 시료를 폅니다 */
+  function resolveSamples(sel) {
+    return resolveBatches(sel).then(function (batches) {
+      const out = [];
+      batches.forEach(function (b) {
+        samplesOfBatch(b.id).forEach(function (s) {
+          out.push(Object.assign({}, s, {
+            batchInitialDate: b.initialDate,
+            batchEndDate: b.endDate
+          }));
+        });
+      });
+      return sortRows(out, (sel || {}).sort, "sample");
+    });
   }
 
   /* ── Batch ──────────────────────────────────────────────────────────── */
@@ -142,16 +221,90 @@ window.Repo = (function () {
      이 함수가 "과제를 바꾸면 모든 화면이 함께 바뀐다"의 단일 진입점입니다.
 
      sel = { scopeKind, scopeId, studyId, team } */
+  /* ── 기간 필터 ──────────────────────────────────────────────────────────
+     배치는 시작~종료로 기간을 갖습니다. "겹치면 포함" 규칙을 씁니다 —
+     기간 안에 시작하거나 끝나기만 해도 그 기간의 일이기 때문입니다.
+
+     날짜가 아예 없는 배치는 기간을 걸면 **제외**합니다. 남겨 두면 어느
+     기간으로 걸러도 계속 나타나, 2030년으로 걸러도 한 건이 남는 식이 됩니다.
+     대신 몇 건이 그렇게 빠졌는지 화면에 알립니다 (undatedExcluded) —
+     조용히 사라지면 데이터가 없어진 것처럼 보이기 때문입니다. */
+  function inRange(b, from, to) {
+    if (!from && !to) return true;
+    const s = b.initialDate || b.endDate;
+    const e = b.endDate || b.initialDate;
+    if (!s && !e) return false;                 // 날짜 미기재 — 기간 판단 불가
+    if (from && e && e < from) return false;
+    if (to && s && s > to) return false;
+    return true;
+  }
+
+  /* 기간 조건 때문에 빠진 "날짜 미기재" 배치 수 */
+  function undatedExcluded(sel) {
+    const s = sel || {};
+    if (!s.from && !s.to) return 0;
+    const ids = studiesInScope(s).map(x => x.id);
+    return window.DATA_BATCHES.filter(b =>
+      ids.indexOf(b.studyId) > -1 && !b.initialDate && !b.endDate).length;
+  }
+
+  /* ── 정렬 ───────────────────────────────────────────────────────────────
+     조회 결과는 항상 정해진 순서로 나와야 합니다. 기본은 최신 날짜순이고,
+     날짜가 같으면 ID 로 갈라 매번 같은 순서가 나오게 합니다. */
+  const SORTS = {
+    "date-desc": "최신 날짜순",
+    "date-asc":  "오래된 날짜순",
+    "id-asc":    "ID 오름차순",
+    "id-desc":   "ID 내림차순"
+  };
+  const DEFAULT_SORT = "date-desc";
+
+  /* "B123-2" 와 "B123-12" 를 사람이 읽는 순서로 — 사전순으로 하면 12 가 2 앞에 옵니다 */
+  function natCmp(a, b) {
+    const ax = String(a).match(/(\d+|\D+)/g) || [];
+    const bx = String(b).match(/(\d+|\D+)/g) || [];
+    for (let i = 0; i < Math.max(ax.length, bx.length); i++) {
+      const x = ax[i], y = bx[i];
+      if (x === undefined) return -1;
+      if (y === undefined) return 1;
+      const nx = /^\d+$/.test(x), ny = /^\d+$/.test(y);
+      if (nx && ny) { const d = +x - +y; if (d) return d; }
+      else if (x !== y) return x < y ? -1 : 1;
+    }
+    return 0;
+  }
+
+  function sortRows(rows, sort, kind) {
+    const mode = SORTS[sort] ? sort : DEFAULT_SORT;
+    const dateOf = r => (kind === "sample")
+      ? (r.collectedAt || r.batchEndDate || r.batchInitialDate || "")
+      : (r.initialDate || r.endDate || "");
+    return rows.slice().sort(function (a, b) {
+      if (mode === "id-asc")  return natCmp(a.id, b.id);
+      if (mode === "id-desc") return natCmp(b.id, a.id);
+      const da = dateOf(a), db = dateOf(b);
+      /* 날짜 없는 행은 방향과 무관하게 뒤로 — 위에 올라오면 목록이 이상해집니다 */
+      if (!da && !db) return natCmp(a.id, b.id);
+      if (!da) return 1;
+      if (!db) return -1;
+      const d = mode === "date-asc" ? da.localeCompare(db) : db.localeCompare(da);
+      return d || natCmp(a.id, b.id);
+    });
+  }
+
   function resolveBatches(sel) {
-    const ids = studiesInScope(sel).map(x => x.id);
-    const batches = window.DATA_BATCHES.filter(b => ids.indexOf(b.studyId) > -1);
+    const s = sel || {};
+    const ids = studiesInScope(s).map(x => x.id);
+    const batches = window.DATA_BATCHES
+      .filter(b => ids.indexOf(b.studyId) > -1)
+      .filter(b => inRange(b, s.from, s.to));
 
     /* 팀으로 배치를 걸러내지 않습니다.
        배치는 배양 산물이고(team "upstream"), 분석팀은 그 배치를 측정할 뿐이라
        팀으로 배치를 필터링하면 분석팀 선택 시 결과가 0건이 됩니다.
        팀 선택은 "어떤 측정 항목을 볼지"를 정하는 축이며,
        컬럼 필터링은 getAnalyteGroups(team) 이 담당합니다. */
-    return ok(clone(batches));
+    return ok(sortRows(clone(batches), s.sort, "batch"));
   }
 
   /* ── 측정 항목 ──────────────────────────────────────────────────────── */
@@ -322,8 +475,10 @@ window.Repo = (function () {
     getStudies, getStudy, getStudiesByProject, studiesInScope,
     getScopeOptions, getTeamDataSets, getTeamDataSetsForSelection,
     getBatches, getBatch, getBatchesByStudy, resolveBatches,
+    samplesOfBatch, primarySample, valueOfSample, resolveSamples,
+    SORTS, DEFAULT_SORT, sortRows, natCmp, inRange, undatedExcluded,
     getAnalyteGroups, getActiveTiterDays, getDaySeries,
-    fieldKey, cellState, completeness,
+    fieldKey, cellState, cellStateSample, completeness,
     getFilterOptions, searchStudies,
     dataClass, colInClass, classMatchesTerm, getDataClasses,
     projectLabel, studyOf, valueOf,
