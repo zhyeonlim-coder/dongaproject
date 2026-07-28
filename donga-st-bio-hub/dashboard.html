@@ -49,7 +49,9 @@
 
       <footer class="rule-hair" style="margin-top:var(--s-8);padding-top:var(--s-5);
                                        font-size:11.5px;color:var(--c-text-mute);line-height:1.7">
-        출처: Batch_Data_example.xlsx · 원본의 공란 · N/A · "-" 는 모두 "미입력"으로 표시하며 값을 추정하지 않습니다.
+        출처: Batch_Data_example.xlsx · 배양 · 분석 항목은 원본 값이며, 공란 · N/A · "-" 는 모두 "미입력"으로 표시하고
+        값을 추정하지 않습니다. 정제 항목은 원본에 컬럼이 없어 Study 성격과 배양 결과에 맞춰 생성한 값입니다.<br>
+        일정은 원본의 공정 주기(평균 배양 일수)를 현재 시점으로 옮겨 산출했습니다.
       </footer>
     </main>
 
@@ -65,8 +67,10 @@
 <script src="assets/js/data/projects.js"></script>
 <script src="assets/js/data/studies.js"></script>
 <script src="assets/js/data/batches.js"></script>
+<script src="assets/js/data/downstream.js"></script>
 <script src="assets/js/data/entries.js"></script>
 <script src="assets/js/data/repo.js"></script>
+<script src="assets/js/data/calendar.js"></script>
 
 <script src="assets/js/charts.js"></script>
 <script src="assets/js/selection.js"></script>

@@ -41,8 +41,10 @@
 
       <footer class="rule-hair" style="margin-top:var(--s-8);padding-top:var(--s-5);
                                        font-size:11.5px;color:var(--c-text-mute);line-height:1.7">
-        Excel 파생 일정은 각 Batch의 Initial Date · End Date에서 자동 생성됩니다.
-        직접 등록한 일정은 브라우저 localStorage에 저장됩니다.
+        <b>Excel 파생</b> 일정은 각 Batch의 Initial Date · End Date와 Study 종료일에서 나옵니다.
+        <b>생성 일정</b>(회의 · 결과보고 마감)은 원본의 평균 배양 일수를 공정 주기로 삼아 현재 시점 기준으로 산출한 값이며,
+        확정 일정이 아닙니다.<br>
+        <b>직접 등록</b>한 일정은 브라우저 localStorage에 저장되고, 대시보드와 우측 캘린더에도 함께 반영됩니다.
       </footer>
     </main>
 
@@ -57,8 +59,10 @@
 <script src="assets/js/data/projects.js"></script>
 <script src="assets/js/data/studies.js"></script>
 <script src="assets/js/data/batches.js"></script>
+<script src="assets/js/data/downstream.js"></script>
 <script src="assets/js/data/entries.js"></script>
 <script src="assets/js/data/repo.js"></script>
+<script src="assets/js/data/calendar.js"></script>
 
 <script src="assets/js/charts.js"></script>
 <script src="assets/js/selection.js"></script>

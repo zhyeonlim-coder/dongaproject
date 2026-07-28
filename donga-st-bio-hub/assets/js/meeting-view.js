@@ -128,8 +128,12 @@ window.MeetingView = (function () {
       ];
     }
     if (team === "downstream") {
-      return [{ k: "수율", v: L.empty, u: "%" }, { k: "HCP", v: L.empty, u: "ng/mg" },
-              { k: "순도", v: L.empty, u: "%" }];
+      const d = k => num(b => b.downstream ? b.downstream[k] : null);
+      return [
+        { k: "평균 Total Yield", v: avg(d("totalYield")), u: "%" },
+        { k: "평균 HCP",         v: avg(d("hcp")),        u: "ppm" },
+        { k: "평균 Monomer",     v: avg(d("monomerPurity")), u: "%" }
+      ];
     }
     return [
       { k: "CE-SDS Monomer", v: avg(num(b => b.analytics.ceSdsNR.monomer)), u: "%" },
@@ -146,7 +150,11 @@ window.MeetingView = (function () {
       cols.push({ k: "u.maxVCD",    label: "Max VCD",    team: "upstream", dp: 2 });
       cols.push({ k: "u.finalViability", label: "Viability", team: "upstream", dp: 1 });
     }
-    if (view.teams.downstream) cols.push({ k: "d.none", label: "정제 (원본 없음)", team: "downstream", dp: null });
+    if (view.teams.downstream) {
+      cols.push({ k: "d.totalYield",    label: "Total Yield", team: "downstream", dp: 1 });
+      cols.push({ k: "d.monomerPurity", label: "SEC Monomer", team: "downstream", dp: 2 });
+      cols.push({ k: "d.hcp",           label: "HCP",         team: "downstream", dp: 1 });
+    }
     if (view.teams.analytics) {
       cols.push({ k: "a.seHPLC.main", label: "SE Main", team: "analytics", dp: 1 });
       cols.push({ k: "a.ieHPLC.main", label: "IE Main", team: "analytics", dp: 1 });
@@ -156,7 +164,7 @@ window.MeetingView = (function () {
     const val = (b, k) => {
       if (k === "id") return b.id;
       if (k.indexOf("u.") === 0) return b.upstream[k.slice(2)];
-      if (k.indexOf("d.") === 0) return null;
+      if (k.indexOf("d.") === 0) return b.downstream ? b.downstream[k.slice(2)] : null;
       const p = k.slice(2).split(".");
       return b.analytics[p[0]] ? b.analytics[p[0]][p[1]] : null;
     };
@@ -290,7 +298,7 @@ window.MeetingView = (function () {
     $("#mv-tabs").innerHTML = viewTabs();
 
     if (!sel.scopeId) {
-      $("#mv-body").innerHTML = '<div class="empty"><div class="empty-title">과제 또는 기반 Study를 선택하세요</div>' +
+      $("#mv-body").innerHTML = '<div class="empty"><div class="empty-title">과제를 선택하세요</div>' +
         '<div class="empty-body">대시보드 상단에서 선택한 뒤 다시 열어주세요.</div></div>';
       wireTabs();
       return;

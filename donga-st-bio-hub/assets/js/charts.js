@@ -167,6 +167,99 @@ window.Charts = (function () {
       esc(o.aria || "시료 대 대조약 비교") + '" preserveAspectRatio="xMidYMid meet">' + grid + bars + '</svg>';
   }
 
+  /* ── Grouped bars ───────────────────────────────────────────────────────
+     범주(배치)마다 여러 시리즈를 나란히 세웁니다.
+
+     cfg.min 을 주면 축이 0 이 아니라 그 값에서 시작합니다. 수율·순도처럼
+     90~99% 구간에 몰린 지표는 0 부터 그리면 막대가 전부 같은 높이로 보여
+     차이를 읽을 수 없기 때문입니다. 축이 0 이 아니라는 사실은 축 라벨과
+     caption 에 드러나므로 과장이 되지 않습니다.
+
+     cfg = { cats:[], series:[{name,color,data:[]}], min, max, w, h, aria } */
+  function bars(cfg) {
+    const W = cfg.w || 700, H = cfg.h || 260, big = cfg.big;
+    const cats = cfg.cats || [], series = cfg.series || [];
+    const pad = { t: 14, r: 16, b: big ? 52 : 42, l: big ? 58 : 48 };
+    const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+    if (!cats.length) return emptySVG(W, H, "데이터 없음");
+
+    const vals = series.reduce((a, s) => a.concat((s.data || []).filter(isFinite)), []);
+    if (!vals.length) return emptySVG(W, H, "미입력");
+
+    const hiRaw = Math.max.apply(null, vals);
+
+    /* 눈금은 "딱 떨어지는" 값에 놓습니다. 축 시작점을 60·95 처럼 옮기면
+       단순히 4등분한 눈금이 70.2 · 80.4 처럼 나와 읽기 어렵습니다. */
+    const lo = cfg.min != null ? cfg.min : 0;
+    const diff = Math.max(1e-6, hiRaw - lo);
+    const step = niceStep(diff / 4);
+    let hi;
+    if (cfg.max != null) {
+      hi = cfg.max;
+    } else {
+      hi = lo + step * Math.ceil(diff / step);
+      if (hi <= hiRaw) hi += step;                // 막대가 축 꼭대기에 닿지 않도록
+    }
+    const nTicks = Math.min(8, Math.max(2, Math.round((hi - lo) / step)));
+
+    const range = (hi - lo) || 1;
+    const yAt = v => pad.t + ih - ((v - lo) / range) * ih;
+    const fs = big ? 12 : 10;
+
+    const ticks = [];
+    for (let i = 0; i <= nTicks; i++) ticks.push(lo + (range * i) / nTicks);
+    /* 눈금이 전부 정수면 소수점을 붙이지 않습니다. 반대로 소수 눈금을
+       정수로 반올림하면 서로 다른 눈금이 같은 숫자로 찍힙니다. */
+    const dp = ticks.every(v => Math.abs(v - Math.round(v)) < 1e-9) ? 0 : (step >= 0.1 ? 1 : 2);
+
+    let grid = "";
+    ticks.forEach(function (v) {
+      const y = yAt(v);
+      grid += '<line x1="' + pad.l + '" y1="' + y.toFixed(1) + '" x2="' + (W - pad.r) + '" y2="' + y.toFixed(1) +
+        '" stroke="var(--c-paper-2)"/>' +
+        '<text x="' + (pad.l - 7) + '" y="' + (y + fs / 2.8).toFixed(1) + '" text-anchor="end" font-size="' + fs +
+        '" font-family="var(--font-data)" fill="var(--c-text-mute)">' + v.toFixed(dp) + '</text>';
+    });
+
+    const bw = iw / cats.length;
+    const groupW = bw * 0.74;
+    const barW = Math.max(2.5, groupW / Math.max(1, series.length) - 1.5);
+    const every = Math.max(1, Math.ceil(cats.length / (big ? 16 : 12)));
+
+    let rects = "", xlab = "";
+    cats.forEach(function (cat, i) {
+      const x0 = pad.l + bw * i + (bw - groupW) / 2;
+      series.forEach(function (s, k) {
+        const v = (s.data || [])[i];
+        if (!isFinite(v) || v === null) return;
+        const y = yAt(Math.max(lo, v));
+        const h = Math.max(0, pad.t + ih - y);
+        rects += '<rect x="' + (x0 + k * (groupW / series.length)).toFixed(1) + '" y="' + y.toFixed(1) +
+          '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="1.5" fill="' + s.color +
+          '"><title>' + esc(cat + " · " + s.name + " " + v) + '</title></rect>';
+      });
+      if (i % every === 0 || i === cats.length - 1) {
+        xlab += '<text x="' + (pad.l + bw * i + bw / 2).toFixed(1) + '" y="' + (pad.t + ih + fs + 8) +
+          '" text-anchor="middle" font-size="' + fs + '" font-family="var(--font-data)" ' +
+          'fill="var(--c-text-mute)">' + esc(cat) + '</text>';
+      }
+    });
+
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" role="img" aria-label="' +
+      esc(cfg.aria || "막대 그래프") + '" preserveAspectRatio="xMidYMid meet">' +
+      grid + rects + xlab + '</svg>';
+  }
+
+  /* 범례 — bars() 처럼 색으로만 구분되는 그래프용 (사각형 스와치) */
+  function swatches(series) {
+    return '<div style="display:flex;flex-wrap:wrap;gap:14px;font-size:11.5px">' +
+      series.map(s =>
+        '<span style="display:flex;align-items:center;gap:6px;color:var(--c-text-mute)">' +
+          '<span style="width:11px;height:11px;border-radius:2px;background:' + s.color +
+          '" aria-hidden="true"></span>' + esc(s.name) + '</span>').join("") +
+      '</div>';
+  }
+
   /* ── Legend ─────────────────────────────────────────────────────────── */
   function legend(series, big) {
     return '<div style="display:flex;flex-wrap:wrap;gap:' + (big ? "20px" : "14px") + ';font-size:' +
@@ -195,6 +288,15 @@ window.Charts = (function () {
   }
 
   /* ── Helpers ────────────────────────────────────────────────────────── */
+  /* 사람이 읽기 좋은 눈금 간격 — 1 · 2 · 2.5 · 5 · 10 의 10의 거듭제곱 배수 */
+  function niceStep(raw) {
+    if (!isFinite(raw) || raw <= 0) return 1;
+    const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / pow;
+    const m = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+    return m * pow;
+  }
+
   function niceMax(arr) {
     const m = Math.max.apply(null, arr.filter(isFinite));
     if (!isFinite(m) || m <= 0) return 1;
@@ -222,5 +324,5 @@ window.Charts = (function () {
       '</tbody></table>';
   }
 
-  return { line, overlay, pairedBars, legend, spark, dataTable, niceMax };
+  return { line, overlay, pairedBars, bars, swatches, legend, spark, dataTable, niceMax };
 })();

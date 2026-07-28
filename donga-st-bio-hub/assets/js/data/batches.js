@@ -16,10 +16,17 @@
 
    ⚠ 원본 Notes 시트 기록: 이 데이터는 스캔 이미지에서 전사되었으며
      판독 오차 가능성이 있습니다. 중요한 수치는 원본과 대조 확인이 필요합니다.
+
+   ⚠ 첫 행(UNSPEC-01)은 원본에 Exp. No. 가 비어 있어 소속 Study 를 알 수
+     없던 행입니다. 구조 개편 시 DA-1234 / Media screening test(STD-0045)
+     로 편입하기로 결정했습니다 — expNo 는 지어내지 않고 null 로 둡니다.
+
+   정제(downstream) 값은 이 파일에 없습니다. downstream.js 가 로드 시점에
+   각 배치에 b.downstream 을 채웁니다.
    ========================================================================== */
 
 window.DATA_BATCHES = [  {
-    id: "UNSPEC-01", studyId: "STD-0000", team: "upstream", expNo: null,
+    id: "UNSPEC-01", studyId: "STD-0045", team: "upstream", expNo: null,
     initialDate: "2024-08-16", endDate: "2024-08-29", cultureDays: 13,
     upstream: {
       ivcd: 126.2, maxVCD: 19.7, finalVCD: 10.3, finalViability: 59.7,

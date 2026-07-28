@@ -4,9 +4,8 @@
    전 화면(대시보드 · EBR · 데이터 조회 · 회의 모드 · 일정)이 이 하나를
    mount 합니다. 상태는 window.Scope 에만 있으므로 복붙 사본이 없습니다.
 
-   최상위 범위(과제 / 기반 Study) 선택은 상단 내비게이션이 담당하고,
+   최상위 범위(과제) 선택은 상단 내비게이션이 담당하고,
    이 컴포넌트는 그 아래 단계 — Study → 팀 → 조건 — 를 다룹니다.
-   기반 Study가 선택되면 Study 단계는 자동으로 사라집니다.
 
      StudySelector.mount(el, { onChange, showResults })
    ========================================================================== */
@@ -29,7 +28,7 @@ window.StudySelector = (function () {
       if (!sel.scopeId) {
         host.innerHTML =
           '<div class="selector"><div class="selector-empty" style="padding:var(--s-6)">' +
-            '상단에서 <b>과제</b> 또는 <b>기반 Study</b>를 먼저 선택하세요.' +
+            '상단에서 <b>과제</b>를 먼저 선택하세요.' +
           '</div></div>';
         return;
       }
@@ -51,9 +50,9 @@ window.StudySelector = (function () {
                 '<span class="selector-search-icon" aria-hidden="true">' +
                   '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
                   'stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>' +
-                '<label class="sr-only" for="sel-q">Study 검색</label>' +
+                '<label class="sr-only" for="sel-q">Study명 및 Data 분류 검색</label>' +
                 '<input class="input" id="sel-q" type="search" value="' + esc(sel.q || "") + '" ' +
-                  'placeholder="Study명 · 유형 검색 (예: DOE, screening)">' +
+                  'placeholder="Study명 · Data 분류 검색 (예: Titer, Viability, Step Yield)">' +
               '</div>' +
             '</div>' +
 
@@ -64,8 +63,11 @@ window.StudySelector = (function () {
               field("team", "팀",
                 (opt.team || []).map(t => ({ v: t.id, t: t.ko })), sel.team,
                 (opt.team || []).length ? null : "데이터 있는 팀 없음") +
-              field("type", "Study 유형",
-                (opt.type || []).map(v => ({ v: v, t: v })), sel.type) +
+              /* Study 유형(DOE · Feasibility …) 대신 측정 항목 축을 둡니다.
+                 연구자가 실제로 찾는 건 Study 의 성격이 아니라 데이터 항목입니다. */
+              field("dataClass", "Data 분류",
+                (opt.dataClass || []).map(c => ({ v: c.id, t: c.label })), sel.dataClass,
+                (opt.dataClass || []).length ? null : "해당 항목 없음") +
               field("status", "진행 상태",
                 (opt.status || []).map(v => ({ v: v, t: v })), sel.status) +
             '</div>' +
@@ -136,7 +138,10 @@ window.StudySelector = (function () {
       if (sel.q && sel.q.trim()) out.push(chip("검색", sel.q.trim(), "q"));
       if (desc.study) out.push(chip("Study", desc.study, "studyId"));
       if (desc.team)  out.push(chip("팀", desc.team, "team"));
-      if (sel.type)   out.push(chip("유형", sel.type, "type"));
+      if (sel.dataClass) {
+        const c = window.Repo.dataClass(sel.dataClass);
+        out.push(chip("Data 분류", c ? c.label : sel.dataClass, "dataClass"));
+      }
       if (sel.status) out.push(chip("상태", sel.status, "status"));
       return out.join("");
     }

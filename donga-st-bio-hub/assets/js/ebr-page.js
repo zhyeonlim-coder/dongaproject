@@ -2,7 +2,7 @@
    EBR 입력  [지시서 §1 §3 §5]
 
    대상 지정 순서: 과제 → Study → 팀 → Batch → Sample
-     · 기반 Study 는 Study 단계가 자동 생략됩니다
+     · 네 단계를 모두 지정해야 폼이 열립니다
      · 팀을 고르기 전에는 폼이 열리지 않습니다 (저장 불가)
 
    팀에 따라 입력 필드 세트가 자동 전환됩니다.
@@ -48,20 +48,22 @@
         ]}
       ];
     },
-    /* Excel 에 정제 데이터가 없어 원본 값은 비어 있습니다.
-       지시서가 요구한 필드 세트를 그대로 만들어 두고, 입력값은 Entries 에 쌓입니다. */
+    /* 정제 항목은 studies.js 의 downstream 그룹 스키마를 그대로 씁니다.
+       화면마다 필드를 따로 적어 두면 대시보드 · 데이터 조회 · EBR 이
+       서로 다른 항목을 보여주게 됩니다. */
     downstream: function () {
+      const g = window.DATA_ANALYTE_GROUPS.find(x => x.id === "downstream");
+      if (!g || !g.items.length) return [];
+      const pick = keys => g.items.filter(it => keys.indexOf(it.key) > -1).map(it => ({
+        k: "downstream_" + it.key, label: it.label, unit: it.unit, dp: it.dp,
+        src: ["downstream", it.key]
+      }));
       return [
-        { g: "정제 단계", items: [
-          { k: "dsStep",     label: "공정 단계", unit: "", type: "text" },
-          { k: "dsResin",    label: "Resin",     unit: "", type: "text" },
-          { k: "dsTiter",    label: "단계 Titer", unit: "mg/L", dp: 1 },
-          { k: "dsYield",    label: "수율",       unit: "%",    dp: 1 }
-        ]},
-        { g: "불순물 · 순도", items: [
-          { k: "dsHCP",      label: "HCP",       unit: "ng/mg", dp: 1 },
-          { k: "dsHCD",      label: "HCD",       unit: "pg/mg", dp: 1 },
-          { k: "dsPurity",   label: "순도 (SE-HPLC)", unit: "%", dp: 2 }
+        { g: "단계별 수율",   items: pick(["proteinAYield", "cexYield", "aexYield", "totalYield"]) },
+        { g: "순도 · 불순물", items: pick(["monomerPurity", "hcp", "residualDNA"]) },
+        { g: "정제 기록", items: [
+          { k: "dsResin", label: "Resin",       unit: "", type: "text" },
+          { k: "dsNote",  label: "특이사항",    unit: "", type: "text" }
         ]}
       ];
     },
@@ -80,9 +82,10 @@
 
   function excelValue(batch, src) {
     if (!src || !batch) return null;
-    if (src[0] === "upstream") return batch.upstream[src[1]];
-    if (src[0] === "titer")    return batch.upstream.titer[src[1]];
-    if (src[0] === "meta")     return batch[src[1]];
+    if (src[0] === "upstream")   return batch.upstream[src[1]];
+    if (src[0] === "titer")      return batch.upstream.titer[src[1]];
+    if (src[0] === "downstream") return batch.downstream ? batch.downstream[src[1]] : null;
+    if (src[0] === "meta")       return batch[src[1]];
     const g = batch.analytics[src[0]];
     return g ? g[src[1]] : null;
   }
@@ -109,7 +112,7 @@
           esc((E.getSamples(batchId).find(s => s.id === sampleId) || {}).name || "") + '</span>' : "")
       : '<span style="color:var(--c-text-mute)">과제를 선택하세요</span>';
 
-    if (!sel.scopeId) { gate("상단에서 과제 또는 기반 Study를 선택하세요."); return; }
+    if (!sel.scopeId) { gate("상단에서 과제를 선택하세요."); return; }
     if (!window.Scope.skipsStudyStep() && !sel.studyId) {
       gate("좌측 필터에서 Study를 선택하세요."); return;
     }
@@ -138,10 +141,9 @@
           '</div>' +
 
           (sel.team === "downstream"
-            ? '<div class="card-body" style="padding-bottom:0"><div class="demo-note" ' +
-              'style="background:var(--c-warn-bg);border-color:#F0DCC0;color:#7A3D08">' +
-              '원본 Excel에 정제 공정 데이터가 없습니다. 아래 항목은 새로 입력하는 값이며 ' +
-              '입력 즉시 이력이 기록됩니다.</div></div>' : "") +
+            ? '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' +
+              '정제 공정 값은 Protein A → CEX → AEX 3-step 기준입니다. ' +
+              '수정하면 기존 값을 덮어쓰지 않고 변경 이력으로 쌓입니다.</div></div>' : "") +
 
           groups.map(function (grp) {
             return '<div class="card-body" style="padding-bottom:var(--s-4)">' +
@@ -190,8 +192,11 @@
     const eff = effective(batch, f);
     const v = eff.value;
     const rec = eff.rec;
+    /* 초기값의 출처를 정확히 씁니다. 정제 항목은 Excel 에 없는 컬럼이라
+       "Excel 원본" 이라고 쓰면 거짓말이 됩니다. */
+    const origin = (f.src && f.src[0] === "downstream") ? "초기값" : "Excel 원본";
     const cap = rec ? E.caption(rec)
-      : (eff.fromExcel && v !== null ? "Excel 원본" : null);
+      : (eff.fromExcel && v !== null ? origin : null);
 
     return '<label class="ebr-cell">' +
       '<span>' + esc(f.label) + (f.unit ? ' <span style="font-weight:400;color:var(--c-text-soft)">(' +

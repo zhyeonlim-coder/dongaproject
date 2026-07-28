@@ -64,16 +64,16 @@ window.Shell = (function () {
         '<path d="M24 9.5V38.5" stroke="#E58F95" stroke-width="1.2"/></svg>';
   }
 
-  /* 과제 / 기반 Study 를 optgroup 으로 나눠 노출 (P0-2).
-     "DA-" 접두어 같은 문자열 규칙이 아니라 Study.scope 로 분류합니다. */
   /* Excel 계층(Scope · DATA_PROJECTS)을 싣지 않는 화면 —
      DoE · 장비 예약 · 데이터 탐색 — 도 이 셸을 씁니다.
-     그 화면들에서는 이 함수가 조용히 빈 셀렉터를 돌려주어야 합니다.
+     그 화면들에서는 이 함수가 조용히 레거시 셀렉터를 돌려주어야 합니다.
      (예전에는 여기서 예외가 나 상단 내비게이션부터 렌더링이 멈췄습니다.) */
   function hasScopeLayer() {
     return !!(window.Scope && typeof window.Scope.get === "function" && window.DATA_PROJECTS);
   }
 
+  /* 최상위 범위는 개발 과제 두 개뿐입니다.
+     (기반 Study · 미지정 그룹은 구조 개편 때 폐지했습니다) */
   function scopeOptionsMarkup() {
     if (!hasScopeLayer()) {
       /* 레거시 화면: 기존 LAB 과제 목록을 그대로 보여줍니다. */
@@ -83,23 +83,11 @@ window.Shell = (function () {
         (p.id === currentProject ? " selected" : "") + '>' + esc(p.id) + '</option>').join("");
     }
     const sel = window.Scope.get();
-    const cur = sel.scopeId ? sel.scopeKind + ":" + sel.scopeId : "";
-    const projects = window.DATA_PROJECTS.map(p => ({ v: "project:" + p.id, t: p.code || p.name }));
-    const platforms = window.DATA_STUDIES.filter(s => s.scope === "platform")
-      .map(s => ({ v: "platform:" + s.id, t: s.name }));
-    const unassigned = window.DATA_STUDIES.filter(s => s.scope === "unassigned")
-      .map(s => ({ v: "unassigned:" + s.id, t: s.name }));
-
-    const grp = (label, list) => list.length
-      ? '<optgroup label="' + esc(label) + '">' +
-        list.map(x => '<option value="' + esc(x.v) + '"' +
-          (cur === x.v ? " selected" : "") + '>' + esc(x.t) + '</option>').join("") + '</optgroup>'
-      : "";
-
-    return '<option value=""' + (cur ? "" : " selected") + '>— 선택 —</option>' +
-      grp("개발 과제", projects) +
-      grp("기반 Study", platforms) +
-      grp("미지정", unassigned);
+    const cur = sel.scopeId || "";
+    return '<option value=""' + (cur ? "" : " selected") + '>— 과제 선택 —</option>' +
+      window.DATA_PROJECTS.map(p =>
+        '<option value="project:' + esc(p.id) + '"' + (cur === p.id ? " selected" : "") + '>' +
+        esc(p.code || p.name) + '</option>').join("");
   }
 
   /* ── Mount ──────────────────────────────────────────────────────────── */
@@ -133,7 +121,7 @@ window.Shell = (function () {
             '<span class="tn-label">' + n.ko + '</span></a>').join("") +
       '</nav>' +
       '<div class="topnav-right">' +
-        '<label class="sr-only" for="scope-select">과제 또는 기반 Study 선택</label>' +
+        '<label class="sr-only" for="scope-select">과제 선택</label>' +
         '<select class="prj-select" id="scope-select">' + scopeOptionsMarkup() + '</select>' +
         '<span class="badge badge-warn" style="flex:none" title="이 화면의 모든 수치는 예시입니다">' +
           '<span class="badge-dot"></span>샘플<span class="badge-sample-en"> 데이터</span></span>' +
@@ -145,9 +133,9 @@ window.Shell = (function () {
         '</button>' +
       '</div>';
 
-    /* 최상위 범위 선택 (P0-2). 값은 "kind:id" 형태로 인코딩합니다 —
-       과제 ID와 기반 Study ID가 서로 다른 네임스페이스라 종류를 함께 실어야
-       모호함이 없습니다. */
+    /* 과제 선택. 값은 "project:PRJ-1234" / "legacy:DA-3880" 처럼
+       종류를 앞에 붙여 인코딩합니다 — 레거시 화면과 ID 네임스페이스가
+       달라서, 종류를 함께 실어야 어느 쪽 ID 인지 모호하지 않습니다. */
     document.getElementById("scope-select").addEventListener("change", function () {
       const v = this.value;
       if (!hasScopeLayer()) {
@@ -208,41 +196,24 @@ window.Shell = (function () {
   /* ── Right rail: mini calendar + events + notifications ─────────────── */
   let calMonth = null, calSelected = null;
 
-  /* 레거시 Store 가 없는 화면(Excel 기반 재구축본)에서는 Excel 배치의
-     Initial/End Date 로 캘린더를 구성합니다. 현재 선택된 과제 범위만. */
-  function excelEventSource() {
+  /* 캘린더 소스 우선순위
+       1. HubCalendar  — Excel 파생 + 생성 일정 + 직접 등록 + 레거시를 합친 단일 소스.
+                         대시보드 · 데이터 조회 · 일정 관리 · 데이터 탐색이 모두 이걸 씁니다.
+       2. Store        — HubCalendar 를 싣지 않는 레거시 화면(장비 예약 · DoE)용.
+     이 순서 덕분에 화면을 옮겨도 우측 캘린더에 같은 일정이 찍힙니다. */
+  function calendarSource() {
+    if (window.HubCalendar && window.HubCalendar.railSource) return window.HubCalendar.railSource();
+    if (window.Store && window.Store.eventsOn) return window.Store;
     const pad = n => String(n).padStart(2, "0");
     const d = new Date();
-    const today = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
-
-    function events() {
-      if (!window.Scope || !window.DATA_BATCHES) return [];
-      const sel = window.Scope.get();
-      if (!sel.scopeId) return [];
-      let studies = window.DATA_STUDIES;
-      if (sel.scopeKind === "project") studies = studies.filter(s => s.projectId === sel.scopeId);
-      else studies = studies.filter(s => s.id === sel.scopeId);
-      if (sel.studyId) studies = studies.filter(s => s.id === sel.studyId);
-      const ids = studies.map(s => s.id);
-      const out = [];
-      window.DATA_BATCHES.filter(b => ids.indexOf(b.studyId) > -1).forEach(b => {
-        if (b.initialDate) out.push({ date: b.initialDate, ko: b.id + " 배양 시작", kind: "culture", status: "완료" });
-        if (b.endDate)     out.push({ date: b.endDate,     ko: b.id + " Harvest",   kind: "culture", status: "완료" });
-      });
-      return out;
-    }
-    return {
-      today: () => today,
-      eventsOn: (date) => events().filter(e => e.date === date),
-      oosItems: () => []
-    };
+    const t = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+    return { today: () => t, eventsOn: () => [], oosItems: () => [] };
   }
 
   function paintRail() {
     const host = document.getElementById("rail");
     if (!host) return;
-    const S = (window.Store && window.Store.eventsOn) ? window.Store : excelEventSource();
-    const L = window.LAB;
+    const S = calendarSource();
     const today = S.today();
     if (!calMonth) calMonth = today.slice(0, 7);
     if (!calSelected) calSelected = today;
@@ -259,8 +230,17 @@ window.Shell = (function () {
     while (cells.length % 7) cells.push({ d: cells.length, out: true });
 
     const iso = (d) => Y + "-" + String(M).padStart(2, "0") + "-" + String(d).padStart(2, "0");
-    const KIND_COLOR = { culture: "var(--c-accent)", purif: "#6D28D9", analysis: "#0F766E",
-                         booking: "#B45309", milestone: "var(--c-risk)" };
+
+    /* 색은 HubCalendar 가 정의한 값을 그대로 씁니다 — 캘린더 점과 일정 관리
+       화면의 범례가 어긋나지 않도록 한 곳에서만 정합니다.
+       purif 는 레거시 Store 만 쓰는 종류라 여기서 보완합니다. */
+    const KIND_COLOR = Object.assign(
+      { culture: "var(--c-accent)", purif: "#6D28D9", analysis: "#0F766E",
+        booking: "#B45309", milestone: "var(--c-risk)" },
+      Object.keys((window.HubCalendar || {}).KIND || {}).reduce(function (acc, k) {
+        acc[k] = window.HubCalendar.KIND[k].color; return acc;
+      }, {})
+    );
 
     const dayCells = cells.map(c => {
       if (c.out) return '<span class="cal-day" data-out="1" aria-hidden="true">' + c.d + '</span>';
@@ -279,6 +259,11 @@ window.Shell = (function () {
 
     const selEvents = S.eventsOn(calSelected);
     const oos = S.oosItems(currentProject);
+
+    /* 다가오는 일정 — HubCalendar 를 쓰는 화면에서만 채웁니다.
+       레거시 화면(장비 예약 · DoE)에는 이 목록의 근거가 없어 비웁니다. */
+    const soon = (window.HubCalendar && window.HubCalendar.upcoming)
+      ? window.HubCalendar.upcoming(4) : [];
 
     host.innerHTML =
       '<div class="cal-head">' +
@@ -306,6 +291,20 @@ window.Shell = (function () {
                 '<span class="badge" style="margin-top:4px;font-size:10px">' + esc(e.status) + '</span>' +
               '</span></div>').join("")
         : '<p style="font-size:12px;color:var(--c-text-mute);margin:0">등록된 일정이 없습니다.</p>') +
+
+      (soon.length
+        ? '<div class="rule-hair" style="margin:var(--s-4) 0 var(--s-3)"></div>' +
+          '<div class="eyebrow" style="margin-bottom:var(--s-2)">다가오는 일정</div>' +
+          soon.map(e =>
+            '<a class="rail-event" href="schedule.html" style="text-decoration:none;color:inherit">' +
+              '<span class="rail-event-bar" style="background:' +
+                (KIND_COLOR[e.kind] || "var(--c-text-soft)") + '"></span>' +
+              '<span style="min-width:0;flex:1">' +
+                '<span style="display:block;font-size:12px;font-weight:500">' + esc(e.ko) + '</span>' +
+                '<span class="mono" style="display:block;font-size:10.5px;color:var(--c-text-mute);margin-top:3px">' +
+                  esc(e.date) + '</span>' +
+              '</span></a>').join("")
+        : "") +
 
       '<div class="rule-hair" style="margin:var(--s-4) 0 var(--s-3)"></div>' +
       '<div class="eyebrow" style="margin-bottom:var(--s-2)">알림</div>' +

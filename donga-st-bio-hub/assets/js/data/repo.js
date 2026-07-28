@@ -1,8 +1,8 @@
 /* ==========================================================================
-   repo.js — 데이터 접근 계층  [P0-1 / P0-2]
+   repo.js — 데이터 접근 계층
 
    계층: 과제(Project) → Study → 팀(Team) → Batch → 측정값
-   기반 Study(scope "platform")는 과제 없이 그 자체가 최상위입니다.
+   모든 Study 는 반드시 하나의 과제에 속합니다 (기반 Study · 미지정 개념 폐지).
 
    모든 함수는 Promise 를 반환합니다 — 나중에 본문만 fetch 로 바꾸면
    호출부는 손대지 않아도 됩니다.
@@ -27,27 +27,14 @@ window.Repo = (function () {
   function getStudiesByProject(projectId) {
     return ok(clone(window.DATA_STUDIES.filter(s => s.projectId === projectId)));
   }
-  function getPlatformStudies() {
-    return ok(clone(window.DATA_STUDIES.filter(s => s.scope === "platform")));
-  }
-  function getUnassignedStudies() {
-    return ok(clone(window.DATA_STUDIES.filter(s => s.scope === "unassigned")));
-  }
 
-  /* 최상위 셀렉터용 그룹 목록 (P0-2)
-     ── 개발 과제 ──  /  ── 기반 Study ──  /  ── 미지정 ── */
+  /* 최상위 셀렉터용 목록 — 과제 두 개가 전부입니다. */
   function getScopeOptions() {
     const projects = window.DATA_PROJECTS.map(p => ({
       kind: "project", id: p.id, code: p.code, label: p.code || p.name,
       studyCount: window.DATA_STUDIES.filter(s => s.projectId === p.id).length
     }));
-    const platforms = window.DATA_STUDIES.filter(s => s.scope === "platform").map(s => ({
-      kind: "platform", id: s.id, code: null, label: s.name, studyCount: null
-    }));
-    const unassigned = window.DATA_STUDIES.filter(s => s.scope === "unassigned").map(s => ({
-      kind: "unassigned", id: s.id, code: null, label: s.name, studyCount: null
-    }));
-    return ok({ projects, platforms, unassigned });
+    return ok({ projects });
   }
 
   /* ── 팀 ─────────────────────────────────────────────────────────────── */
@@ -79,18 +66,27 @@ window.Repo = (function () {
 
   /* 현재 선택 범위(과제 전체 또는 특정 Study)에 대한 팀별 제출 현황 */
   function getTeamDataSetsForSelection(sel) {
+    return getTeamDataSets(studiesInScope(sel).map(x => x.id));
+  }
+
+  /* 선택 범위에 해당하는 Study 목록 — 범위 해석은 이 함수 하나만 합니다.
+     화면마다 같은 조건문을 복사하면 반드시 한 군데가 어긋납니다. */
+  function studiesInScope(sel) {
     const s = sel || {};
-    let studies = window.DATA_STUDIES;
-    if (s.scopeKind === "project" && s.scopeId) studies = studies.filter(x => x.projectId === s.scopeId);
-    else if (s.scopeId) studies = studies.filter(x => x.id === s.scopeId);
-    else studies = [];
+    if (!s.scopeId) return [];
+    let studies = window.DATA_STUDIES.filter(x => x.projectId === s.scopeId);
     if (s.studyId) studies = studies.filter(x => x.id === s.studyId);
-    return getTeamDataSets(studies.map(x => x.id));
+    return studies;
   }
 
   function valueOf(batch, groupId, key) {
     if (groupId === "upstream" || groupId === "titer") {
       const v = batch.upstream ? batch.upstream[key] : null;
+      return v === undefined ? null : v;
+    }
+    /* 정제 값은 downstream.js 가 채웁니다 (원본 Excel 에는 없는 컬럼) */
+    if (groupId === "downstream") {
+      const v = batch.downstream ? batch.downstream[key] : null;
       return v === undefined ? null : v;
     }
     const g = batch.analytics ? batch.analytics[groupId] : null;
@@ -111,20 +107,7 @@ window.Repo = (function () {
 
      sel = { scopeKind, scopeId, studyId, team } */
   function resolveBatches(sel) {
-    const s = sel || {};
-    let studies = window.DATA_STUDIES;
-
-    if (s.scopeKind === "project" && s.scopeId) {
-      studies = studies.filter(x => x.projectId === s.scopeId);
-    } else if ((s.scopeKind === "platform" || s.scopeKind === "unassigned") && s.scopeId) {
-      studies = studies.filter(x => x.id === s.scopeId);
-    } else {
-      studies = [];                  // 미선택 시에는 아무것도 보여주지 않음
-    }
-
-    if (s.studyId) studies = studies.filter(x => x.id === s.studyId);
-
-    const ids = studies.map(x => x.id);
+    const ids = studiesInScope(sel).map(x => x.id);
     const batches = window.DATA_BATCHES.filter(b => ids.indexOf(b.studyId) > -1);
 
     /* 팀으로 배치를 걸러내지 않습니다.
@@ -163,14 +146,37 @@ window.Repo = (function () {
     return ok({ days, metric: metric || "titer", series });
   }
 
+  /* ── Data 분류 ──────────────────────────────────────────────────────────
+     "무엇을 측정한 값인가" 축입니다. 예전의 Study 유형 필터를 대체합니다.
+     정의는 studies.js 의 DATA_CLASSES 에 있고, 여기서는 매칭만 합니다. */
+
+  function dataClass(id) {
+    return (window.DATA_CLASSES || []).find(c => c.id === id) || null;
+  }
+
+  /* 컬럼 키(data-page 가 쓰는 표기)가 이 분류에 속하는지 */
+  function colInClass(colKey, classId) {
+    const c = dataClass(classId);
+    if (!c) return true;                       // 분류 미선택 = 전부 통과
+    if ((c.keys || []).indexOf(colKey) > -1) return true;
+    return (c.prefixes || []).some(p => colKey.indexOf(p) === 0);
+  }
+
+  /* 검색어가 이 분류를 가리키는지 — 라벨 · 별칭 · id 를 모두 봅니다 */
+  function classMatchesTerm(c, term) {
+    if (!term) return false;
+    return [c.label, c.id].concat(c.alias || [])
+      .some(v => v && String(v).toLowerCase().indexOf(term) > -1);
+  }
+
+  function getDataClasses(team) {
+    return (window.DATA_CLASSES || []).filter(c => !team || c.team === team);
+  }
+
   /* ── 검색 / 필터 ────────────────────────────────────────────────────── */
   function getFilterOptions(sel) {
     const s = sel || {};
-    let studies = window.DATA_STUDIES.slice();
-    if (s.scopeKind === "project" && s.scopeId) studies = studies.filter(x => x.projectId === s.scopeId);
-    if ((s.scopeKind === "platform" || s.scopeKind === "unassigned") && s.scopeId)
-      studies = studies.filter(x => x.id === s.scopeId);
-    if (s.type)   studies = studies.filter(x => x.type === s.type);
+    let studies = studiesInScope({ scopeId: s.scopeId });
     if (s.status) studies = studies.filter(x => x.status === s.status);
 
     const uniq = a => a.filter((v, i) => v !== null && v !== undefined && a.indexOf(v) === i);
@@ -181,42 +187,49 @@ window.Repo = (function () {
         window.DATA_BATCHES.some(b => ids.indexOf(b.studyId) > -1 &&
           g.items.some(it => valueOf(b, g.id, it.key) !== null))));
 
+    /* Data 분류 옵션 — 팀을 골랐으면 그 팀 항목만 남겨 목록을 짧게 유지 */
+    const classes = getDataClasses(s.team).map(c => ({ id: c.id, label: c.label, team: c.team }));
+
     return ok({
-      type:   uniq(studies.map(x => x.type)),
-      status: uniq(studies.map(x => x.status)),
-      team:   teamsWithData.map(t => ({ id: t.id, ko: t.ko })),
-      studies: clone(studies)
+      status:    uniq(studies.map(x => x.status)),
+      team:      teamsWithData.map(t => ({ id: t.id, ko: t.ko })),
+      dataClass: classes,
+      studies:   clone(studies)
     });
   }
 
+  /* 검색어는 Study 명뿐 아니라 Data 분류(예: "Titer", "Step Yield")에도
+     걸립니다. 측정 항목으로 검색했을 때는 Study 목록을 좁히지 않습니다 —
+     "Titer" 는 모든 Study 에 있는 항목이라 0건으로 만들면 오히려 혼란스럽습니다.
+     대신 데이터 조회 화면이 같은 검색어로 컬럼을 좁힙니다. */
   function searchStudies(q, sel) {
     const s = sel || {};
     const term = (q || "").trim().toLowerCase();
     const projById = {};
     window.DATA_PROJECTS.forEach(p => { projById[p.id] = p; });
 
-    let out = window.DATA_STUDIES.filter(x => {
-      if (s.scopeKind === "project" && s.scopeId && x.projectId !== s.scopeId) return false;
-      if ((s.scopeKind === "platform" || s.scopeKind === "unassigned") && s.scopeId && x.id !== s.scopeId) return false;
-      if (s.type   && x.type   !== s.type)   return false;
-      if (s.status && x.status !== s.status) return false;
-      if (!term) return true;
-      const proj = x.projectId ? projById[x.projectId] : null;
-      return [x.name, x.id, x.type, proj && proj.code].some(v =>
-        v && String(v).toLowerCase().indexOf(term) > -1);
-    });
+    const termIsDataClass = term &&
+      (window.DATA_CLASSES || []).some(c => classMatchesTerm(c, term));
+
+    /* studyId 로는 좁히지 않습니다 — 이 목록은 "고를 수 있는 Study" 이므로
+       이미 고른 하나만 남기면 다른 Study 로 전환할 방법이 사라집니다. */
+    const out = studiesInScope({ scopeId: s.scopeId })
+      .filter(x => {
+        if (s.status && x.status !== s.status) return false;
+        if (!term || termIsDataClass) return true;
+        const proj = x.projectId ? projById[x.projectId] : null;
+        return [x.name, x.id, x.type, proj && proj.code].some(v =>
+          v && String(v).toLowerCase().indexOf(term) > -1);
+      });
     return ok(clone(out));
   }
 
   /* ── 표시용 라벨 ────────────────────────────────────────────────────── */
 
-  /* 과제 컬럼 표기 — 기반 Study는 "(기반 Study)", 미지정은 "(미지정)" */
   function projectLabel(study) {
     if (!study) return "—";
-    if (study.scope === "platform") return "(기반 Study)";
-    if (study.scope === "unassigned") return "(미지정)";
     const p = window.DATA_PROJECTS.find(x => x.id === study.projectId);
-    return p ? (p.code || p.name) : "(미지정)";
+    return p ? (p.code || p.name) : "—";
   }
 
   function studyOf(batch) {
@@ -273,11 +286,12 @@ window.Repo = (function () {
 
   return {
     getProjects, getProject,
-    getStudies, getStudy, getStudiesByProject, getPlatformStudies, getUnassignedStudies,
+    getStudies, getStudy, getStudiesByProject, studiesInScope,
     getScopeOptions, getTeamDataSets, getTeamDataSetsForSelection,
     getBatches, getBatch, getBatchesByStudy, resolveBatches,
     getAnalyteGroups, getActiveTiterDays, getDaySeries,
     getFilterOptions, searchStudies,
+    dataClass, colInClass, classMatchesTerm, getDataClasses,
     projectLabel, studyOf, valueOf,
     getMeasurementRows, getStudySummary
   };

@@ -24,7 +24,6 @@
   /* 다중 정렬 — [{key, dir}] 순서대로 우선순위 */
   let sorts = [{ key: "id", dir: 1 }];
   let groupBy = "batch";        // "batch" | "sample"
-  let groupFilter = "all";
   let colFilters = {};          // { colKey: "부분일치 문자열" }
 
   window.Shell.subnav([
@@ -38,9 +37,14 @@
     ]}
   ], k => { groupBy = k; render(); });
 
-  /* ── 컬럼 정의 ──────────────────────────────────────────────────────── */
+  /* ── 컬럼 정의 ──────────────────────────────────────────────────────────
+     식별 컬럼(과제 · Study · Exp. No. …)은 항상 남기고, 측정 컬럼만
+     팀 · Data 분류 · 검색어로 좁힙니다. 식별 컬럼까지 사라지면 어느 배치의
+     값인지 알 수 없게 되기 때문입니다. */
   function columns(titerDays) {
-    const team = window.Scope.get().team;
+    const sel = window.Scope.get();
+    const team = sel.team;
+
     const base = [
       { key: "projectLabel", label: "과제",      type: "s", w: 120 },
       { key: "studyName",    label: "Study",     type: "s", w: 140 },
@@ -53,36 +57,61 @@
     base.push({ key: "initialDate", label: "Initial Date", type: "s", w: 100 });
     base.push({ key: "endDate",     label: "End Date",     type: "s", w: 100 });
 
-    const cols = base.slice();
-    const wantUpstream = !team || team === "upstream";
-    const wantAnalytics = !team || team === "analytics";
+    const measure = [];
 
-    if (wantUpstream) {
-      cols.push({ key: "cultureDays", label: "Days", type: "n", dp: 0, w: 60 });
+    if (!team || team === "upstream") {
+      measure.push({ key: "cultureDays", label: "Days", type: "n", dp: 0, w: 60 });
       [["ivcd","IVCD",1],["maxVCD","Max VCD",2],["finalVCD","Final VCD",2],
        ["finalViability","Viability (%)",1]].forEach(x =>
-        cols.push({ key: x[0], label: x[1], type: "n", dp: x[2], w: 92 }));
-      titerDays.forEach(d => cols.push({ key: "titer." + d, label: "Titer " + d, type: "n", dp: 0, w: 88 }));
-      cols.push({ key: "titerHCCF", label: "Titer HCCF", type: "n", dp: 1, w: 96 });
-      cols.push({ key: "qP",        label: "qP",         type: "n", dp: 2, w: 80 });
+        measure.push({ key: x[0], label: x[1], type: "n", dp: x[2], w: 92 }));
+      titerDays.forEach(d => measure.push({ key: "titer." + d, label: "Titer " + d, type: "n", dp: 0, w: 88 }));
+      measure.push({ key: "titerHCCF", label: "Titer HCCF", type: "n", dp: 1, w: 96 });
+      measure.push({ key: "qP",        label: "qP",         type: "n", dp: 2, w: 80 });
     }
 
+    /* 정제 · 분석 그룹 (배양 그룹은 위에서 일자별 Titer까지 함께 처리했습니다) */
     window.DATA_ANALYTE_GROUPS.forEach(g => {
-      if (g.empty || g.team !== "analytics") return;
-      if (!wantAnalytics) return;
-      if (groupFilter !== "all" && groupFilter !== g.id) return;
-      g.items.forEach(it => cols.push({
+      if (g.empty || g.team === "upstream") return;
+      if (team && g.team !== team) return;
+      g.items.forEach(it => measure.push({
         key: g.id + "." + it.key, label: g.label + " " + it.label,
         type: "n", dp: it.dp, w: 108
       }));
     });
-    return cols;
+
+    return base.concat(narrowMeasures(measure, sel));
+  }
+
+  /* Data 분류 선택 → 그 분류의 컬럼만.
+     검색어 → 컬럼 라벨이나 Data 분류 별칭에 걸리는 컬럼만.
+     둘 다 걸리는 게 없으면 좁히지 않습니다 — 검색 한 글자에 표가 빈
+     껍데기가 되는 것보다 전부 보여주는 편이 낫습니다. */
+  function narrowMeasures(measure, sel) {
+    let out = measure;
+
+    if (sel.dataClass) {
+      out = out.filter(c => window.Repo.colInClass(c.key, sel.dataClass));
+    }
+
+    const term = (sel.q || "").trim().toLowerCase();
+    if (term) {
+      const classHits = window.Repo.getDataClasses()
+        .filter(dc => window.Repo.classMatchesTerm(dc, term));
+      const hit = out.filter(c =>
+        c.label.toLowerCase().indexOf(term) > -1 ||
+        classHits.some(dc => window.Repo.colInClass(c.key, dc.id)));
+      if (hit.length) out = hit;
+    }
+    return out;
   }
 
   function cellValue(row, key) {
     if (["projectLabel","studyName","teamLabel","sampleName","id","initialDate","endDate","cultureDays"].indexOf(key) > -1)
       return row[key];
     if (key.indexOf("titer.") === 0) return row.upstream ? row.upstream.titer[key.slice(6)] : null;
+    /* 정제 값은 batch.downstream 에 있습니다 (downstream.js 가 채움) */
+    if (key.indexOf("downstream.") === 0)
+      return row.downstream ? row.downstream[key.slice(11)] : null;
     if (key.indexOf(".") > -1) {
       const p = key.split(".");
       return row.analytics && row.analytics[p[0]] ? row.analytics[p[0]][p[1]] : null;
@@ -171,7 +200,7 @@
     if (!sel.scopeId) {
       $("#count").textContent = "과제 미선택";
       $("#table-host").innerHTML =
-        '<div class="empty"><div class="empty-title">과제 또는 기반 Study를 선택하세요</div>' +
+        '<div class="empty"><div class="empty-title">과제를 선택하세요</div>' +
         '<div class="empty-body">상단 우측 셀렉터에서 선택하면 해당 범위의 데이터만 표시됩니다.</div></div>';
       $("#sample-bar").innerHTML = "";
       return;
@@ -305,17 +334,21 @@
     });
   }
 
-  /* ── 분석 그룹 필터 ─────────────────────────────────────────────────── */
-  function paintGroupFilter() {
-    const groups = [{ id: "all", label: "전체 항목" }].concat(
-      window.DATA_ANALYTE_GROUPS.filter(g => !g.empty && g.team === "analytics")
-        .map(g => ({ id: g.id, label: g.label })));
-    $("#group-filter").innerHTML = groups.map(g =>
-      '<button class="btn btn-ghost btn-sm" data-g="' + g.id + '"' +
-        (groupFilter === g.id ? ' style="background:var(--c-navy-700);color:#fff;border-color:var(--c-navy-700)"' : "") +
-        '>' + esc(g.label) + '</button>').join("");
+  /* ── Data 분류 빠른 선택 ────────────────────────────────────────────────
+     상단 셀렉터의 "Data 분류" 드롭다운과 **같은 상태**를 씁니다.
+     한쪽에서 고르면 다른 쪽도 함께 바뀝니다 — 필터가 두 개로 보이면
+     어느 쪽이 적용된 건지 알 수 없게 됩니다. */
+  function paintClassFilter() {
+    const sel = window.Scope.get();
+    const list = [{ id: null, label: "전체 항목" }]
+      .concat(window.Repo.getDataClasses(sel.team).map(c => ({ id: c.id, label: c.label })));
+    $("#group-filter").innerHTML = list.map(c =>
+      '<button class="btn btn-ghost btn-sm" data-g="' + esc(c.id || "") + '"' +
+        (sel.dataClass === c.id
+          ? ' style="background:var(--c-navy-700);color:#fff;border-color:var(--c-navy-700)"' : "") +
+        '>' + esc(c.label) + '</button>').join("");
     $$("[data-g]").forEach(b => b.addEventListener("click", () => {
-      groupFilter = b.dataset.g; paintGroupFilter(); render();
+      window.Scope.setFilter({ dataClass: b.dataset.g || null });
     }));
   }
 
@@ -354,9 +387,9 @@
   }
 
   window.StudySelector.mount($("#selector"));
-  window.Scope.subscribe(render);
+  window.Scope.subscribe(function () { paintClassFilter(); render(); });
   window.Entries.subscribe(render);
   $("#export").addEventListener("click", exportCSV);
-  paintGroupFilter();
+  paintClassFilter();
   render();
 })();
