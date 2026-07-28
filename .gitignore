@@ -1,0 +1,27 @@
+# Claude Code — 개인/기기별 설정
+# settings.json 은 공유용이므로 추적하고, .local.json 만 제외합니다.
+.claude/settings.local.json
+
+# OS · OneDrive 생성 파일
+desktop.ini
+Thumbs.db
+ehthumbs.db
+.DS_Store
+$RECYCLE.BIN/
+
+# 편집기
+.vscode/
+.idea/
+*.swp
+*~
+
+# 임시 · 빌드 산출물
+*.log
+*.tmp
+node_modules/
+dist/
+build/
+
+# Excel 임시 잠금 파일 (원본 .xlsx 는 추적합니다)
+~$*.xlsx
+~$*.xls

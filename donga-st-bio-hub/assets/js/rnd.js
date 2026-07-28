@@ -189,7 +189,7 @@ window.RND = (function () {
   ];
 
   /* -- AI canned responses ------------------------------------------------
-     Keyword-matched, not generated. See ai.js. */
+     Keyword-matched, not generated. See hub.js. */
   const AI_ANSWERS = [
     {
       match: ["titer", "3.5", "ph", "do", "배양", "조건"],

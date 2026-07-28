@@ -1,0 +1,30 @@
+# 줄바꿈 정규화
+#
+# 저장소에는 항상 LF 로 저장하고, 체크아웃 시 OS 기본에 맞춥니다.
+# 이렇게 해두면 Windows 에서 작업해도 "파일 전체가 바뀐 것처럼" 보이는
+# 문제가 생기지 않고, 다른 OS 와 공유해도 diff 가 깨끗합니다.
+* text=auto eol=lf
+
+# 명시적으로 텍스트인 파일
+*.html   text eol=lf
+*.css    text eol=lf
+*.js     text eol=lf
+*.json   text eol=lf
+*.md     text eol=lf
+*.txt    text eol=lf
+*.svg    text eol=lf
+
+# 바이너리 — 절대 변환하지 않음
+*.xlsx   binary
+*.xls    binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.pdf    binary
+*.woff   binary
+*.woff2  binary
+
+# 언어 통계에서 제외 (GitHub 등)
+donga-st-bio-hub/assets/js/data/batches.js linguist-generated=true

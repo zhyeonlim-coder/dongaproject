@@ -181,7 +181,7 @@
       '</form></div>';
   }
 
-  /* Same implicit-association pattern as ebr.js — a bare <label> without `for`
+  /* Same implicit-association pattern as ebr-page.js — a bare <label> without `for`
      leaves the control with no accessible name. */
   function cell(label, control) {
     return '<label class="ebr-cell"><span>' + esc(label) + '</span>' + control + '</label>';
