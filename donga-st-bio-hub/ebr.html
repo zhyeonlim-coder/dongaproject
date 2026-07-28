@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EBR 입력 · Bio Knowledge Hub — 동아에스티</title>
+<meta name="robots" content="noindex, nofollow">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기 · Skip to content</a>
+
+<div class="app">
+  <header class="topnav" id="topnav"></header>
+
+  <div class="body-grid">
+    <nav class="subnav" id="subnav" aria-label="팀 서식 선택"></nav>
+
+    <main class="main" id="main">
+
+      <div style="margin-bottom:var(--s-5)">
+        <p class="eyebrow" style="margin-bottom:6px">Electronic Batch Record</p>
+        <h1 style="font-size:22px">EBR 입력</h1>
+        <p style="font-size:13px;color:var(--c-text-mute);margin:6px 0 0">
+          과제 → Study → 팀 → Batch → Sample 순으로 대상을 지정합니다.
+          팀을 고르기 전에는 입력 폼이 열리지 않습니다.
+        </p>
+        <div class="crumb" id="crumb" style="margin-top:var(--s-3)"></div>
+      </div>
+
+      <div id="selector" style="margin-bottom:var(--s-4)"></div>
+
+      <div id="form-host"></div>
+
+      <footer class="rule-hair" style="margin-top:var(--s-8);padding-top:var(--s-5);
+                                       font-size:11.5px;color:var(--c-text-mute);line-height:1.7">
+        모든 입력은 작성자와 시각(초 단위)이 함께 기록되며, 수정 시 이전 값은 삭제되지 않고 이력으로 보존됩니다.<br>
+        입력 데이터는 브라우저 localStorage에 저장됩니다 — 이 기기에서만 유지되며 공유되지 않습니다.
+      </footer>
+    </main>
+
+    <aside class="rail" id="rail" aria-label="미니 캘린더 및 알림"></aside>
+  </div>
+</div>
+
+<script src="assets/js/data.js"></script>
+<script src="assets/js/auth.js"></script>
+
+<!-- Excel 데이터 계층만 사용 (lab.js · rnd.js · store.js 미사용) -->
+<script src="assets/js/data/labels.js"></script>
+<script src="assets/js/data/projects.js"></script>
+<script src="assets/js/data/studies.js"></script>
+<script src="assets/js/data/batches.js"></script>
+<script src="assets/js/data/entries.js"></script>
+<script src="assets/js/data/repo.js"></script>
+
+<script src="assets/js/charts.js"></script>
+<script src="assets/js/selection.js"></script>
+<script src="assets/js/shell2.js"></script>
+<script src="assets/js/study-selector.js"></script>
+<script src="assets/js/ebr-page.js"></script>
+</body>
+</html>

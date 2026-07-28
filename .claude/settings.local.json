@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\.claude\" -Force | Select-Object Name, Mode; Write-Output \"---SKILLS---\"; if \\(Test-Path \"$env:USERPROFILE\\\\.claude\\\\skills\"\\) { Get-ChildItem \"$env:USERPROFILE\\\\.claude\\\\skills\" | Select-Object Name } else { Write-Output \"no skills dir\" }; Write-Output \"---GIT---\"; \\(Get-Command git -ErrorAction SilentlyContinue\\).Source)"
+    ]
+  }
+}

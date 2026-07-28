@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>로그인 · Bio Knowledge Hub — Dong-A ST</title>
+<meta name="description" content="Dong-A ST Bio Knowledge Hub — 연구·임상·규제 지식 통합 플랫폼 (concept)">
+<meta name="robots" content="noindex, nofollow">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+
+<body>
+<a class="skip-link" href="#login-form">본문으로 건너뛰기 · Skip to form</a>
+
+<main class="login">
+
+  <!-- ── Brand panel ────────────────────────────────────────────────────── -->
+  <section class="login-brand on-dark well-plate" aria-labelledby="brand-h">
+
+    <header class="flex items-center gap-3">
+      <!-- LOGO SLOT: drop assets/img/logo.svg in and it replaces this mark. -->
+      <img class="brand-logo" src="assets/img/logo.svg" width="34" height="34" alt="동아에스티"
+           onload="var f=document.getElementById('lfa');if(f)f.remove();" onerror="this.remove();">
+      <svg id="lfa" class="brand-logo" width="34" height="34" viewBox="0 0 48 48" role="img" aria-label="동아에스티">
+        <circle cx="24" cy="24" r="21" fill="none" stroke="#E58F95" stroke-width="2.4"/>
+        <circle cx="24" cy="24" r="16.5" fill="none" stroke="#E58F95" stroke-width="1.4"/>
+        <path d="M24 9.5 32 24l-8 14.5L16 24z" fill="none" stroke="#E58F95" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M24 9.5V38.5" stroke="#E58F95" stroke-width="1.2"/>
+      </svg>
+      <div>
+        <div style="font-size:14px;font-weight:600;letter-spacing:-.01em">동아에스티</div>
+        <div class="eyebrow" style="color:#8FA2BB">Bio Knowledge Hub</div>
+      </div>
+    </header>
+
+    <div style="max-width:440px">
+      <p class="eyebrow" style="color:var(--c-accent-hi);margin-bottom:var(--s-4)">
+        연구 · 임상 · 규제 통합
+      </p>
+      <h1 id="brand-h" style="font-size:34px;line-height:1.3;font-weight:600;margin-bottom:var(--s-5)">
+        파이프라인의 모든 근거를<br>한 곳에서 확인합니다.
+      </h1>
+      <p style="font-size:14.5px;color:#B9C6D8;line-height:1.75">
+        탐색 단계의 초기 데이터부터 허가 제출 문서까지, 물질별로 흩어진 근거를
+        하나의 타임라인에서 추적합니다.
+      </p>
+      <p style="font-size:13px;color:#8FA2BB;margin-top:var(--s-3);line-height:1.65">
+        Track every piece of evidence behind a compound — from discovery assays
+        to the regulatory dossier — on one timeline.
+      </p>
+    </div>
+
+    <!-- Signature motif: the pipeline rail, previewed as a static ladder -->
+    <div aria-hidden="true">
+      <div class="eyebrow" style="color:#8FA2BB;margin-bottom:var(--s-3)">Pipeline gates</div>
+      <div style="display:flex;gap:6px;align-items:flex-end;height:52px">
+        <div style="flex:1;height:24%;background:var(--p-discovery);border-radius:2px"></div>
+        <div style="flex:1;height:36%;background:var(--p-preclin);border-radius:2px"></div>
+        <div style="flex:1;height:48%;background:var(--p-ph1);border-radius:2px"></div>
+        <div style="flex:1;height:62%;background:var(--p-ph2);border-radius:2px"></div>
+        <div style="flex:1;height:76%;background:var(--p-ph3);border-radius:2px"></div>
+        <div style="flex:1;height:88%;background:var(--p-filed);border-radius:2px"></div>
+        <div style="flex:1;height:100%;background:var(--p-market);border-radius:2px"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:var(--s-2);
+                  font-family:var(--font-data);font-size:10px;color:#8FA2BB">
+        <span>탐색</span><span>시판</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Form panel ─────────────────────────────────────────────────────── -->
+  <section class="login-form-pane">
+    <div class="login-form rise">
+
+      <!-- Visible on mobile, where the brand panel is hidden -->
+      <div class="flex items-center gap-3 mb-8" style="display:flex">
+        <img class="brand-logo" src="assets/img/logo.svg" width="30" height="30" alt="동아에스티"
+             onload="var f=document.getElementById('lfb');if(f)f.remove();" onerror="this.remove();">
+        <svg id="lfb" class="brand-logo" width="30" height="30" viewBox="0 0 48 48" role="img" aria-label="동아에스티">
+          <circle cx="24" cy="24" r="21" fill="none" stroke="#D97B83" stroke-width="2.4"/>
+          <circle cx="24" cy="24" r="16.5" fill="none" stroke="#D97B83" stroke-width="1.4"/>
+          <path d="M24 9.5 32 24l-8 14.5L16 24z" fill="none" stroke="#D97B83" stroke-width="2.1" stroke-linejoin="round"/>
+          <path d="M24 9.5V38.5" stroke="#D97B83" stroke-width="1.2"/>
+        </svg>
+        <div>
+          <div style="font-size:13.5px;font-weight:600">동아에스티</div>
+          <div class="eyebrow">Bio Knowledge Hub</div>
+        </div>
+      </div>
+
+      <h2 style="font-size:22px;margin-bottom:var(--s-2)">로그인</h2>
+      <p style="font-size:13.5px;color:var(--c-text-mute);margin:0 0 var(--s-6)">
+        사내 계정으로 접속하세요 · Sign in with your company account
+      </p>
+
+      <form id="login-form" novalidate>
+
+        <div class="field" style="margin-bottom:var(--s-5)">
+          <label class="field-label" for="email">이메일 · Email</label>
+          <input class="input" type="email" id="email" name="email"
+                 autocomplete="username" placeholder="name@donga-st.demo"
+                 aria-describedby="email-err">
+          <p class="field-error" id="email-err" role="alert"></p>
+        </div>
+
+        <div class="field" style="margin-bottom:var(--s-5)">
+          <label class="field-label" for="password">비밀번호 · Password</label>
+          <div style="position:relative">
+            <input class="input" type="password" id="password" name="password"
+                   autocomplete="current-password" style="padding-right:52px"
+                   aria-describedby="pw-err">
+            <button type="button" id="pw-toggle" class="btn-icon"
+                    style="position:absolute;right:2px;top:50%;transform:translateY(-50%);width:42px;height:42px"
+                    aria-label="비밀번호 표시 · Show password" aria-pressed="false">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+          <p class="field-error" id="pw-err" role="alert"></p>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s-6)">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="remember" style="width:16px;height:16px;accent-color:var(--c-navy-700)">
+            <span>로그인 상태 유지</span>
+          </label>
+          <a href="#" style="font-size:13px;font-weight:600;color:var(--c-navy-700)"
+             onclick="event.preventDefault()">비밀번호 재설정</a>
+        </div>
+
+        <button class="btn btn-primary" type="submit" id="submit-btn" style="width:100%">
+          <span id="submit-label">로그인 · Sign in</span>
+        </button>
+
+        <p class="field-error" id="form-err" role="alert" style="margin-top:var(--s-4)"></p>
+      </form>
+
+      <div class="rule-hair" style="margin:var(--s-8) 0 var(--s-5)"></div>
+
+      <!-- Demo affordance: this is a concept build with no real auth. -->
+      <div class="demo-note">
+        <div style="font-weight:700;margin-bottom:6px">데모 계정 · Demo accounts</div>
+        <div style="display:grid;gap:5px">
+          <button class="mono demo-fill" data-email="s.park@donga-st.demo"
+                  style="text-align:left;background:none;border:0;padding:0;cursor:pointer;font-size:12px;color:#0C4A6E;text-decoration:underline">
+            s.park@donga-st.demo — 연구개발 / R&amp;D
+          </button>
+          <button class="mono demo-fill" data-email="j.kim@donga-st.demo"
+                  style="text-align:left;background:none;border:0;padding:0;cursor:pointer;font-size:12px;color:#0C4A6E;text-decoration:underline">
+            j.kim@donga-st.demo — 메디컬 / Medical Affairs
+          </button>
+          <button class="mono demo-fill" data-email="h.lee@donga-st.demo"
+                  style="text-align:left;background:none;border:0;padding:0;cursor:pointer;font-size:12px;color:#0C4A6E;text-decoration:underline">
+            h.lee@donga-st.demo — 규제 / Regulatory
+          </button>
+        </div>
+        <div style="margin-top:8px">비밀번호 · Password: <b class="mono">hub2026</b></div>
+      </div>
+
+      <p style="font-size:11.5px;color:var(--c-text-soft);margin-top:var(--s-5);line-height:1.6">
+        디자인 컨셉 시안입니다. 실제 인증이 아니며 모든 데이터는 예시입니다.<br>
+        Concept design. Not real authentication; all data is illustrative.
+      </p>
+    </div>
+  </section>
+</main>
+
+<script src="assets/js/data.js"></script>
+<script src="assets/js/auth.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  const form   = document.getElementById("login-form");
+  const email  = document.getElementById("email");
+  const pw     = document.getElementById("password");
+  const btn    = document.getElementById("submit-btn");
+  const label  = document.getElementById("submit-label");
+
+  // Already signed in? Go straight through.
+  if (window.Auth.current()) window.location.replace("dashboard.html");
+
+  function setError(input, elId, msg) {
+    const el = document.getElementById(elId);
+    if (msg) {
+      el.textContent = msg;
+      el.classList.add("is-shown");
+      if (input) input.setAttribute("aria-invalid", "true");
+    } else {
+      el.textContent = "";
+      el.classList.remove("is-shown");
+      if (input) input.removeAttribute("aria-invalid");
+    }
+  }
+
+  function clearAll() {
+    setError(email, "email-err", "");
+    setError(pw, "pw-err", "");
+    setError(null, "form-err", "");
+  }
+
+  // Show/hide password
+  const toggle = document.getElementById("pw-toggle");
+  toggle.addEventListener("click", function () {
+    const shown = pw.type === "text";
+    pw.type = shown ? "password" : "text";
+    toggle.setAttribute("aria-pressed", String(!shown));
+    toggle.setAttribute("aria-label",
+      shown ? "비밀번호 표시 · Show password" : "비밀번호 숨기기 · Hide password");
+    pw.focus();
+  });
+
+  // Demo account shortcuts
+  document.querySelectorAll(".demo-fill").forEach(function (b) {
+    b.addEventListener("click", function () {
+      email.value = b.dataset.email;
+      pw.value = window.HUB.DEMO_PASSWORD;
+      clearAll();
+      pw.focus();
+    });
+  });
+
+  // Clear a field's error as soon as the user starts fixing it
+  email.addEventListener("input", function () { setError(email, "email-err", ""); });
+  pw.addEventListener("input", function () { setError(pw, "pw-err", ""); });
+
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    clearAll();
+
+    let bad = false;
+    if (!email.value.trim()) { setError(email, "email-err", "이메일을 입력하세요 · Enter your email"); bad = true; }
+    if (!pw.value)           { setError(pw, "pw-err", "비밀번호를 입력하세요 · Enter your password"); bad = true; }
+    if (bad) { (email.value.trim() ? pw : email).focus(); return; }
+
+    // Loading feedback — never an instant, unexplained state change.
+    btn.disabled = true;
+    label.textContent = "확인 중… · Checking…";
+
+    setTimeout(function () {
+      const res = window.Auth.signIn(email.value, pw.value);
+      if (res.ok) {
+        label.textContent = "이동 중… · Redirecting…";
+        window.location.href = "dashboard.html";
+        return;
+      }
+      btn.disabled = false;
+      label.textContent = "로그인 · Sign in";
+
+      if (res.field === "email") { setError(email, "email-err", res.msg); email.focus(); }
+      else                       { setError(pw, "pw-err", res.msg); pw.focus(); }
+    }, 550);
+  });
+})();
+</script>
+</body>
+</html>
