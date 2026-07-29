@@ -27,6 +27,13 @@
   let batchId = null;
   let sampleId = null;      // null = Batch 단위 입력
 
+  /* "form" = 팀 서식 입력 · "requests" = 분석 및 시료 관리
+     대시보드 카드에서 ebr.html#requests 로 바로 들어옵니다 (딥링크) */
+  let mode = (location.hash || "").replace("#", "") === "requests" ? "requests" : "form";
+  let reqTab = "queue";     // "queue" | "storage"
+  let reqOpen = null;
+  let reqFilter = "open";
+
   /* ── 팀별 필드 세트 ─────────────────────────────────────────────────── */
   const FIELDS = {
     upstream: function () {
@@ -109,10 +116,18 @@
     return { value: excelValue(batch, f.src), rec: null, fromExcel: true };
   }
 
-  /* ── 렌더 ───────────────────────────────────────────────────────────── */
+  /* ── 렌더 ──────────────────────────────────────────────────────────────
+     폼 렌더는 배치를 비동기로 받아 그립니다. 그 사이에 다른 렌더가 시작되면
+     먼저 시작한 쪽이 나중에 끝나 화면을 덮어씁니다 — 의뢰를 등록하자마자
+     큐로 넘어가야 하는데 폼이 다시 그려지는 식입니다.
+     그래서 렌더마다 번호를 붙이고, 결과가 돌아왔을 때 내가 최신인지 확인합니다. */
+  let renderSeq = 0;
+
   function render() {
+    const my = ++renderSeq;
     const sel = window.Scope.get();
     const desc = window.Scope.describe();
+    paintSubnav();
 
     $("#crumb").innerHTML = desc.path.length
       ? desc.path.map((p, i) => (i ? '<span class="crumb-sep">›</span>' : "") +
@@ -121,6 +136,10 @@
         (sampleId ? '<span class="crumb-sep">›</span><span>' +
           esc((E.getSamples(batchId).find(s => s.id === sampleId) || {}).name || "") + '</span>' : "")
       : '<span style="color:var(--c-text-mute)">과제를 선택하세요</span>';
+
+    /* 분석 및 시료 관리 — 예전 '분석 의뢰' 화면을 이 탭 안으로 흡수했습니다.
+       데이터 입력과 시료 인계는 같은 사람이 이어서 하는 일이라 한 메뉴에 둡니다. */
+    if (mode === "requests") { renderRequests(); return; }
 
     if (!sel.scopeId) { gate("상단에서 과제를 선택하세요."); return; }
     if (!window.Scope.skipsStudyStep() && !sel.studyId) {
@@ -131,6 +150,7 @@
     }
 
     window.Scope.batches().then(function (batches) {
+      if (my !== renderSeq) return;          // 더 최근 렌더가 이미 그렸습니다
       if (!batches.length) { gate(L.noResult + " " + L.noResultHint); return; }
       if (!batchId || !batches.some(b => b.id === batchId)) batchId = batches[0].id;
       const batch = batches.find(b => b.id === batchId);
@@ -257,6 +277,10 @@
             (s.stage ? " · " + esc(s.stage) : "") + '</option>').join("") +
         '</select></label>' +
       '<button class="btn btn-ghost btn-sm" id="new-sample">' + esc(L.ui.addSample) + '</button>' +
+      /* 시료를 넘기는 동작은 어느 배치·시료인지 정해진 이 자리에서 시작해야
+         실수가 없습니다. 그래서 별도 화면이 아니라 여기 모달로 둡니다. */
+      '<button class="btn btn-ghost btn-sm" id="req-open" style="border-color:#0F766E;color:#0F766E">' +
+        '분석 의뢰하기</button>' +
     '</div>';
   }
 
@@ -279,6 +303,12 @@
       if (!r.ok) { window.alert(r.reason); return; }
       sampleId = r.sample.id;
       render();
+    });
+    const ro = $("#req-open");
+    if (ro) ro.addEventListener("click", function () {
+      const batch = batches.find(b => b.id === batchId);
+      if (!batch) return;
+      openRequestModal(batch, window.Repo.samplesOfBatch(batchId));
     });
   }
 
@@ -404,7 +434,7 @@
       '<p style="font-size:11.5px;color:var(--c-text-mute);margin:var(--s-3) 0 0;line-height:1.7">' +
         '유효기간은 <b>' + esc(ref || "배치 일자 미상") + '</b> 기준입니다 — ' +
         '오늘이 아니라 이 배치를 돌린 날에 유효했는지가 질문이기 때문입니다.<br>' +
-        '이상이 있으면 <a href="knowledge.html">연구 지식</a>에 기록해 두세요 — ' +
+        '이상이 있으면 <a href="hub.html#wiki">연구 지식</a>에 기록해 두세요 — ' +
         '같은 lot 을 쓴 다른 배치에서 같은 일이 생겼을 때 바로 찾을 수 있습니다.</p>' +
       '</div></details>';
   }
@@ -558,6 +588,362 @@
     return "saved";
   }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     분석 및 시료 관리 — 예전 '분석 의뢰' 화면을 EBR 안으로 옮긴 것
+
+     시료를 넘기는 일은 데이터를 넣는 일과 이어져 있습니다. 배양 값을 적고
+     그 자리에서 시료를 분석팀에 넘기는 흐름이라, 별도 메뉴로 떼어 놓으면
+     화면을 옮겨 다니게 됩니다.
+
+     의뢰 작성은 여기가 아니라 **입력 폼의 [분석 의뢰하기]** 에서 합니다 —
+     어느 배치·시료를 넘기는지가 이미 정해진 자리에서 시작해야 실수가 없습니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  const Q = window.Requests;
+  const TEST_LABEL = {};
+  window.DATA_ANALYTE_GROUPS.forEach(g => {
+    if (g.team === "analytics" && !g.empty) TEST_LABEL[g.id] = g.label;
+  });
+
+  function sampleNames(r) {
+    return (r.sampleIds || []).map(function (id) {
+      const s = (window.DATA_SAMPLES || []).find(x => x.id === id);
+      return s ? s.name : id;
+    });
+  }
+
+  function dueBadge(r) {
+    const d = Q.due(r);
+    if (!d) return "";
+    const txt = d.state === "over" ? "기한 " + (-d.days) + "일 초과"
+              : d.days === 0 ? "오늘 마감" : "D-" + d.days;
+    const tone = d.state === "over" ? "risk" : (d.state === "today" || d.state === "soon") ? "warn" : "";
+    return '<span class="badge' + (tone ? " badge-" + tone : "") + '" style="font-size:10px">' +
+      esc(txt) + '</span>';
+  }
+
+  function renderRequests() {
+    const sel = window.Scope.get();
+    $("#form-host").innerHTML =
+      '<div class="track-tabs" style="grid-template-columns:none;display:flex;flex-wrap:wrap;' +
+        'margin-bottom:var(--s-4)">' +
+        [["queue", "의뢰 큐"], ["storage", "시료 보관"]].map(x =>
+          '<button class="track-tab" data-rtab="' + x[0] + '" aria-selected="' + (reqTab === x[0]) + '" ' +
+          'style="min-height:36px;padding:0 var(--s-5)">' + esc(x[1]) + '</button>').join("") +
+      '</div>' +
+      (reqTab === "queue" ? queueView(sel) : storageView(sel));
+    wireRequests();
+  }
+
+  function queueView(sel) {
+    let list = Q.forSelection(sel);
+    if (reqFilter === "open") list = list.filter(Q.isOpen);
+    const byStatus = {};
+    Q.forSelection(sel).forEach(r => { byStatus[r.status] = (byStatus[r.status] || 0) + 1; });
+
+    return '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:var(--s-4)">' +
+        Q.FLOW.map(function (s) {
+          const st = Q.STATUS[s];
+          return '<span class="badge badge-' + st.tone + '">' + esc(st.ko) +
+            ' <b>' + (byStatus[s] || 0) + '</b></span>';
+        }).join("") +
+        (byStatus.rejected ? '<span class="badge badge-risk">반려 <b>' + byStatus.rejected + '</b></span>' : "") +
+        '<button class="btn btn-ghost btn-sm" id="q-filter" style="margin-left:auto">' +
+          (reqFilter === "open" ? "진행 중만 보는 중" : "전체 보는 중") + '</button>' +
+      '</div>' +
+      (list.length ? list.map(reqCard).join("")
+        : '<div class="empty"><div class="empty-title">' + esc(L.noResult) + '</div>' +
+          '<div class="empty-body">진행 중인 의뢰가 없습니다. ' +
+          '팀 서식에서 시료를 고른 뒤 [분석 의뢰하기]로 만들 수 있습니다.</div></div>');
+  }
+
+  function reqCard(r) {
+    const st = Q.STATUS[r.status];
+    const open = reqOpen === r.id;
+    const tone = st.tone === "accent" ? "accent" : st.tone === "risk" ? "risk"
+               : st.tone === "ok" ? "ok" : "warn";
+    return '<section class="card" style="margin-bottom:var(--s-3);border-left:3px solid var(--c-' + tone + ')">' +
+      '<div class="card-head" style="flex-wrap:wrap;gap:var(--s-3);cursor:pointer" ' +
+        'data-ropen="' + esc(r.id) + '"><div style="min-width:0">' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">' +
+          '<span class="mono" style="font-weight:700;font-size:13px">' + esc(r.id) + '</span>' +
+          '<span class="badge badge-' + st.tone + '">' + esc(st.ko) + '</span>' +
+          (r.priority === "urgent" ? '<span class="badge badge-risk">긴급</span>' : "") +
+          dueBadge(r) +
+        '</div>' +
+        '<h2 class="card-title" style="font-size:14px">' + esc(r.purpose) + '</h2>' +
+        '<p class="card-sub">시료 ' + sampleNames(r).map(esc).join(", ") +
+          ' · 시험 ' + (r.tests || []).map(t => esc(TEST_LABEL[t] || t)).join(", ") +
+          ' · 의뢰 ' + esc(r.requestedBy) + '</p></div>' +
+        reqActions(r) +
+      '</div>' +
+      (open ? reqDetail(r) : "") + '</section>';
+  }
+
+  function reqActions(r) {
+    const st = Q.STATUS[r.status];
+    const btns = [];
+    if (st.next) btns.push('<button class="btn btn-accent btn-sm" data-radv="' + esc(r.id) +
+      '" data-to="' + st.next + '">' + esc(Q.STATUS[st.next].ko) + ' 처리</button>');
+    if (Q.isOpen(r) && r.status !== "requested")
+      btns.push('<button class="btn btn-ghost btn-sm" data-rrej="' + esc(r.id) + '">반려</button>');
+    if (!btns.length) return "";
+    return '<div style="display:flex;gap:var(--s-2);flex-wrap:wrap" onclick="event.stopPropagation()">' +
+      btns.join("") + '</div>';
+  }
+
+  function reqDetail(r) {
+    const kv = (k, v) => '<div class="ebr-cell"><span>' + esc(k) + '</span>' +
+      '<div class="mono" style="font-size:13px;padding-top:4px">' + esc(v) + '</div></div>';
+    const teamKo = id => { const t = window.DATA_TEAMS.find(x => x.id === id); return t ? t.ko : (id || "—"); };
+
+    return '<div class="card-body" style="border-top:1px solid var(--c-border)">' +
+      '<div class="ebr-grid" style="margin-bottom:var(--s-4)">' +
+        kv("의뢰자", r.requestedBy + " · " + teamKo(r.requestedTeam)) +
+        kv("의뢰일", String(r.requestedAt || "").replace("T", " ")) +
+        kv("희망 기한", r.dueAt || "—") +
+        kv("담당", r.assignedTo || "미배정") + '</div>' +
+      (r.note ? '<p style="font-size:13px;line-height:1.75;margin:0 0 var(--s-4)">' + esc(r.note) + '</p>' : "") +
+
+      '<div class="eyebrow" style="margin-bottom:var(--s-2)">시료</div>' +
+      '<div style="display:grid;gap:var(--s-2);margin-bottom:var(--s-4)">' +
+        (r.sampleIds || []).map(function (id) {
+          const s = (window.DATA_SAMPLES || []).find(x => x.id === id);
+          if (!s) return '<div class="drop-file"><span class="mono">' + esc(id) + '</span></div>';
+          const st = s.storage;
+          return '<div class="drop-file" style="justify-content:flex-start">' +
+            '<span class="mono" style="font-weight:600">' + esc(s.name) + '</span>' +
+            '<span style="color:var(--c-text-mute)">' + esc(s.stage || "") + '</span>' +
+            (st ? '<span class="mono" style="margin-left:auto;color:var(--c-text-mute)">' +
+              esc(st.freezer + " " + st.rack + " " + st.box + " " + st.pos) + '</span>' : "") +
+            '<button class="btn btn-ghost btn-sm" data-rgo="' + esc(s.batchId) + '|' + esc(s.id) + '">' +
+              '결과 입력</button></div>';
+        }).join("") + '</div>' +
+
+      '<div class="eyebrow" style="margin-bottom:var(--s-2)">처리 이력</div>' +
+      (r.history || []).slice().reverse().map(function (h) {
+        const st = Q.STATUS[h.status] || { ko: h.status };
+        return '<div class="rail-event">' +
+          '<span class="rail-event-bar" style="background:var(--c-accent)"></span>' +
+          '<span style="min-width:0;flex:1">' +
+            '<span style="display:block;font-size:12.5px;font-weight:500">' + esc(st.ko) + '</span>' +
+            '<span class="mono" style="display:block;font-size:10.5px;color:var(--c-text-mute)">' +
+              esc(h.by) + ' · ' + esc(String(h.at).replace("T", " ")) + '</span>' +
+            (h.note ? '<span style="display:block;font-size:11.5px;color:var(--c-text-mute);' +
+              'margin-top:2px">' + esc(h.note) + '</span>' : "") +
+          '</span></div>';
+      }).join("") + '</div>';
+  }
+
+  function storageView(sel) {
+    const ids = sel.scopeId ? window.Repo.studiesInScope(sel).map(x => x.id) : null;
+    const batches = window.DATA_BATCHES.filter(b => !ids || ids.indexOf(b.studyId) > -1);
+    const rows = [];
+    batches.forEach(b => window.Repo.samplesOfBatch(b.id).forEach(s => rows.push(s)));
+    if (!rows.length) return '<div class="empty"><div class="empty-title">' + esc(L.noResult) + '</div></div>';
+
+    const byFreezer = {};
+    rows.forEach(function (s) {
+      const f = s.storage ? s.storage.freezer : "미지정";
+      (byFreezer[f] = byFreezer[f] || []).push(s);
+    });
+
+    return '<label class="ebr-cell" style="max-width:360px;margin-bottom:var(--s-4)">' +
+        '<span>시료 · 위치 검색</span>' +
+        '<input class="ebr-input" id="st-q" type="search" placeholder="예: B123-3, FR-01, R3, B07"></label>' +
+      Object.keys(byFreezer).sort().map(function (f) {
+        const list = byFreezer[f];
+        return '<section class="card" style="margin-bottom:var(--s-4)">' +
+          '<div class="card-head"><div><h2 class="card-title">' + esc(f) + '</h2>' +
+          '<p class="card-sub">' + list.length + '개 시료 · -80 °C</p></div></div>' +
+          '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
+            '<th scope="col">시료</th><th scope="col">채취 시점</th><th scope="col">위치</th>' +
+            '<th scope="col">분취</th><th scope="col">잔량</th><th scope="col">동결-해동</th>' +
+            '<th scope="col">의뢰</th><th scope="col"></th></tr></thead><tbody>' +
+          list.map(function (s) {
+            const st = s.storage || {};
+            const openReq = Q.forSample(s.id).filter(Q.isOpen);
+            const ft = st.freezeThaw || 0;
+            return '<tr data-strow="' + esc((s.name + " " + s.batchId + " " + st.freezer + " " +
+                st.rack + " " + st.box + " " + st.pos).toLowerCase()) + '">' +
+              '<td class="mono" style="font-weight:600">' + esc(s.name) + '</td>' +
+              '<td>' + esc(s.stage || L.empty) + '</td>' +
+              '<td class="mono">' + esc([st.rack, st.box, st.pos].filter(Boolean).join(" · ") || L.empty) + '</td>' +
+              '<td class="mono">' + (st.aliquots != null ? st.aliquots + " 개" : L.empty) + '</td>' +
+              '<td class="mono">' + (st.volumeMl != null ? st.volumeMl + " mL" : L.empty) + '</td>' +
+              '<td class="mono"' + (ft >= 2 ? ' style="color:var(--c-risk);font-weight:600"' : "") + '>' +
+                ft + ' 회</td>' +
+              '<td>' + (openReq.length ? '<span class="badge badge-warn" style="font-size:10px">' +
+                esc(openReq[0].id) + '</span>' : "—") + '</td>' +
+              '<td><button class="btn btn-ghost btn-sm" data-rgo="' + esc(s.batchId) + '|' + esc(s.id) + '">' +
+                '결과 입력</button></td></tr>';
+          }).join("") + '</tbody></table></div></section>';
+      }).join("") +
+      '<p style="font-size:11.5px;color:var(--c-text-mute);line-height:1.7">' +
+        '동결-해동 2회 이상은 붉게 표시합니다 — 반복 해동은 응집체와 분해산물을 늘립니다.<br>' +
+        '보관 위치·잔량은 원본 Excel에 없어 시료 ID에서 생성한 값입니다.</p>';
+  }
+
+  function wireRequests() {
+    $$("[data-rtab]").forEach(b => b.addEventListener("click", function () {
+      reqTab = b.dataset.rtab; render();
+    }));
+    const f = $("#q-filter");
+    if (f) f.addEventListener("click", function () {
+      reqFilter = reqFilter === "open" ? "all" : "open"; render();
+    });
+    $$("[data-ropen]").forEach(b => b.addEventListener("click", function () {
+      reqOpen = reqOpen === b.dataset.ropen ? null : b.dataset.ropen; render();
+    }));
+    $$("[data-radv]").forEach(b => b.addEventListener("click", function (e) {
+      e.stopPropagation();
+      const r = Q.advance(b.dataset.radv, b.dataset.to, "");
+      if (!r.ok) window.alert(r.reason);
+      render();
+    }));
+    $$("[data-rrej]").forEach(b => b.addEventListener("click", function (e) {
+      e.stopPropagation();
+      const why = window.prompt("반려 사유를 입력하세요\n(사유 없이 돌려보내면 의뢰자가 손쓸 방법이 없습니다)");
+      if (why === null) return;
+      const r = Q.advance(b.dataset.rrej, "rejected", why);
+      if (!r.ok) { window.alert(r.reason); return; }
+      render();
+    }));
+    /* 시료에서 바로 결과 입력으로 — 분석팀의 실제 동선입니다 */
+    $$("[data-rgo]").forEach(b => b.addEventListener("click", function (e) {
+      e.stopPropagation();
+      const p = b.dataset.rgo.split("|");
+      batchId = p[0]; sampleId = p[1];
+      mode = "form";
+      location.hash = "";
+      window.Scope.setTeam("analytics");
+      render();
+    }));
+    const q = $("#st-q");
+    if (q) q.addEventListener("input", function () {
+      const term = this.value.trim().toLowerCase();
+      $$("[data-strow]").forEach(function (tr) {
+        tr.style.display = (!term || tr.dataset.strow.indexOf(term) > -1) ? "" : "none";
+      });
+    });
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     [분석 의뢰하기] 모달 — 입력 폼 안에서 시료를 바로 넘깁니다
+     ══════════════════════════════════════════════════════════════════════ */
+  function openRequestModal(batch, samples) {
+    const old = document.getElementById("req-modal");
+    if (old) old.remove();
+
+    const today = window.HubCalendar ? window.HubCalendar.today() : "";
+    const due = window.HubCalendar ? window.HubCalendar.addDays(today, 5) : "";
+    const team = window.Scope.get().team;
+
+    const d = document.createElement("div");
+    d.className = "modal";
+    d.id = "req-modal";
+    d.setAttribute("role", "dialog");
+    d.setAttribute("aria-modal", "true");
+    d.setAttribute("aria-label", "분석 의뢰하기");
+    d.innerHTML =
+      '<div class="modal-box">' +
+        '<div class="modal-head">' +
+          '<div><h2 class="card-title">분석 의뢰하기</h2>' +
+          '<p class="card-sub">' + esc(batch.id) + ' 의 시료를 분석팀에 넘깁니다</p></div>' +
+          '<button class="btn-icon" id="rm-x" aria-label="닫기" style="margin-left:auto">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+            'stroke-width="2.4"><path d="M18 6 6 18M6 6l12 12"/></svg></button>' +
+        '</div>' +
+        '<form class="modal-body" id="rm-form">' +
+          '<div class="eyebrow" style="margin-bottom:var(--s-2)">시료 (' + samples.length + '건)</div>' +
+          (samples.length
+            ? '<div class="req-samples" style="max-height:190px">' + samples.map(function (s) {
+                const openReq = Q.forSample(s.id).filter(Q.isOpen).length;
+                return '<label class="req-sample">' +
+                  '<input type="checkbox" data-msmp="' + esc(s.id) + '"' +
+                    (s.id === sampleId ? " checked" : "") + '>' +
+                  '<span style="min-width:0;flex:1">' +
+                    '<span class="mono" style="font-weight:600;font-size:12.5px">' + esc(s.name) + '</span>' +
+                    '<span style="display:block;font-size:11px;color:var(--c-text-mute)">' +
+                      esc(s.stage || "채취 시점 미입력") +
+                      (s.storage ? " · " + esc(s.storage.freezer + " " + s.storage.rack + " " +
+                        s.storage.box + " " + s.storage.pos) : "") + '</span></span>' +
+                  (openReq ? '<span class="badge badge-warn" style="font-size:10px">의뢰 중</span>' : "") +
+                '</label>';
+              }).join("") + '</div>'
+            : '<p style="font-size:12.5px;color:var(--c-text-mute)">이 배치에 시료가 없습니다. ' +
+              '먼저 [+ 새 Sample 추가]로 시료를 만드세요.</p>') +
+
+          '<div class="eyebrow" style="margin:var(--s-4) 0 var(--s-2)">시험 항목</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+            Object.keys(TEST_LABEL).map(k =>
+              '<label class="mm-chip" style="cursor:pointer">' +
+                '<input type="checkbox" data-mtest="' + esc(k) + '" style="margin-right:6px">' +
+                esc(TEST_LABEL[k]) + '</label>').join("") + '</div>' +
+
+          '<div class="ebr-grid" style="margin-top:var(--s-4)">' +
+            '<label class="ebr-cell" style="grid-column:1/-1"><span>의뢰 목적 (필수)</span>' +
+              '<input class="ebr-input" id="rm-purpose" ' +
+                'placeholder="예: CEX 용출 조건 비교 — 중간 단계 순도 확인"></label>' +
+            '<label class="ebr-cell"><span>희망 기한</span>' +
+              '<input class="ebr-input mono" id="rm-due" type="date" value="' + esc(due) + '"></label>' +
+            '<label class="ebr-cell"><span>우선순위</span>' +
+              '<select class="ebr-input" id="rm-priority">' +
+                '<option value="normal">일반</option><option value="urgent">긴급</option></select></label>' +
+            '<label class="ebr-cell" style="grid-column:1/-1"><span>전달 사항</span>' +
+              '<input class="ebr-input" id="rm-note" ' +
+                'placeholder="예: 이 배치는 Harvest 생존율이 낮았습니다 — 불순물 확인 필요"></label>' +
+          '</div>' +
+          '<p class="field-error" id="rm-err" role="alert" style="margin-top:var(--s-3)"></p>' +
+        '</form>' +
+        '<div class="modal-foot">' +
+          '<button class="btn btn-ghost" id="rm-cancel">취소</button>' +
+          '<button class="btn btn-accent" id="rm-submit">의뢰 등록</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(d);
+    document.body.classList.add("modal-open");
+
+    const close = function () {
+      d.remove();
+      document.body.classList.remove("modal-open");
+      document.removeEventListener("keydown", onKey, true);
+    };
+    function onKey(e) {
+      if (e.key !== "Escape") return;
+      const t = (e.target.tagName || "");
+      if (/^(INPUT|SELECT|TEXTAREA)$/.test(t)) { e.target.blur(); e.preventDefault(); return; }
+      close(); e.preventDefault();
+    }
+    document.addEventListener("keydown", onKey, true);
+
+    d.querySelector("#rm-x").addEventListener("click", close);
+    d.querySelector("#rm-cancel").addEventListener("click", close);
+    d.addEventListener("click", function (e) { if (e.target === d) close(); });
+
+    d.querySelector("#rm-submit").addEventListener("click", function () {
+      const err = d.querySelector("#rm-err");
+      const res = Q.create({
+        sampleIds: $$("[data-msmp]", d).filter(c => c.checked).map(c => c.dataset.msmp),
+        tests: $$("[data-mtest]", d).filter(c => c.checked).map(c => c.dataset.mtest),
+        purpose: d.querySelector("#rm-purpose").value,
+        note: d.querySelector("#rm-note").value,
+        dueAt: d.querySelector("#rm-due").value,
+        priority: d.querySelector("#rm-priority").value,
+        requestedTeam: team === "analytics" ? "downstream" : team
+      });
+      if (!res.ok) { err.textContent = res.reason; err.classList.add("is-shown"); return; }
+      close();
+      reqOpen = res.request.id;
+      reqTab = "queue";
+      mode = "requests";
+      location.hash = "requests";
+      render();
+    });
+
+    setTimeout(() => { const p = d.querySelector("#rm-purpose"); if (p) p.focus(); }, 40);
+  }
+
   /* ── 급변 · 편차 경고 ───────────────────────────────────────────────────
      일자별 Titer 는 전일 값과, 그 외 항목은 같은 Study 다른 배치와 견줍니다.
      원본이 스캔본 전사라 자리수·단위 오타가 실제로 들어올 수 있는 데이터입니다. */
@@ -708,19 +1094,31 @@
   /* ── 서브메뉴: 팀 전환 ──────────────────────────────────────────────── */
   function paintSubnav() {
     const sel = window.Scope.get();
+    const openReq = window.Requests.forSelection(sel).filter(window.Requests.isOpen).length;
     window.Shell.subnav([
       { label: "팀 서식", items: window.DATA_TEAMS.map(t => ({
-        key: t.id, ko: t.ko, active: sel.team === t.id, color: t.color })) },
+        key: t.id, ko: t.ko, active: mode === "form" && sel.team === t.id, color: t.color })) },
+      { label: "인계", items: [
+        { key: "__requests", ko: "분석 및 시료 관리",
+          active: mode === "requests", count: openReq || null, color: "#0F766E" }
+      ]},
       { label: "바로가기", items: [
         { ko: "대시보드", href: "dashboard.html" },
-        { ko: "데이터 조회", href: "data.html" }
+        { ko: "데이터 조회", href: "data.html" },
+        { ko: "DoE & Intelligence", href: "hub.html" }
       ]}
-    ], k => window.Scope.setTeam(k));
+    ], function (k) {
+      if (k === "__requests") { mode = "requests"; location.hash = "requests"; render(); return; }
+      mode = "form";
+      if (location.hash) location.hash = "";
+      window.Scope.setTeam(k);
+      render();
+    });
   }
 
   window.StudySelector.mount($("#selector"));
-  window.Scope.subscribe(function () { batchId = null; sampleId = null; paintSubnav(); render(); });
+  window.Scope.subscribe(function () { batchId = null; sampleId = null; render(); });
   window.Entries.subscribe(render);
-  paintSubnav();
+  window.Requests.subscribe(render);
   render();
 })();

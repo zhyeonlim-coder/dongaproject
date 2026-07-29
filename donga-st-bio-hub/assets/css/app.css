@@ -1759,31 +1759,123 @@ tr.is-picked:hover > td { background: var(--c-accent-bg-2); }
 .reason-ctl .ebr-input { flex: 1; min-width: 200px; }
 
 /* --------------------------------------------------------------------------
-   오늘 할 일 — 배치 x 항목 입력 격자
+   대시보드 위젯 — Smart To-Do · 분석 의뢰 요약
    -------------------------------------------------------------------------- */
-.wl-grid th, .wl-grid td { white-space: nowrap; }
-.wl-head {
-  position: sticky; left: 0; z-index: 1;
+.widget-row {
+  display: grid; gap: var(--s-3);
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  margin-bottom: var(--s-5);
+}
+.todo-card .card-body { padding-top: var(--s-3); }
+.todo-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.todo {
+  display: flex; align-items: flex-start; gap: var(--s-2);
+  padding: 6px 4px;
+  border-radius: var(--r-sm);
+}
+.todo:hover { background: var(--c-paper); }
+.todo.is-done .todo-label { text-decoration: line-through; color: var(--c-text-soft); }
+
+/* 체크박스 — 여기서 끝낼 수 있는 일에만 붙습니다 */
+.todo-check {
+  flex: none; width: 19px; height: 19px; margin-top: 1px;
+  display: grid; place-items: center;
+  border: 1.5px solid var(--c-border-str); border-radius: 5px;
+  background: var(--c-surface); color: transparent;
+  cursor: pointer;
+  transition: border-color 120ms var(--ease), background 120ms var(--ease);
+}
+.todo-check:hover { border-color: var(--c-accent); }
+.todo-check[aria-checked="true"] {
+  background: var(--c-accent); border-color: var(--c-accent); color: #fff;
+}
+/* 이동만 하는 항목 — 체크하면 끝난 것처럼 보이는데 실제론 안 끝나므로 화살표 */
+.todo-go {
+  flex: none; width: 19px; height: 19px; margin-top: 1px;
+  display: grid; place-items: center;
+  border-radius: 5px; color: var(--c-text-soft);
+  text-decoration: none;
+}
+.todo-go:hover { background: var(--c-accent-bg); color: var(--c-accent); }
+
+.todo-body { min-width: 0; flex: 1; }
+.todo-label { display: block; font-size: 12.5px; line-height: 1.55; }
+.todo-note { display: block; font-size: 11px; color: var(--c-text-mute); margin-top: 2px; line-height: 1.5; }
+.todo-team {
+  display: inline-block; margin-right: 5px; padding: 1px 5px;
+  border-radius: 3px; font-size: 9.5px; font-weight: 700;
+  color: #fff; vertical-align: 1px;
+}
+
+/* 분석 의뢰 요약 — 팀 간 흐름을 한 줄로 */
+.req-summary {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  gap: 2px; text-decoration: none; color: inherit;
+  border: 1px solid var(--c-border); border-radius: var(--r-md);
+  overflow: hidden;
+}
+.req-cell {
+  display: block; text-align: center; padding: var(--s-3) 4px;
   background: var(--c-surface);
-  border-right: 1px solid var(--c-border);
-  text-align: left;
+  transition: background 120ms var(--ease);
 }
-.wl-cell { padding: 4px 6px !important; }
-.wl-input {
-  min-height: 32px; padding: 0 7px;
-  font-size: 12.5px; text-align: right;
-  min-width: 74px;
+.req-summary:hover .req-cell { background: var(--c-paper); }
+.req-cell-n {
+  display: block; font-family: var(--font-data);
+  font-size: 21px; font-weight: 600; line-height: 1.1;
+  letter-spacing: -.02em;
 }
-.wl-input.is-saved { border-color: #A8D8BB; background: #F6FBF8; }
-.wl-input.is-invalid { border-color: var(--c-risk); background: #FEF6F6; }
-/* 이미 값이 있는 칸 — 여기서는 못 고칩니다 (사유가 필요) */
-.wl-cell.is-done { background: var(--c-paper); color: var(--c-text-mute); text-align: right; }
-.wl-edit {
-  display: block; font-size: 9.5px; color: var(--c-accent);
-  text-decoration: none; opacity: 0;
-  transition: opacity 120ms var(--ease);
+.req-cell-n.is-hot { color: var(--c-accent); }
+.req-cell-k { display: block; font-size: 10.5px; color: var(--c-text-mute); margin-top: 3px; }
+
+/* --------------------------------------------------------------------------
+   Troubleshooting Wiki — 카드 격자
+   -------------------------------------------------------------------------- */
+.wiki-grid {
+  display: grid; gap: var(--s-3);
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  align-items: start;
 }
-.wl-cell.is-done:hover .wl-edit { opacity: 1; }
+.wiki-card { scroll-margin-top: 80px; }
+.wiki-mini {
+  display: flex; align-items: flex-start; gap: var(--s-2);
+  padding: 7px 8px; margin-bottom: 4px;
+  border: 1px solid var(--c-border); border-radius: var(--r-sm);
+  background: var(--c-surface); text-decoration: none; color: inherit;
+}
+.wiki-mini:hover { border-color: #B45309; }
+
+/* --------------------------------------------------------------------------
+   모달 — EBR 안의 [분석 의뢰하기]
+   -------------------------------------------------------------------------- */
+body.modal-open { overflow: hidden; }
+.modal {
+  position: fixed; inset: 0; z-index: 70;
+  display: grid; place-items: center;
+  padding: var(--s-5);
+  background: rgba(10, 25, 47, .5);
+  animation: rise 180ms var(--ease) both;
+}
+.modal-box {
+  width: min(720px, 100%); max-height: 88vh;
+  display: flex; flex-direction: column;
+  background: var(--c-surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg, 0 20px 50px rgba(10,25,47,.28));
+  overflow: hidden;
+}
+.modal-head {
+  display: flex; align-items: flex-start; gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--c-border);
+}
+.modal-body { padding: var(--s-5); overflow-y: auto; flex: 1; }
+.modal-foot {
+  display: flex; gap: var(--s-2); justify-content: flex-end;
+  padding: var(--s-4) var(--s-5);
+  border-top: 1px solid var(--c-border);
+  background: var(--c-paper);
+}
 
 /* --------------------------------------------------------------------------
    분석 의뢰 — 시료 선택

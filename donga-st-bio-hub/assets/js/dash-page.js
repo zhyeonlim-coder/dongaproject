@@ -435,6 +435,166 @@
     }).join("");
   }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     Smart To-Do Card — 출근하면 가장 먼저 보는 위젯
+
+     달력이나 긴 목록이 아니라 "지금 손댈 것" 만 짧게 세웁니다.
+     체크박스의 뜻이 항목마다 다르면 안 되므로, 각 항목이 자기 action 을
+     들고 있고(todos.js) 여기서는 그대로 따릅니다.
+
+       승인 대기   체크 → 의뢰가 확인 완료로 종료 (여기서 되는 유일한 승인)
+       직접 추가   체크 → 완료 토글
+       그 외       체크박스 없이 화살표 — 여기서 끝낼 수 없는 일이라
+                   체크하게 두면 끝난 것처럼 보이는데 실제로는 안 끝납니다
+     ══════════════════════════════════════════════════════════════════════ */
+  function todoCard() {
+    const sel = window.Scope.get();
+    const items = window.Todos.list(sel, sel.team);
+    const c = window.Todos.counts(sel, sel.team);
+    const open = items.filter(t => !(t.kind === "user" && t.done));
+    const done = items.filter(t => t.kind === "user" && t.done);
+
+    const row = function (t) {
+      const checkable = t.action === "toggle" || t.action === "approve";
+      const badge = t.badge
+        ? '<span class="badge' + (t.tone ? " badge-" + t.tone : "") + '" style="font-size:10px">' +
+          esc(t.badge) + '</span>' : "";
+      const teamTag = t.team
+        ? '<span class="todo-team" style="background:' + teamColor(t.team) + '">' +
+          esc((window.DATA_TEAMS.find(x => x.id === t.team) || {}).short || "") + '</span>' : "";
+
+      return '<li class="todo' + (t.kind === "user" && t.done ? " is-done" : "") + '">' +
+        (checkable
+          ? '<button class="todo-check" data-check="' + esc(t.id) + '" role="checkbox" ' +
+            'aria-checked="' + (t.kind === "user" && t.done) + '" ' +
+            'aria-label="' + esc(t.label) + (t.action === "approve" ? " 확인 완료 처리" : " 완료") + '">' +
+            '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+            'stroke-width="3.4" stroke-linecap="round" aria-hidden="true"><path d="m5 13 5 5L20 7"/></svg>' +
+            '</button>'
+          : '<a class="todo-go" href="' + esc(t.href || "#") + '" aria-label="' + esc(t.label) + ' 화면으로 이동">' +
+            '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+            'stroke-width="2.6" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></a>') +
+        '<span class="todo-body">' +
+          '<span class="todo-label">' + teamTag + esc(t.label) + ' ' + badge + '</span>' +
+          (t.note ? '<span class="todo-note">' + esc(t.note) + '</span>' : "") +
+        '</span>' +
+        (t.kind === "user"
+          ? '<button class="btn-icon" data-del="' + esc(t.id) + '" aria-label="할 일 삭제" ' +
+            'style="width:24px;height:24px;flex:none"><svg width="10" height="10" viewBox="0 0 24 24" ' +
+            'fill="none" stroke="currentColor" stroke-width="3"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
+          : "") +
+      '</li>';
+    };
+
+    return '<section class="card todo-card">' +
+      '<div class="card-head" style="flex-wrap:wrap;gap:var(--s-2)"><div>' +
+        '<h2 class="card-title">오늘 할 일</h2>' +
+        '<p class="card-sub">' + c.open + '건 남음' +
+          (c.done ? ' · 완료 ' + c.done : "") + '</p></div>' +
+        (c.approve
+          ? '<span class="badge badge-accent"><span class="badge-dot"></span>승인 대기 ' + c.approve + '건</span>'
+          : '<span class="badge badge-ok">승인 대기 없음</span>') +
+      '</div>' +
+
+      '<div class="card-body">' +
+        (open.length
+          ? '<ul class="todo-list">' + open.map(row).join("") + '</ul>'
+          : '<p style="font-size:12.5px;color:var(--c-text-mute);margin:0">오늘 처리할 항목이 없습니다.</p>') +
+
+        (done.length
+          ? '<details class="disclose" style="margin-top:var(--s-3);border:0">' +
+            '<summary style="padding:6px 0;font-size:12px">완료 ' + done.length + '건</summary>' +
+            '<ul class="todo-list">' + done.map(row).join("") + '</ul></details>'
+          : "") +
+
+        '<form id="todo-add" style="display:flex;gap:var(--s-2);margin-top:var(--s-3)">' +
+          '<label class="sr-only" for="todo-text">할 일 추가</label>' +
+          '<input class="ebr-input" id="todo-text" style="flex:1;min-height:34px;font-size:12.5px" ' +
+            'placeholder="예: B123-9 Day 7 Sampling">' +
+          '<button class="btn btn-ghost btn-sm" type="submit">추가</button>' +
+        '</form>' +
+      '</div></section>';
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     분석 의뢰 현황 Summary Card
+     팀 간 흐름을 한눈에 보고, 상세는 EBR > 분석 및 시료 관리로 보냅니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function requestCard() {
+    const Q = window.Requests;
+    const sel = window.Scope.get();
+    const list = Q.forSelection(sel);
+    const n = s => list.filter(r => r.status === s).length;
+    const over = list.filter(function (r) { const d = Q.due(r); return d && d.state === "over"; });
+
+    const cells = [
+      { s: "requested",  ko: "의뢰 대기", tone: "warn" },
+      { s: "accepted",   ko: "접수",      tone: "info" },
+      { s: "inProgress", ko: "분석 중",   tone: "info" },
+      { s: "reported",   ko: "승인 대기", tone: "accent" },
+      { s: "closed",     ko: "완료",      tone: "ok" }
+    ];
+
+    /* 어느 팀이 무엇을 기다리는지 — 팀 간 흐름이 이 카드의 요점입니다 */
+    const byTeam = window.DATA_TEAMS.map(function (t) {
+      const mine = list.filter(r => r.requestedTeam === t.id && Q.isOpen(r));
+      return { team: t, open: mine.length };
+    }).filter(x => x.open);
+
+    return '<section class="card">' +
+      '<div class="card-head" style="flex-wrap:wrap;gap:var(--s-2)"><div>' +
+        '<h2 class="card-title">분석 의뢰 현황</h2>' +
+        '<p class="card-sub">배양 · 정제 → 분석 인계 흐름</p></div>' +
+        '<a class="btn btn-ghost btn-sm" href="ebr.html#requests">상세 보기 →</a></div>' +
+
+      '<div class="card-body">' +
+        '<a class="req-summary" href="ebr.html#requests">' +
+          cells.map(c => '<span class="req-cell">' +
+            '<span class="req-cell-n' + (c.s === "reported" && n(c.s) ? " is-hot" : "") + '">' +
+              n(c.s) + '</span>' +
+            '<span class="req-cell-k">' + esc(c.ko) + '</span></span>').join("") +
+        '</a>' +
+
+        (over.length
+          ? '<p class="field-msg is-error" style="display:block;margin-top:var(--s-3)">' +
+            '기한 초과 ' + over.length + '건 — ' + over.map(r => esc(r.id)).join(", ") + '</p>'
+          : "") +
+
+        (byTeam.length
+          ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:var(--s-3)">' +
+            byTeam.map(x => '<span class="badge" style="font-size:10.5px">' +
+              esc(x.team.ko) + ' 진행 중 ' + x.open + '</span>').join("") + '</div>'
+          : "") +
+
+        '<p style="font-size:11px;color:var(--c-text-mute);margin:var(--s-3) 0 0;line-height:1.7">' +
+          '숫자를 누르면 EBR 입력 &gt; 분석 및 시료 관리의 의뢰 큐로 이동합니다. ' +
+          '의뢰 작성은 EBR 입력 폼의 [분석 의뢰하기]에서 합니다.</p>' +
+      '</div></section>';
+  }
+
+  function wireWidgets() {
+    $$("[data-check]").forEach(b => b.addEventListener("click", function () {
+      const sel = window.Scope.get();
+      const item = window.Todos.list(sel, sel.team).find(t => t.id === b.dataset.check);
+      const r = window.Todos.check(item);
+      if (!r.ok && r.reason) window.alert(r.reason);
+      render();
+    }));
+    $$("[data-del]").forEach(b => b.addEventListener("click", function () {
+      window.Todos.remove(b.dataset.del);
+      render();
+    }));
+    const f = $("#todo-add");
+    if (f) f.addEventListener("submit", function (e) {
+      e.preventDefault();
+      const inp = $("#todo-text");
+      const r = window.Todos.add({ text: inp.value, team: window.Scope.get().team });
+      if (!r.ok) { window.alert(r.reason); return; }
+      inp.value = "";
+      render();
+    });
+  }
+
   /* ── 다가오는 일정 — 일정 관리 화면과 같은 소스(HubCalendar) ────────── */
   function scheduleStrip() {
     const H = window.HubCalendar;
@@ -470,12 +630,17 @@
           '<span>' + esc(p.label) + '</span>').join("")
       : '<span style="color:var(--c-text-mute)">과제를 선택하세요</span>';
 
+    /* 과제를 고르지 않아도 위젯은 보여야 합니다 — 출근하고 처음 여는 화면에서
+       "과제를 선택하세요" 만 뜨면 오늘 할 일을 확인할 수 없습니다. */
     if (!sel.scopeId) {
       $("#page-title").textContent = "대시보드";
-      $("#body").innerHTML = '<div class="empty"><div class="empty-title">과제를 선택하세요</div>' +
-        '<div class="empty-body">상단 우측 셀렉터에서 DA-1234 또는 DA-4321을 고르면 ' +
-        '해당 과제의 데이터만 집계됩니다.</div></div>';
       $("#kpi").innerHTML = "";
+      $("#body").innerHTML =
+        '<div class="widget-row">' + todoCard() + requestCard() + '</div>' +
+        '<div class="empty"><div class="empty-title">과제를 선택하면 데이터 집계가 열립니다</div>' +
+        '<div class="empty-body">상단 우측 셀렉터에서 DA-1234 또는 DA-4321을 고르면 ' +
+        'KPI · 팀별 그래프가 그 과제 범위로 표시됩니다.</div></div>';
+      wireWidgets();
       return;
     }
 
@@ -493,6 +658,9 @@
       const showTeams = !!sel.studyId;
 
       $("#body").innerHTML =
+        /* 출근하면 가장 먼저 보는 두 위젯을 맨 위에 둡니다 */
+        '<div class="widget-row">' + todoCard() + requestCard() + '</div>' +
+
         (showTeams
           ? '<section style="margin-bottom:var(--s-4)"><div class="card-head" style="padding:0 0 var(--s-3)">' +
               '<div><h2 class="card-title">팀별 요약</h2>' +
@@ -513,6 +681,7 @@
           '<a class="btn btn-ghost btn-sm" href="ebr.html">EBR 입력</a></div>' +
           '<div class="card-body">' + auditFeed() + '</div></section>';
 
+      wireWidgets();
       $$("[data-study]").forEach(b => b.addEventListener("click", () =>
         window.Scope.setStudy(b.dataset.study)));
       $$("[data-viewteam]").forEach(b => b.addEventListener("click", () =>
@@ -535,5 +704,7 @@
   window.StudySelector.mount($("#selector"));
   window.Scope.subscribe(render);
   window.Entries.subscribe(render);
+  window.Requests.subscribe(render);
+  window.Todos.subscribe(render);
   render();
 })();

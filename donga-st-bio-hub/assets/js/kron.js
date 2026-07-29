@@ -133,10 +133,33 @@ window.KRon = (function () {
      ══════════════════════════════════════════════════════════════════════ */
 
   const litById = {};
+
+  /* 사내 트러블슈팅 사례도 같은 코퍼스에 넣습니다 — 외부 문헌만 검색되면
+     "우리가 이미 겪은 일"을 놓칩니다. 공개된 사례만 포함합니다. */
+  function issuesAsDocs() {
+    if (!window.Issues) return [];
+    return window.Issues.visibleTo(null).map(function (i) {
+      const doc = {
+        id: i.id, kind: "사례", title_ko: i.title,
+        title_en: "Troubleshooting case", src: "사내 트러블슈팅",
+        year: Number(String(i.createdAt || "").slice(0, 4)) || "",
+        authors: i.createdBy, cited: 0, tag: "사례",
+        project: null,
+        topics: (i.tags || []).slice(),
+        summary: [i.symptom, i.cause, i.action, i.outcome, i.prevention]
+          .filter(Boolean).join(" / "),
+        issueId: i.id
+      };
+      litById[i.id] = doc;
+      return doc;
+    });
+  }
+
   function indexLiterature() {
     const L = window.LIT.LITERATURE;
     L.forEach(x => { litById[x.id] = x; });
-    return buildIndex(L.map(x => ({
+    const all = L.concat(issuesAsDocs());
+    return buildIndex(all.map(x => ({
       id: x.id, label: x.title_ko,
       text: [x.title_ko, x.title_en, x.summary, x.tag, x.src,
              (x.topics || []).join(" "), x.project || ""].join(" "),

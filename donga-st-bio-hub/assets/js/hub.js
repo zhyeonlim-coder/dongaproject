@@ -26,7 +26,10 @@
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
   let tab = (location.hash || "").replace("#", "") || "doe";
-  if (["doe", "ai", "lit"].indexOf(tab) === -1) tab = "doe";
+  if (["doe", "ai", "lit", "wiki"].indexOf(tab) === -1) tab = "doe";
+
+  /* Troubleshooting 위키 상태 — 작성 중인지 / 어느 기록을 수정 중인지 */
+  let wikiWriting = false, wikiEdit = null;
 
   /* ── Sub-menu ───────────────────────────────────────────────────────── */
   function paintSubnav() {
@@ -34,7 +37,8 @@
       { label: "Intelligence Hub", items: [
         { key: "doe", ko: "DoE 조건 설계 & 분석", active: tab === "doe", color: "var(--c-accent-mid)" },
         { key: "ai",  ko: "AI 자연어 검색",       active: tab === "ai",  color: "#6D28D9" },
-        { key: "lit", ko: "학술 문헌 & 특허 (K-Ron)", active: tab === "lit", color: "#0F766E" }
+        { key: "lit", ko: "학술 문헌 & 특허 (K-Ron)", active: tab === "lit", color: "#0F766E" },
+        { key: "wiki", ko: "Troubleshooting & Wiki", active: tab === "wiki", color: "#B45309" }
       ]},
       { label: "바로가기", items: [
         { ko: "대시보드", href: "dashboard.html" },
@@ -246,6 +250,13 @@
           '<div style="margin-top:var(--s-4);font-size:12px">' +
             stat("R²", m.r2.toFixed(4)) + stat("수정 R²", isFinite(m.r2adj) ? m.r2adj.toFixed(4) : "—") +
             stat("RMSE", m.rmse.toFixed(4)) + stat("관측 / 계수", m.n + " / " + m.p) +
+          '</div>' +
+
+          /* 설계 조건 옆에 과거 사례를 붙입니다 — 조건을 정하는 자리에서
+             "그 조건에서 예전에 뭐가 터졌나"를 같이 봐야 의미가 있습니다. */
+          '<div style="margin-top:var(--s-5);padding-top:var(--s-4);' +
+            'border-top:1px solid var(--c-paper-2)" id="doe-wiki">' +
+            window.Wiki.designPanel(DS.factors.map(f => f.name), DS.response.name) +
           '</div></div></div>' +
 
       '<div class="rule-hair" style="margin:var(--s-6) 0 var(--s-5)"></div>' +
@@ -266,6 +277,19 @@
       DS.ay = +this.value; if (DS.ax === DS.ay) DS.ax = (DS.ay + 1) % DS.factors.length; paintAnalysis();
     });
     $("#goal").addEventListener("change", function () { DS.goal = this.value; paintAnalysis(); });
+
+    /* 사례를 누르면 위키 탭으로 넘어가 그 카드가 펼쳐집니다 */
+    $$("[data-jump]").forEach(b => b.addEventListener("click", function (e) {
+      e.preventDefault();
+      window.Wiki.state().open = b.dataset.jump;
+      const it = window.Issues.get(b.dataset.jump);
+      if (it && it.visibility === "team") window.Wiki.state().team = it.team;
+      tab = "wiki"; location.hash = "wiki"; paint();
+      setTimeout(function () {
+        const el = document.getElementById("wiki-" + b.dataset.jump);
+        if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+      }, 120);
+    }));
   }
 
   function axisSelect(id, label, val) {
@@ -550,18 +574,44 @@
   function kronView() { return window.KRon.view(); }
   function wireKron() { window.KRon.wire(); }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     4. Troubleshooting & Wiki — 구현은 wiki.js
+     예전 '연구 지식' 독립 메뉴를 이 탭 안으로 옮겼습니다. 설계 조건을 정하는
+     자리와 과거 사례를 보는 자리가 붙어 있어야 서로 참조가 일어납니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function wikiView() {
+    return wikiWriting ? window.Wiki.formView(wikiEdit) : window.Wiki.view();
+  }
+
+  function wireWiki() {
+    if (wikiWriting) {
+      window.Wiki.wireForm(wikiEdit, function (o) {
+        if (o && o.done) { wikiWriting = false; wikiEdit = null; }
+        paint();
+      });
+      return;
+    }
+    window.Wiki.wire(function (o) {
+      if (o && o.hasOwnProperty("edit")) { wikiEdit = o.edit; wikiWriting = true; }
+      paint();
+    });
+  }
+
   /* ── Paint ──────────────────────────────────────────────────────────── */
   function paint() {
     paintSubnav();
     const titles = { doe: "DoE 조건 설계 & 분석", ai: "AI 자연어 검색 & 유사실험 추천",
-                     lit: "학술 문헌 & 특허 · 케이론(K-Ron)" };
+                     lit: "학술 문헌 & 특허 · 케이론(K-Ron)",
+                     wiki: "Troubleshooting & Lesson Learned" };
     $("#page-title").textContent = titles[tab];
-    $("#hub-tabs").innerHTML = [["doe", "DoE 설계 & 분석"], ["ai", "AI 검색"], ["lit", "K-Ron · 문헌 & 특허"]]
+    $("#hub-tabs").innerHTML = [["doe", "DoE 설계 & 분석"], ["ai", "AI 검색"],
+                                ["lit", "K-Ron · 문헌 & 특허"], ["wiki", "Troubleshooting & Wiki"]]
       .map(([k, ko]) => '<button class="track-tab" data-tab="' + k + '" aria-selected="' + (tab === k) + '" ' +
         'style="min-height:38px;padding:0 var(--s-5)">' + esc(ko) + '</button>').join("");
     $$("[data-tab]").forEach(b => b.addEventListener("click", () => { tab = b.dataset.tab; location.hash = tab; paint(); }));
 
     const host = $("#hub-body");
+    if (tab === "wiki") { host.innerHTML = wikiView(); wireWiki(); return; }
     host.innerHTML = tab === "doe" ? doeView() : tab === "ai" ? aiView() : kronView();
     if (tab === "doe") wireDoe(); else if (tab === "ai") wireAI(); else wireKron();
   }

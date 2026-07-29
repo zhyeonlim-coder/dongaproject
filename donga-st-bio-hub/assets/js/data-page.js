@@ -37,7 +37,7 @@
     { label: "바로가기", items: [
       { ko: "대시보드", href: "dashboard.html" },
       { ko: "EBR 입력", href: "ebr.html" },
-      { ko: "연구 지식", href: "knowledge.html" }
+      { ko: "Troubleshooting", href: "hub.html#wiki" }
     ]}
   ], k => { groupBy = k; render(); });
 
