@@ -30,14 +30,119 @@
 
   window.Shell.subnav([
     { label: "조회 단위", items: [
-      { key: "batch",  ko: "배치별",       active: true },
-      { key: "sample", ko: "시료별",       active: false }
+      { key: "batch",   ko: "배치별", active: true },
+      { key: "sample",  ko: "시료별", active: false },
+      { key: "compare", ko: "배치 비교", active: false }
     ]},
     { label: "바로가기", items: [
       { ko: "대시보드", href: "dashboard.html" },
-      { ko: "EBR 입력", href: "ebr.html" }
+      { ko: "EBR 입력", href: "ebr.html" },
+      { ko: "연구 지식", href: "knowledge.html" }
     ]}
   ], k => { groupBy = k; render(); });
+
+  /* ══════════════════════════════════════════════════════════════════════
+     배치 비교 — "이 배치만 왜 달랐나"
+
+     여러 배치를 나란히 놓는 것까지는 표로도 됩니다. 사람이 못 하는 건
+     **어느 항목이 실제로 다른지** 를 골라내는 일입니다. 그래서 값이 서로
+     비슷한 행은 접고, 편차가 큰 행만 위로 올려 표시합니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  let cmpPicked = [];
+  const CMP_MAX = 4;
+
+  /* 상대 편차 — 값의 크기가 제각각이라(ppm vs %) 절대 차이로는 비교가 안 됩니다.
+     중앙값 대비 폭으로 재야 항목끼리 견줄 수 있습니다. */
+  function spreadOf(vals) {
+    const v = vals.filter(x => x !== null && x !== undefined && isFinite(x));
+    if (v.length < 2) return null;
+    const lo = Math.min.apply(null, v), hi = Math.max.apply(null, v);
+    const mid = (lo + hi) / 2;
+    if (!mid) return hi - lo === 0 ? 0 : 1;
+    return Math.abs(hi - lo) / Math.abs(mid);
+  }
+
+  function compareView(batches) {
+    if (batches.length < 2) {
+      return '<div class="empty"><div class="empty-title">비교할 배치가 부족합니다</div>' +
+        '<div class="empty-body">이 범위에 배치가 2건 이상이어야 비교할 수 있습니다.</div></div>';
+    }
+
+    const cols = cmpPicked.map(id => batches.find(b => b.id === id)).filter(Boolean);
+    const picked = cmpPicked;
+
+    /* 비교 대상 항목 — 배양 지표, 정제, 그리고 배치 메타 */
+    const rows = [];
+    rows.push({ group: "기간", label: "배양 일수", unit: "일", dp: 0,
+                get: b => b.cultureDays });
+    window.DATA_ANALYTE_GROUPS.forEach(function (g) {
+      if (g.empty || g.team === "analytics") return;      // 분석은 시료 축이라 제외
+      g.items.forEach(it => rows.push({
+        group: g.label, label: it.label, unit: it.unit, dp: it.dp,
+        get: b => window.Repo.valueOf(b, g.id, it.key)
+      }));
+    });
+
+    const scored = rows.map(function (r) {
+      const vals = cols.map(r.get);
+      return { r: r, vals: vals, spread: spreadOf(vals) };
+    });
+    const diff = scored.filter(x => x.spread !== null && x.spread >= 0.1)
+                       .sort((a, b) => b.spread - a.spread);
+    const same = scored.filter(x => diff.indexOf(x) === -1);
+
+    const cell = (v, dp) => (v === null || v === undefined || !isFinite(v))
+      ? '<td class="na">' + L.empty + '</td>'
+      : '<td class="mono">' + Number(v).toFixed(dp) + '</td>';
+
+    const table = (list, mark) => list.map(function (x) {
+      const nums = x.vals.filter(v => v !== null && isFinite(v));
+      const hi = nums.length ? Math.max.apply(null, nums) : null;
+      const lo = nums.length ? Math.min.apply(null, nums) : null;
+      return '<tr' + (mark ? ' class="cmp-diff"' : "") + '>' +
+        '<th scope="row"><span style="font-size:10px;color:var(--c-text-mute);display:block">' +
+          esc(x.r.group) + '</span>' + esc(x.r.label) +
+          '<span style="font-weight:400;color:var(--c-text-soft)"> ' + esc(x.r.unit) + '</span></th>' +
+        x.vals.map(function (v) {
+          if (v === null || v === undefined || !isFinite(v)) return cell(v, x.r.dp);
+          const tag = (nums.length > 1 && v === hi) ? " is-hi" : (nums.length > 1 && v === lo) ? " is-lo" : "";
+          return '<td class="mono' + tag + '">' + Number(v).toFixed(x.r.dp) + '</td>';
+        }).join("") +
+        '<td class="mono" style="color:var(--c-text-mute)">' +
+          (x.spread === null ? "—" : Math.round(x.spread * 100) + "%") + '</td>' +
+      '</tr>';
+    }).join("");
+
+    return '<div class="card-body" style="border-bottom:1px solid var(--c-border)">' +
+        '<div class="eyebrow" style="margin-bottom:var(--s-2)">비교할 배치 (최대 ' + CMP_MAX + '개)</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          batches.map(b => '<button class="mm-chip" data-cmp="' + esc(b.id) + '" ' +
+            'aria-pressed="' + (picked.indexOf(b.id) > -1) + '">' + esc(b.id) + '</button>').join("") +
+        '</div></div>' +
+
+      '<div class="tbl-scroll"><table class="tbl cmp-tbl"><thead><tr>' +
+        '<th scope="col">항목</th>' +
+        cols.map(b => '<th scope="col"><span class="mono">' + esc(b.id) + '</span>' +
+          '<br><span style="font-weight:400;text-transform:none;font-size:10px">' +
+          esc(b.initialDate || "") + '</span></th>').join("") +
+        '<th scope="col">편차</th>' +
+      '</tr></thead><tbody>' +
+        (diff.length
+          ? '<tr class="cmp-sep"><th scope="row" colspan="' + (cols.length + 2) + '">' +
+            '차이가 큰 항목 ' + diff.length + '건 (중앙값 대비 10% 이상)</th></tr>' + table(diff, true)
+          : '<tr class="cmp-sep"><th scope="row" colspan="' + (cols.length + 2) + '">' +
+            '뚜렷한 차이가 없습니다</th></tr>') +
+        '<tr class="cmp-sep"><th scope="row" colspan="' + (cols.length + 2) + '">' +
+          '비슷한 항목 ' + same.length + '건</th></tr>' + table(same, false) +
+      '</tbody></table></div>' +
+
+      '<div class="card-body">' +
+        '<p style="font-size:11.5px;color:var(--c-text-mute);margin:0;line-height:1.7">' +
+        '편차는 <b>(최댓값 − 최솟값) ÷ 중앙값</b> 입니다. 단위가 다른 항목끼리 견주려면 ' +
+        '절대 차이가 아니라 상대 폭으로 재야 합니다. 각 행에서 가장 큰 값은 파랑, 가장 작은 값은 주황입니다.<br>' +
+        '분석 항목은 시료마다 값이 달라 이 표에 넣지 않았습니다 — <b>시료별</b> 보기에서 확인하세요.</p>' +
+      '</div>';
+  }
 
   /* ── 컬럼 정의 ──────────────────────────────────────────────────────────
      식별 컬럼(과제 · Study · Exp. No. …)은 항상 남기고, 측정 컬럼만
@@ -221,6 +326,30 @@
 
     Promise.all([window.Scope.batches(), window.Repo.getStudies()]).then(function (res) {
       const batches = res[0], studies = res[1];
+
+      /* 배치 비교는 표 구조가 완전히 달라(항목이 행, 배치가 열) 따로 그립니다 */
+      if (groupBy === "compare") {
+        /* 선택을 여기서 확정해 둡니다. 그리는 쪽에서 임시로 채우면 그 값이
+           남지 않아, 사용자가 네 번째 배치를 눌러도 다시 기본값으로 돌아갑니다. */
+        cmpPicked = cmpPicked.filter(id => batches.some(b => b.id === id));
+        if (cmpPicked.length < 2) {
+          cmpPicked = batches.slice(0, Math.min(3, batches.length)).map(b => b.id);
+        }
+        $("#count").textContent = batches.length + "개 배치 중 " +
+          cmpPicked.length + "개 비교 (최대 " + CMP_MAX + ")";
+        $("#sample-bar").innerHTML = "";
+        $("#sort-chips").innerHTML = "";
+        $("#table-host").innerHTML = compareView(batches);
+        $$("[data-cmp]").forEach(b => b.addEventListener("click", function () {
+          const id = b.dataset.cmp;
+          const i = cmpPicked.indexOf(id);
+          if (i > -1) cmpPicked.splice(i, 1);
+          else if (cmpPicked.length < CMP_MAX) cmpPicked.push(id);
+          render();
+        }));
+        return;
+      }
+
       const titerDays = window.DATA_TITER_DAYS.filter(d =>
         batches.some(b => b.upstream.titer[d] !== null));
 

@@ -33,6 +33,40 @@
      불러오는 것만으로 그렇게 되므로 여기서 한 번 막아 둡니다. */
   if (window.DATA_SAMPLES) return;
 
+  /* ── 보관 위치 · 잔량 ────────────────────────────────────────────────────
+     "그 시료 어디 있어요?" 는 분석팀이 하루에도 몇 번 묻는 질문입니다.
+     냉동고 → 랙 → 박스 → 칸 네 단계면 실제로 찾아갈 수 있습니다.
+     동결-해동 횟수는 품질에 직접 영향을 주므로 함께 셉니다.
+
+     ⚠ 위치·잔량도 원본 Excel 에 없는 값이라 배치 ID 에서 결정론적으로
+       만들었습니다. 규칙만 현업 관행을 따랐습니다 (Study 별로 냉동고를
+       나누고, 한 랙에 박스 여러 개, 박스 하나에 81칸 9x9). */
+  function hash(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+  const FREEZER_BY_STUDY = { "STD-0045": "FR-01", "STD-0123": "FR-01", "STD-0321": "FR-02" };
+  const COL = "ABCDEFGHI";
+
+  function storageOf(sampleId, studyId, idx) {
+    const h = hash(sampleId);
+    const slot = h % 81;                         // 9 x 9 박스
+    /* 부호 없는 시프트(>>>)를 씁니다. 부호 있는 >> 는 해시가 2^31 을 넘으면
+       음수가 되어 랙이 "R-2", 박스가 "B-8" 처럼 나옵니다. */
+    return {
+      freezer: FREEZER_BY_STUDY[studyId] || "FR-01",
+      temp: "-80 °C",
+      rack: "R" + (1 + (h >>> 7) % 4),
+      box: "B" + String(1 + (h >>> 3) % 12).padStart(2, "0"),
+      pos: COL[Math.floor(slot / 9)] + (1 + (slot % 9)),
+      /* 분취 수 · 남은 부피 — 두 번째 시료는 아직 안 쓴 상태로 둡니다 */
+      aliquots: idx === 0 ? 3 : 2,
+      volumeMl: idx === 0 ? +(1.0 + (h % 11) / 10).toFixed(1) : 1.5,
+      freezeThaw: idx === 0 ? (h % 3) : 0
+    };
+  }
+
   const EMPTY_ANALYTICS = () => ({
     seHPLC:  { hmw: null, main: null, lmw: null },
     ieHPLC:  { acidic: null, main: null, basic: null, basicUnknown: null },
@@ -66,6 +100,7 @@
       primary: true,
       active: true,
       note: null,
+      storage: storageOf("SMP-" + b.id + "-01", b.studyId, 0),
       analytics: b.analytics || EMPTY_ANALYTICS()
     });
 
@@ -83,6 +118,7 @@
         primary: false,
         active: true,
         note: extra.note,
+        storage: storageOf("SMP-" + b.id + "-02", b.studyId, 1),
         analytics: EMPTY_ANALYTICS()
       });
     }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>일정 관리 · Bio Knowledge Hub — 동아에스티</title>
+<title>분석 의뢰 · Bio Knowledge Hub — 동아에스티</title>
 <meta name="robots" content="noindex, nofollow">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -22,16 +22,14 @@
   <header class="topnav" id="topnav"></header>
 
   <div class="body-grid">
-    <nav class="subnav" id="subnav" aria-label="일정 보기 전환"></nav>
+    <nav class="subnav" id="subnav" aria-label="보기 전환"></nav>
 
     <main class="main" id="main">
 
       <div style="margin-bottom:var(--s-5)">
-        <p class="eyebrow" style="margin-bottom:6px">Project Schedule</p>
-        <h1 style="font-size:22px" id="page-title">일정 관리</h1>
-        <p style="font-size:13px;color:var(--c-text-mute);margin:6px 0 0">
-          과제별로 일정이 완전히 분리됩니다. 다른 과제의 일정은 섞이지 않습니다.
-        </p>
+        <p class="eyebrow" style="margin-bottom:6px">Test Request</p>
+        <h1 style="font-size:22px" id="page-title">분석 의뢰</h1>
+        <p style="font-size:13px;color:var(--c-text-mute);margin:6px 0 0">배양·정제팀이 시료를 넘기고 분석팀이 받아 시험하는 흐름을 한 곳에서 관리합니다.</p>
         <div class="crumb" id="crumb" style="margin-top:var(--s-3)"></div>
       </div>
 
@@ -41,10 +39,7 @@
 
       <footer class="rule-hair" style="margin-top:var(--s-8);padding-top:var(--s-5);
                                        font-size:11.5px;color:var(--c-text-mute);line-height:1.7">
-        <b>Excel 파생</b> 일정은 각 Batch의 Initial Date · End Date와 Study 종료일에서 나옵니다.
-        <b>생성 일정</b>(회의 · 결과보고 마감)은 원본의 평균 배양 일수를 공정 주기로 삼아 현재 시점 기준으로 산출한 값이며,
-        확정 일정이 아닙니다.<br>
-        <b>직접 등록</b>한 일정은 브라우저 localStorage에 저장되고, 대시보드와 우측 캘린더에도 함께 반영됩니다.
+        의뢰 상태 변경은 누가 언제 했는지 이력으로 남습니다. 반려는 사유 없이 할 수 없습니다.<br>시료 보관 위치·잔량은 원본 Excel에 없어 시료 ID에서 생성한 값이며, 실제 냉동고 배치도가 들어오면 대체됩니다.
       </footer>
     </main>
 
@@ -73,6 +68,6 @@
 <script src="assets/js/selection.js"></script>
 <script src="assets/js/shell2.js"></script>
 <script src="assets/js/study-selector.js"></script>
-<script src="assets/js/schedule-page.js"></script>
+<script src="assets/js/requests-page.js"></script>
 </body>
 </html>

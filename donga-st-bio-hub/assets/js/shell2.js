@@ -16,12 +16,18 @@ window.Shell = (function () {
   const PRJ_KEY = "hub.project";
 
   const NAV = [
+    { id: "worklist", href: "worklist.html", ko: "오늘 할 일",
+      icon: '<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>' },
     { id: "dashboard", href: "dashboard.html", ko: "대시보드",
       icon: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>' },
     { id: "ebr", href: "ebr.html", ko: "EBR 입력",
       icon: '<path d="M5 3h11l3 3v15H5z"/><path d="M9 9h7M9 13h7M9 17h4"/>' },
+    { id: "requests", href: "requests.html", ko: "분석 의뢰",
+      icon: '<path d="M9 3h6l1 3h3v15H5V6h3z"/><path d="M9 12h6M9 16h4"/>' },
     { id: "data", href: "data.html", ko: "데이터 조회",
       icon: '<path d="M3 5h18v4H3zM3 11h18v4H3zM3 17h18v4H3z"/>' },
+    { id: "knowledge", href: "knowledge.html", ko: "연구 지식",
+      icon: '<path d="M4 5a2 2 0 0 1 2-2h13v18H6a2 2 0 0 1-2-2z"/><path d="M9 8h6M9 12h6"/>' },
     /* 회의 모드는 별도 메뉴가 아니라 대시보드 안의 버튼으로 진입합니다.
        (내비게이션에서 의도적으로 제외 — 대시보드에서 선택한 스터디를 그대로
         들고 들어가야 해서 별도 페이지로 두면 동선이 끊깁니다) */

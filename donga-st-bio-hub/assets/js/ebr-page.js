@@ -177,6 +177,8 @@
               '수정하면 기존 값을 덮어쓰지 않고 변경 이력으로 쌓입니다.</div></div>' : "") +
 
           valueHelp() +
+          window.Calc.panel(sel.team) +
+          lotStrip(batch) +
 
           groups.map(function (grp) {
             return '<div class="card-body" style="padding-bottom:var(--s-4)">' +
@@ -362,6 +364,51 @@
     '</div>';
   }
 
+  /* 이 배치가 쓴 자재 — 이상이 생겼을 때 첫 질문에 바로 답하도록
+     입력 화면 안에 둡니다. 조사할 때 다른 화면을 열지 않아도 됩니다. */
+  function lotStrip(batch) {
+    if (!window.Lots || !batch) return "";
+    const rows = window.Lots.forBatch(batch.id);
+    if (!rows.length) return "";
+    /* 유효기간은 오늘이 아니라 **이 배치를 돌린 날** 기준으로 봅니다.
+       질문은 "지금 기한이 지났나"가 아니라 "쓸 때 유효했나"입니다. */
+    const ref = batch.endDate || batch.initialDate || null;
+    const warn = rows.filter(function (r) {
+      const ex = window.Lots.expiry(r.lot, ref);
+      const u = window.Lots.usage(r.lot);
+      return (ex && ex.state !== "ok") || (u && u.limit && u.used / u.limit >= 0.8);
+    });
+    return '<details class="disclose" style="margin:0 var(--s-5) var(--s-4)"' +
+        (warn.length ? " open" : "") + '>' +
+      '<summary>이 배치가 쓴 자재 (' + rows.length + ')' +
+        '<span class="disclose-note">' +
+          (warn.length ? "확인 필요 " + warn.length + "건" : "유효기간·사용 한도 이상 없음") +
+        '</span></summary>' +
+      '<div style="padding:0 var(--s-4) var(--s-4)"><div class="tbl-scroll"><table class="tbl">' +
+      '<thead><tr><th scope="col">역할</th><th scope="col">Lot</th>' +
+      '<th scope="col">사용 이력</th><th scope="col">유효기간</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        const u = window.Lots.usage(r.lot);
+        const ex = window.Lots.expiry(r.lot, ref);
+        const heavy = u && u.limit && u.used / u.limit >= 0.8;
+        return '<tr><td>' + esc(r.role) + '</td>' +
+          '<td class="mono">' + esc(r.lot.lotNo) +
+            '<span style="display:block;font-size:10px;color:var(--c-text-mute)">' +
+            esc(r.lot.name) + '</span></td>' +
+          '<td class="mono"' + (heavy ? ' style="color:#8A4308;font-weight:600"' : "") + '>' +
+            esc(r.extra || (u ? u.used + " / " + u.limit + " " + u.unit : "—")) + '</td>' +
+          '<td class="mono"' + (ex && ex.state !== "ok" ? ' style="color:var(--c-risk);font-weight:600"' : "") + '>' +
+            (ex ? esc(ex.expiryAt) + (ex.state === "expired" ? " (지남)" : ex.state === "soon" ? " (D-" + ex.days + ")" : "") : "—") +
+          '</td></tr>';
+      }).join("") + '</tbody></table></div>' +
+      '<p style="font-size:11.5px;color:var(--c-text-mute);margin:var(--s-3) 0 0;line-height:1.7">' +
+        '유효기간은 <b>' + esc(ref || "배치 일자 미상") + '</b> 기준입니다 — ' +
+        '오늘이 아니라 이 배치를 돌린 날에 유효했는지가 질문이기 때문입니다.<br>' +
+        '이상이 있으면 <a href="knowledge.html">연구 지식</a>에 기록해 두세요 — ' +
+        '같은 lot 을 쓴 다른 배치에서 같은 일이 생겼을 때 바로 찾을 수 있습니다.</p>' +
+      '</div></details>';
+  }
+
   /* 입력 표기 안내 — 매번 설명하지 않아도 되도록 폼 위에 한 번만 둡니다 */
   function valueHelp() {
     const M = window.VAL.MISSING;
@@ -398,6 +445,21 @@
     wireTarget(batches);
 
     const all = groups.reduce((a, g) => a.concat(g.items), []);
+
+    /* 계산 결과를 필드에 넣을 때, 계산에 쓴 식이 그대로 변경 사유가 됩니다.
+       엑셀에서 계산해 숫자만 옮겨 적으면 남지 않던 근거입니다. */
+    window.Calc.wire(document.getElementById("form-host"), function (fieldKey, value, basis) {
+      const f = all.find(x => x.k === fieldKey);
+      if (!f) { window.alert("이 서식에는 해당 항목이 없습니다: " + fieldKey); return; }
+      const inp = cellOf(fieldKey) && cellOf(fieldKey).querySelector("[data-f]");
+      if (inp) inp.value = String(value);
+      const r = commit(batch, f, String(value), { reason: basis });
+      if (r === "saved") render();
+      else if (r === "needReason") {
+        /* 사유가 이미 basis 로 들어갔는데도 막혔다면 값이 같다는 뜻입니다 */
+        setMsg(fieldKey, "warn", ["현재 값과 같아 저장할 것이 없습니다."]);
+      }
+    });
 
     /* 폼 안으로 범위를 좁힙니다 — 좌측 StudySelector 도 [data-f] 를 쓰기 때문에
        문서 전체를 훑으면 그 드롭다운까지 저장 대상으로 잡힙니다. */

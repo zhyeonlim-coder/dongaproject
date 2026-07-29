@@ -1758,6 +1758,68 @@ tr.is-picked:hover > td { background: var(--c-accent-bg-2); }
 .reason-ctl { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
 .reason-ctl .ebr-input { flex: 1; min-width: 200px; }
 
+/* --------------------------------------------------------------------------
+   오늘 할 일 — 배치 x 항목 입력 격자
+   -------------------------------------------------------------------------- */
+.wl-grid th, .wl-grid td { white-space: nowrap; }
+.wl-head {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--c-surface);
+  border-right: 1px solid var(--c-border);
+  text-align: left;
+}
+.wl-cell { padding: 4px 6px !important; }
+.wl-input {
+  min-height: 32px; padding: 0 7px;
+  font-size: 12.5px; text-align: right;
+  min-width: 74px;
+}
+.wl-input.is-saved { border-color: #A8D8BB; background: #F6FBF8; }
+.wl-input.is-invalid { border-color: var(--c-risk); background: #FEF6F6; }
+/* 이미 값이 있는 칸 — 여기서는 못 고칩니다 (사유가 필요) */
+.wl-cell.is-done { background: var(--c-paper); color: var(--c-text-mute); text-align: right; }
+.wl-edit {
+  display: block; font-size: 9.5px; color: var(--c-accent);
+  text-decoration: none; opacity: 0;
+  transition: opacity 120ms var(--ease);
+}
+.wl-cell.is-done:hover .wl-edit { opacity: 1; }
+
+/* --------------------------------------------------------------------------
+   분석 의뢰 — 시료 선택
+   -------------------------------------------------------------------------- */
+.req-samples {
+  display: grid; gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  max-height: 320px; overflow-y: auto;
+  padding-right: 4px;
+}
+.req-sample {
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: 8px var(--s-3);
+  border: 1px solid var(--c-border); border-radius: var(--r-md);
+  background: var(--c-surface); cursor: pointer;
+}
+.req-sample:hover { border-color: var(--c-accent-mid); }
+.req-sample input { width: 15px; height: 15px; accent-color: var(--c-accent); flex: none; }
+
+/* --------------------------------------------------------------------------
+   배치 비교 — 차이 나는 항목만 도드라지게
+   -------------------------------------------------------------------------- */
+.cmp-tbl th[scope="row"] { text-align: left; font-weight: 600; }
+.cmp-sep > th {
+  background: var(--c-paper);
+  font-size: 11px; font-weight: 700;
+  color: var(--c-text-mute);
+  text-transform: none; letter-spacing: 0;
+}
+.cmp-diff > th, .cmp-diff > td { background: #FFFCF5; }
+.cmp-tbl td.is-hi { color: #0C4A6E; font-weight: 700; }
+.cmp-tbl td.is-lo { color: #8A4308; font-weight: 700; }
+
+/* 계산 도구 탭 */
+.calc-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+
 /* K-Ron */
 .kron-head {
   display: flex;
