@@ -22,6 +22,9 @@ node_modules/
 dist/
 build/
 
+# Vercel CLI 가 만드는 로컬 링크 (projectId 포함 — 공유하지 않습니다)
+.vercel/
+
 # Excel 임시 잠금 파일 (원본 .xlsx 는 추적합니다)
 ~$*.xlsx
 ~$*.xls

@@ -1,0 +1,6 @@
+# 사내 원본 데이터입니다. 배포 산출물에 들어가면 공개 URL 로 그대로 내려갑니다.
+Batch_Data_example.xlsx
+
+# 배포에 필요 없는 것들
+.claude/
+.git/

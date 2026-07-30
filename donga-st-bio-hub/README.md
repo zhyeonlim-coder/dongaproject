@@ -269,6 +269,44 @@ ST-02  Column Binding Capacity Optimization
 - **AI 검색** (`hub.js`의 답변 매칭) — 사내 RAG 엔드포인트 `fetch` 로 교체.
 - **규격 기준** (`lab.js`의 `SPECS`) — 실제 규격서 값으로 교체하면 판정 로직은 그대로.
 
+---
+
+## 배포 (Vercel)
+
+빌드 단계가 없는 정적 사이트입니다. 사이트는 저장소 루트가 아니라
+`donga-st-bio-hub/` 안에 있고 **저장소 루트에는 `index.html` 이 없습니다.**
+루트를 그대로 배포하면 `/` 가 404 가 되므로, `vercel.json` 을 두 곳에 두었습니다.
+
+| 실행 위치 | 적용되는 설정 |
+|---|---|
+| 저장소 루트 (기본) | `../vercel.json` — `outputDirectory: "donga-st-bio-hub"` 로 하위 폴더를 서빙 |
+| `donga-st-bio-hub/` (Root Directory 를 여기로 지정) | 이 폴더의 `vercel.json` |
+
+둘 다 같은 헤더를 갖고 있어 어느 쪽으로 배포해도 결과가 같습니다.
+Vercel 은 **배포 루트의 `vercel.json` 하나만** 읽습니다 — 나머지 하나는 무시됩니다.
+
+```
+npm i -g vercel
+vercel            # 저장소 루트에서 · 프리뷰 배포
+vercel --prod     # 확정 후 프로덕션
+```
+
+첫 실행 시 프로젝트를 새로 만들 것인지 묻습니다. 프레임워크는 **Other**,
+빌드 명령과 출력 디렉터리는 **비워 둡니다** (`vercel.json` 이 지정합니다).
+
+`Batch_Data_example.xlsx` 는 루트 `.vercelignore` 로 업로드에서 제외됩니다.
+
+`vercel.json` 이 하는 일:
+
+- **`X-Robots-Tag: noindex`** — 각 페이지의 `meta robots` 는 HTML 에만 걸립니다.
+  실제 회사명을 쓰는 프로토타입이므로 JS·CSS·이미지까지 헤더로 덮습니다.
+- **`Cache-Control: no-cache`** (html/css/js) — 파일 이름에 해시가 붙지 않아
+  캐시를 허용하면 재배포 후에도 옛 CSS·JS 가 남습니다.
+
+주의: 프로덕션 URL 은 기본적으로 **누구나 접근 가능**합니다. 사내 자료이므로
+프리뷰 배포로 두고 프로젝트 설정의 **Deployment Protection** (Vercel Authentication)
+을 켜는 편이 안전합니다 (적용 범위는 요금제에 따라 다름).
+
 ## 알려진 한계
 
 - 데이터 탐색(`explorer.html`)은 이전 단계의 아카이브 데이터셋을 사용하며 상단 과제 선택과 연동되지 않습니다 (화면에 안내 표시).
