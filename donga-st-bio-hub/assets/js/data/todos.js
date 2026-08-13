@@ -75,7 +75,10 @@ window.Todos = (function () {
       .map(t => Object.assign({}, t, {
         kind: "user", action: "toggle",
         label: t.text,
-        badge: t.done ? "완료" : null
+        /* 회의에서 넘어온 조치는 배지로 구분합니다 — 누가 시킨 일인지가
+           목록에서 바로 보여야 우선순위를 정할 수 있습니다. */
+        badge: t.done ? "완료" : (t.source === "meeting" ? "회의 조치" : null),
+        tone: !t.done && t.source === "meeting" ? "accent" : null
       }));
   }
 
@@ -86,6 +89,11 @@ window.Todos = (function () {
       id: uid(), text: text,
       team: input.team || null,
       due: input.due || today(),
+      /* 담당자 · 출처 — 회의 모드에서 넘어온 조치는 어느 회의에서 나왔는지
+         남겨야 나중에 "이건 왜 하는 일인가"를 되짚을 수 있습니다. */
+      assignee: input.assignee || null,
+      source: input.source || "direct",
+      meetingId: input.meetingId || null,
       done: false, createdBy: who(), createdAt: now()
     };
     state.list.push(rec);

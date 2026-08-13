@@ -353,6 +353,18 @@
     return window.VAL.toInput(v);
   }
 
+  /* 회의에서 이 값이 지적됐다면 입력 칸 옆에 남깁니다 — 값을 고치기 전에
+     "회의에서 뭐라고 했는지"가 같은 자리에 보여야 합니다. */
+  function pinMark(batch, f) {
+    if (!window.Pins || !batch) return "";
+    const list = window.Pins.forField(batch.id, f.k);
+    if (!list.length) return "";
+    const tip = list.map(x =>
+      ((window.Pins.KIND[x.kind] || {}).ko || "핀") + ": " + x.text + " — " + x.createdBy).join(" / ");
+    return '<span class="pin-mark" title="' + esc(tip) + '">◆ 회의 지적' +
+      (list.length > 1 ? " " + list.length : "") + '</span> ';
+  }
+
   function fieldMarkup(batch, f) {
     const eff = effective(batch, f);
     const v = eff.value;
@@ -378,6 +390,7 @@
           ' value="' + esc(displayValue(f, v)) + '">' +
       '</label>' +
       '<span class="audit">' +
+        pinMark(batch, f) +
         (miss ? '<span class="miss-tag miss-' + miss.code + '" title="' + esc(miss.hint) + '">' +
                 esc(miss.label) + '</span> ' : "") +
         (cap ? esc(cap) : '<span class="audit-none">미측정</span>') +

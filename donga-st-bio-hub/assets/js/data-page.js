@@ -229,6 +229,25 @@
     return row[key] === undefined ? null : row[key];
   }
 
+  /* 회의 모드에서 남긴 의사결정 핀 — 값이 어디서 지적됐는지 이 화면에서도
+     보여야 회의 밖에서 데이터를 볼 때 맥락이 끊기지 않습니다.
+     이 화면의 컬럼 키는 "그룹.항목" 이라 그대로 쪼개 쓰면 됩니다. */
+  function pinMark(batchId, key) {
+    if (!window.Pins || !batchId) return "";
+    const k = String(key);
+    /* 이 화면의 컬럼 키는 두 모양이 섞여 있습니다. 정제 · 분석은 "그룹.항목",
+       배양 · Titer 는 점 없이 항목만("maxVCD"). 한쪽만 보면 배양 칸의 핀이
+       통째로 안 보입니다. */
+    const list = k.indexOf(".") > -1
+      ? window.Pins.forCell(batchId, k.split(".")[0], k.split(".")[1])
+      : window.Pins.forField(batchId, k);
+    if (!list.length) return "";
+    const tip = list.map(x =>
+      ((window.Pins.KIND[x.kind] || {}).ko || "핀") + ": " + x.text + " — " + x.createdBy).join(" / ");
+    return '<span class="pin-mark" title="' + esc(tip) + '">◆' +
+      (list.length > 1 ? list.length : "") + '</span>';
+  }
+
   /* ── 행 구성 ──────────────────────────────────────────────────────────
      배치별 보기: 한 배치 = 한 행. 분석 컬럼은 그 배치의 대표 시료 값.
      샘플별 보기: 한 시료 = 한 행. 분석 컬럼은 그 시료의 값.
@@ -387,14 +406,17 @@
                   'aria-label="' + esc(c.label) + ' 필터">' +
               '</th>';
             }).join("") + '</tr></thead>' +
-            '<tbody>' + rows.map(r =>
-              '<tr>' + cols.map(function (c) {
+            '<tbody>' + rows.map(function (r) {
+              const bid = r.batchId || r.id;
+              return '<tr>' + cols.map(function (c) {
                 const v = cellValue(r, c.key);
+                const pin = pinMark(bid, c.key);
                 if (v === null || v === undefined)
-                  return '<td class="na">' + (c.key === "sampleName" ? "(샘플 미생성)" : L.empty) + '</td>';
+                  return '<td class="na">' + (c.key === "sampleName" ? "(샘플 미생성)" : L.empty) + pin + '</td>';
                 return '<td' + (c.type === "n" ? ' class="mono"' : "") + '>' +
-                  esc(c.type === "n" ? Number(v).toFixed(c.dp) : v) + '</td>';
-              }).join("") + '</tr>').join("") +
+                  esc(c.type === "n" ? Number(v).toFixed(c.dp) : v) + pin + '</td>';
+              }).join("") + '</tr>';
+            }).join("") +
             '</tbody></table></div>'
         : '<div class="empty"><div class="empty-title">' + esc(L.noResult) + '</div>' +
           '<div class="empty-body">' + esc(L.noResultHint) +
