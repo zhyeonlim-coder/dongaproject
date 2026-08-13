@@ -251,7 +251,7 @@ window.Calc = (function () {
       }
 
       out.innerHTML =
-        '<div class="kron-panel" style="border-left-color:var(--c-accent)">' +
+        '<div class="calc-note" style="border-left-color:var(--c-accent)">' +
           '<div style="display:flex;gap:var(--s-4);flex-wrap:wrap">' +
             t.out(res).map(p =>
               '<div><div class="eyebrow" style="margin-bottom:2px">' + esc(p[0]) + '</div>' +

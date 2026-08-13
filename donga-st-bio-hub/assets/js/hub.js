@@ -2,13 +2,19 @@
    DoE & R&D Intelligence Hub
 
    Three sub-tabs:
-     1. DoE 조건 설계 & 분석  — real design generation, OLS fit, RSM surface,
-                                ANOVA with computed p-values
-     2. AI 자연어 검색        — mock RAG + similar-batch recommendation
-     3. 학술 문헌 & 특허      — 케이론(K-Ron) 화면. 구현은 kron.js.
+     1. DoE 조건 설계 & 분석   — real design generation, OLS fit, RSM surface,
+                                 ANOVA with computed p-values
+     2. AI 자연어 검색         — 실제 데이터 조회 + 외부 학술 문헌 실시간 검색.
+                                 구현은 ask.js / ask-engine.js / lit-api.js.
+     3. Troubleshooting & Wiki — 구현은 wiki.js.
 
-   The DoE maths lives in doe.js and is genuinely computed. The AI tab is a
-   mock (see ai-hub section below) and says so on screen.
+   더 이상 목업 응답이 없습니다. DoE 통계는 doe.js 에서 실제로 계산되고,
+   AI 검색의 수치는 ask-engine.js 가 브라우저에서 실제 데이터로 계산하며,
+   외부 문헌은 Europe PMC · Crossref 를 실시간 호출합니다.
+
+   ※ 예전 '학술 문헌 & 특허(K-Ron)' 탭은 삭제했습니다. K-Ron 은 실존하는
+     외부 솔루션이라, 실제 검색이 붙은 화면에 그 이름을 남겨 두면 제품의
+     기능·성능을 나타내는 것으로 오해될 수 있습니다.
    ========================================================================== */
 
 (function () {
@@ -17,8 +23,8 @@
   const user = window.Shell.mount({ page: "hub" });
   if (!user) return;
 
-  /* LAB 은 문헌 목록에만 쓰였고 그 화면이 kron.js 로 옮겨가면서 필요 없어졌습니다.
-     Store 는 DoE 예측값과 기존 배치 실적을 비교할 때 씁니다. */
+  /* Store 는 DoE 예측값과 기존 배치 실적을 비교할 때 씁니다.
+     (AI 검색이 쓰는 데이터는 AskTables 가 따로 만듭니다) */
   const S = window.Store, D = window.DOE;
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.prototype.slice.call((r || document).querySelectorAll(s));
@@ -26,7 +32,9 @@
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
   let tab = (location.hash || "").replace("#", "") || "doe";
-  if (["doe", "ai", "lit", "wiki"].indexOf(tab) === -1) tab = "doe";
+  /* 예전 #lit 링크(K-Ron)는 AI 검색으로 보냅니다 — 북마크가 죽지 않도록 */
+  if (tab === "lit") tab = "ai";
+  if (["doe", "ai", "wiki"].indexOf(tab) === -1) tab = "doe";
 
   /* Troubleshooting 위키 상태 — 작성 중인지 / 어느 기록을 수정 중인지 */
   let wikiWriting = false, wikiEdit = null;
@@ -36,8 +44,7 @@
     window.Shell.subnav([
       { label: "Intelligence Hub", items: [
         { key: "doe", ko: "DoE 조건 설계 & 분석", active: tab === "doe", color: "var(--c-accent-mid)" },
-        { key: "ai",  ko: "AI 자연어 검색",       active: tab === "ai",  color: "#6D28D9" },
-        { key: "lit", ko: "학술 문헌 & 특허 (K-Ron)", active: tab === "lit", color: "#0F766E" },
+        { key: "ai",  ko: "AI 검색 (데이터 · 문헌)", active: tab === "ai",  color: "#6D28D9" },
         { key: "wiki", ko: "Troubleshooting & Wiki", active: tab === "wiki", color: "#B45309" }
       ]},
       { label: "바로가기", items: [
@@ -451,128 +458,21 @@
   }
 
   /* ══════════════════════════════════════════════════════════════════════
-     2. AI natural-language search
-     ⚠ NOT AN LLM — keyword overlap against pre-written answers. Says so on screen.
+     2. AI 검색 — 사내 데이터 조회 + 외부 학술 문헌 실시간 검색
+
+     화면과 로직은 ask.js 가 전부 담당합니다. 질문 · 결과 · 업로드한 표 같은
+     상태를 그 모듈이 들고 있어야 탭을 옮겼다 돌아와도 살아남습니다.
+
+     숫자는 ask-engine.js 가 브라우저에서 실제 데이터로 계산하고, 외부 문헌은
+     lit-api.js 가 Europe PMC · Crossref 를 직접 호출합니다. 사전 작성된
+     답변은 더 이상 없습니다.
      ══════════════════════════════════════════════════════════════════════ */
-  const ANSWERS = [
-    { match: ["titer", "3.5", "ph", "do", "배양", "조건"],
-      answer: "조건을 만족하는 배치는 <b>2건</b>입니다 — B2402 (4.05 g/L), B2401 (3.62 g/L).\n\n" +
-        "두 배치의 공통 조건은 <b>pH 7.00±0.02, DO 40±3%, 36.5°C</b>이며, 모두 Day 6–7에 피크 VCD에 도달했습니다. " +
-        "역가가 가장 높았던 B2402는 피크 VCD 18.1×10⁶ cells/mL로 가장 높았고, 생존율 80% 도달 시점이 B2401보다 1.5일 늦었습니다.\n\n" +
-        "진행 중인 B2403은 Day 7 기준 1.84 g/L로 동일 시점 B2402 대비 약 8% 낮습니다.",
-      cites: ["B2401", "B2402", "B2403"] },
-    { match: ["hcp", "정제", "resin", "수지", "회수율", "recovery"],
-      answer: "정제 런 3건 중 <b>MabSelect PrismA</b>가 회수율 95.1%로 가장 높았습니다 (SuRe 92.4% 대비 +2.7%p).\n\n" +
-        "HCP는 <b>Capto S ImpAct(CEX) 단계에서 가장 크게 감소</b>했습니다 — 611 → 38 ng/mg (93.8% 제거). " +
-        "다만 해당 런의 회수율은 88.6%로 세 건 중 가장 낮아, 순도와 수율 간 트레이드오프가 확인됩니다.",
-      cites: ["P2401-A", "P2402-A", "P2402-B"] },
-    { match: ["oos", "규격", "이탈", "부적합", "cex"],
-      answer: "현재 규격을 벗어난 항목은 <b>1건</b>입니다.\n\n" +
-        "<b>P2402-B · CEX Main Peak 53.8%</b> (규격 55.0–70.0%). 같은 시료의 산성 변이체가 31.4%로 " +
-        "규격 상한 30%를 함께 초과했습니다. 두 값은 같은 현상의 양면이며, CEX 용출 pH 조정으로 개선된 과거 사례가 있습니다.",
-      cites: ["P2402-B"] }
-  ];
-
-  const RECS = [
-    { score: 94, ko: "B2308 배치와 공정 조건 유사",
-      detail: "pH·DO·Feed 프로파일이 진행 중인 B2403과 94% 일치. 해당 배치는 Day 14 Titer 3.78 g/L 달성.", to: "B2403" },
-    { score: 88, ko: "P2402-B CEX 이탈과 유사한 과거 사례",
-      detail: "2025년 동일 항목이 54.1%로 이탈했으며, CEX 용출 pH를 5.6 → 5.8로 조정해 해소됨.", to: "P2402-B" },
-    { score: 81, ko: "재사용 가능한 DoE 설계",
-      detail: "Box-Behnken(pH·Temp·Feed) 설계가 현재 요인과 동일. Run Table 재사용 가능.", to: "doe" }
-  ];
-
-  function aiView() {
-    return '<section class="card" style="margin-bottom:var(--s-4)">' +
-      '<div class="card-body">' +
-        '<div class="ai-bar">' +
-          '<span class="ai-bar-icon" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" ' +
-            'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-            '<path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15v4M17 17h4"/></svg></span>' +
-          '<label class="sr-only" for="ai-q">연구 데이터 자연어 검색</label>' +
-          '<input class="ai-bar-input" id="ai-q" type="search" autocomplete="off" ' +
-            'placeholder="예: DA-3880 배양 중 Titer 3.5 g/L 이상 나온 pH/DO 조건 조회">' +
-          '<button class="btn btn-accent ai-bar-go" id="ai-go" type="button">검색</button>' +
-        '</div>' +
-        '<div class="ai-suggest">' +
-          ["DA-3880 배양 중 Titer 3.5 g/L 이상 나온 pH/DO 조건 조회",
-           "Resin별 회수율과 HCP 제거 성능 비교",
-           "현재 규격 이탈(OOS) 항목 알려줘"].map(s =>
-            '<button class="ai-chip" data-q="' + esc(s) + '">' + esc(s) + '</button>').join("") +
-        '</div>' +
-        '<div id="ai-out" style="margin-top:var(--s-4)" aria-live="polite"></div>' +
-      '</div></section>' +
-
-      '<section class="card">' +
-        '<div class="card-head"><div>' +
-          '<h2 class="card-title">AI 추천 · 유사 실험</h2>' +
-          '<p class="card-sub">진행 중인 배치·시료와 과거 데이터를 비교해 자동 추천</p></div>' +
-          '<span class="badge badge-accent"><span class="badge-dot"></span>데모 응답</span></div>' +
-        '<div class="card-body" style="display:grid;gap:var(--s-3)">' +
-          RECS.map(r => '<button class="ai-rec" data-to="' + esc(r.to) + '">' +
-            '<span class="ai-score">' + r.score + '%</span>' +
-            '<span style="min-width:0"><span style="display:block;font-size:13px;font-weight:600;margin-bottom:3px">' +
-              '💡 ' + esc(r.ko) + '</span>' +
-            '<span style="display:block;font-size:12px;color:var(--c-text-mute);line-height:1.6">' +
-              esc(r.detail) + '</span></span></button>').join("") +
-        '</div></section>';
+  function paintAsk() {
+    const host = $("#hub-body");
+    if (!host) return;
+    host.innerHTML = window.Ask.view();
+    window.Ask.wire(paintAsk);
   }
-
-  function wireAI() {
-    const input = $("#ai-q"), out = $("#ai-out");
-    function run() {
-      const q = input.value.trim();
-      if (!q) { out.innerHTML = ""; return; }
-      out.innerHTML = '<div class="ai-panel"><span class="ai-tag">' +
-        '<span class="badge-dot" style="background:currentColor"></span>AI 검색 중…</span>' +
-        '<div style="margin-top:var(--s-3);display:grid;gap:8px">' +
-        '<div style="height:9px;width:82%;background:var(--c-paper-2);border-radius:4px"></div>' +
-        '<div style="height:9px;width:64%;background:var(--c-paper-2);border-radius:4px"></div></div></div>';
-
-      setTimeout(() => {
-        const ql = q.toLowerCase();
-        let best = null, score = 0;
-        ANSWERS.forEach(a => {
-          const s = a.match.reduce((n, k) => n + (ql.indexOf(k.toLowerCase()) > -1 ? 1 : 0), 0);
-          if (s > score) { score = s; best = a; }
-        });
-        if (!best) {
-          out.innerHTML = '<div class="ai-panel"><span class="ai-tag">AI 응답</span>' +
-            '<p style="font-size:13.5px;margin:var(--s-3) 0 0;line-height:1.75">' +
-            '이 데모는 미리 작성된 3개 질의에만 응답합니다. 위 예시 질문을 눌러 보세요.</p>' +
-            '<p style="font-size:12px;color:var(--c-text-mute);margin:var(--s-2) 0 0">' +
-            '실제 배포 시 사내 RAG 검색 엔진에 연결됩니다.</p></div>';
-          return;
-        }
-        out.innerHTML = '<div class="ai-panel rise"><span class="ai-tag">' +
-          '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
-          'aria-hidden="true"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>AI 응답</span>' +
-          '<p style="font-size:13.5px;line-height:1.8;margin:var(--s-3) 0 0;white-space:pre-line">' + best.answer + '</p>' +
-          '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:var(--s-4);' +
-            'padding-top:var(--s-3);border-top:1px solid var(--c-accent-bg-2)">' +
-            '<span style="font-size:11.5px;color:var(--c-text-mute)">근거 데이터</span>' +
-            best.cites.map(c => '<span class="badge badge-accent mono">' + esc(c) + '</span>').join("") + '</div>' +
-          '<p style="font-size:11px;color:var(--c-text-mute);margin:var(--s-3) 0 0">' +
-          '⚠ 데모 응답입니다 — 실제 생성형 모델이 아니라 사전 작성된 답변입니다.</p></div>';
-      }, 620);
-    }
-    $("#ai-go").addEventListener("click", run);
-    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); run(); } });
-    $$(".ai-chip").forEach(c => c.addEventListener("click", () => { input.value = c.dataset.q; run(); }));
-    $$("[data-to]").forEach(b => b.addEventListener("click", () => {
-      const t = b.dataset.to;
-      if (t === "doe") { tab = "doe"; location.hash = "doe"; paint(); }
-      else window.location.href = "explorer.html#" + t;
-    }));
-  }
-
-  /* ══════════════════════════════════════════════════════════════════════
-     3. 학술 문헌 & 특허 — 케이론(K-Ron) 화면
-     화면 구성은 kron.js 가 전부 담당합니다. 상태(질의 결과 · 업로드 문서 ·
-     대화 기록)를 그 모듈이 들고 있어야 탭을 옮겼다 돌아와도 살아남습니다.
-     ══════════════════════════════════════════════════════════════════════ */
-  function kronView() { return window.KRon.view(); }
-  function wireKron() { window.KRon.wire(); }
 
   /* ══════════════════════════════════════════════════════════════════════
      4. Troubleshooting & Wiki — 구현은 wiki.js
@@ -600,20 +500,21 @@
   /* ── Paint ──────────────────────────────────────────────────────────── */
   function paint() {
     paintSubnav();
-    const titles = { doe: "DoE 조건 설계 & 분석", ai: "AI 자연어 검색 & 유사실험 추천",
-                     lit: "학술 문헌 & 특허 · 케이론(K-Ron)",
+    const titles = { doe: "DoE 조건 설계 & 분석",
+                     ai: "AI 자연어 검색 · 사내 데이터 & 학술 문헌",
                      wiki: "Troubleshooting & Lesson Learned" };
     $("#page-title").textContent = titles[tab];
     $("#hub-tabs").innerHTML = [["doe", "DoE 설계 & 분석"], ["ai", "AI 검색"],
-                                ["lit", "K-Ron · 문헌 & 특허"], ["wiki", "Troubleshooting & Wiki"]]
+                                ["wiki", "Troubleshooting & Wiki"]]
       .map(([k, ko]) => '<button class="track-tab" data-tab="' + k + '" aria-selected="' + (tab === k) + '" ' +
         'style="min-height:38px;padding:0 var(--s-5)">' + esc(ko) + '</button>').join("");
     $$("[data-tab]").forEach(b => b.addEventListener("click", () => { tab = b.dataset.tab; location.hash = tab; paint(); }));
 
     const host = $("#hub-body");
     if (tab === "wiki") { host.innerHTML = wikiView(); wireWiki(); return; }
-    host.innerHTML = tab === "doe" ? doeView() : tab === "ai" ? aiView() : kronView();
-    if (tab === "doe") wireDoe(); else if (tab === "ai") wireAI(); else wireKron();
+    if (tab === "ai") { paintAsk(); return; }
+    host.innerHTML = doeView();
+    wireDoe();
   }
 
   window.Shell.on("project", paint);

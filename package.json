@@ -1,0 +1,12 @@
+{
+  "name": "donga-st-bio-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bio Knowledge Hub — 정적 사이트. 이 package.json 은 Vercel Serverless Function(api/) 전용입니다. 사이트 자체는 빌드 단계가 없습니다.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0"
+  }
+}

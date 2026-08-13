@@ -250,7 +250,10 @@ ST-02  Column Binding Capacity Optimization
 | 디자인·레이아웃·인터랙션·회의 모드 | 실제 완성 |
 | **DoE 계산 / 규격 판정 / 예약 충돌** | **실제 로직** |
 | 로그인 | **목업** — 브라우저 내 상수 비교 + `sessionStorage` |
-| AI 검색·추천 | **목업** — 키워드 매칭 기반 사전 작성 답변, LLM 아님 |
+| **AI 검색 — 사내 데이터** | **실제** — 질문을 해석해 실제 행을 추리고 브라우저에서 계산 (`ask-engine.js`) |
+| **AI 검색 — 외부 문헌** | **실제** — Europe PMC · Crossref 공개 API 실시간 호출 (`lit-api.js`) |
+| **엑셀·CSV 업로드 질의** | **실제** — 브라우저 안에서만 파싱, 서버 전송 없음 (`tables.js`) |
+| 답변 문장 다듬기 | **실제(선택)** — Claude API. 키가 없으면 엔진 문장으로 자동 대체 |
 | 모든 데이터 | **가상** — 과제코드·Batch·공정값·문헌 전부 시연용 |
 | 브랜딩 | 동아에스티 명칭 사용, 마크는 자리표시자 |
 
@@ -266,7 +269,9 @@ ST-02  Column Binding Capacity Optimization
 - **인증** (`auth.js`) — `current()` / `signIn()` / `requireSession()`.
   단, `requireSession()`은 화면을 가릴 뿐이며 **접근 제어는 반드시 서버에서** 해야 합니다.
 - **데이터/영속성** (`store.js`) — `read()` / `write()` 를 API 호출로 교체하면 구독자는 그대로 동작합니다.
-- **AI 검색** (`hub.js`의 답변 매칭) — 사내 RAG 엔드포인트 `fetch` 로 교체.
+- **AI 검색 항목 사전** (`ask-engine.js`의 `ALIAS`) — 실제 컬럼명·현장 용어를 추가하면
+  그만큼 인식 범위가 넓어집니다. 원본에 없는 항목은 `NOT_RECORDED` 에 두어
+  "기록 없음"으로 답하게 합니다 — 값을 지어내지 않는 것이 이 화면의 전제입니다.
 - **규격 기준** (`lab.js`의 `SPECS`) — 실제 규격서 값으로 교체하면 판정 로직은 그대로.
 
 ---
@@ -295,6 +300,18 @@ vercel --prod     # 확정 후 프로덕션
 빌드 명령과 출력 디렉터리는 **비워 둡니다** (`vercel.json` 이 지정합니다).
 
 `Batch_Data_example.xlsx` 는 루트 `.vercelignore` 로 업로드에서 제외됩니다.
+
+### AI 답변 문장 다듬기 (선택)
+
+`api/narrate.js` 는 조회가 끝난 **값만** Claude 에 넘겨 문장을 다듬는 Serverless
+Function 입니다. 수치 계산과 데이터 조회는 전부 브라우저에서 끝나므로, 이 기능이
+없어도 검색은 그대로 동작합니다.
+
+- 켜려면: Vercel 프로젝트 → **Settings → Environment Variables** → `ANTHROPIC_API_KEY`
+- 끄려면: 환경변수를 두지 않으면 됩니다. 라우트가 503 을 돌려주고 화면은
+  엔진이 만든 문장을 그대로 씁니다 (오류 표시 없음).
+- **저장소 루트에서 배포해야 `api/` 가 함께 올라갑니다.** Root Directory 를
+  `donga-st-bio-hub` 로 지정하면 이 라우트는 배포되지 않고, 문장 다듬기만 빠집니다.
 
 `vercel.json` 이 하는 일:
 

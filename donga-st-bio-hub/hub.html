@@ -41,10 +41,15 @@
 
       <footer class="rule-hair" style="margin-top:var(--s-8);padding-top:var(--s-5);
                                        font-size:11.5px;color:var(--c-text-mute);line-height:1.7">
-        DoE의 설계 생성 · 회귀 · ANOVA(p-value 포함) · 최적화는 브라우저에서 실제로 계산됩니다.
-        업로드한 문서 검색도 실제로 색인·검색하며, 파일은 이 브라우저 밖으로 나가지 않습니다.<br>
-        AI 검색 응답과 문헌 · 특허 코퍼스는 시연용 예시 데이터입니다. 케이론(K-Ron) 화면은 실제 서비스에
-        연결되어 있지 않은 모방 UI이며, 제품의 기능이나 성능을 나타내지 않습니다.
+        본 서비스는 실제 실험 데이터 및 외부 학술 문헌 DB와 연동되어 AI 기반 자연어 검색과 답변을 제공합니다.<br>
+        AI 검색의 수치는 사내 실험 데이터에서 직접 조회 · 계산한 값이며, 원본에 없는 항목은 값을 만들어
+        채우지 않고 &ldquo;기록 없음&rdquo;으로 표시합니다. 외부 문헌은 Europe PMC · Crossref 공개 API를
+        실시간 호출해 제목 · 저자 · 저널 · DOI 링크를 원문 그대로 싣습니다.
+        업로드한 엑셀 · CSV는 이 브라우저 안에서만 파싱되며 서버로 전송되지 않습니다.<br>
+        답변 문장을 다듬는 데에만 Claude API를 사용하며, 이때도 이미 계산이 끝난 값만 전달됩니다 —
+        숫자는 모델을 거치지 않습니다. DoE의 설계 생성 · 회귀 · ANOVA(p-value 포함) · 최적화도
+        브라우저에서 실제로 계산됩니다.<br>
+        연구 데이터는 시연용이며, 정제 항목은 원본 Excel에 컬럼이 없어 생성한 값입니다.
       </footer>
     </main>
 
@@ -77,9 +82,12 @@
 <script src="assets/js/data/issues.js"></script>
 <script src="assets/js/wiki.js"></script>
 
-<!-- 학술 문헌 & 특허 탭 — 케이론(K-Ron) 화면 -->
-<script src="assets/js/data/literature.js"></script>
-<script src="assets/js/kron.js"></script>
+<!-- AI 검색 — 실제 데이터 조회 + 외부 학술 문헌 실시간 검색.
+     tables.js 는 repo.js 뒤에 와야 합니다 (내부 테이블을 Repo 로 만듭니다). -->
+<script src="assets/js/data/tables.js"></script>
+<script src="assets/js/ask-engine.js"></script>
+<script src="assets/js/lit-api.js"></script>
+<script src="assets/js/ask.js"></script>
 
 <script src="assets/js/hub.js"></script>
 </body>
