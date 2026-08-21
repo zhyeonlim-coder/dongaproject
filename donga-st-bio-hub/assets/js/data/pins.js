@@ -32,13 +32,13 @@ window.Pins = (function () {
     question: { ko: "질문",   mark: "?", tone: "mute" }
   };
 
-  let state = { pins: [], notes: [], meetings: [] };
+  let state = { pins: [], notes: [], meetings: [], agenda: [] };
   const subs = [];
 
   function load() {
     try {
       const raw = JSON.parse(localStorage.getItem(KEY) || "null");
-      if (raw && raw.pins && raw.notes && raw.meetings) return raw;
+      if (raw && raw.pins && raw.notes && raw.meetings) { raw.agenda = raw.agenda || []; return raw; }
     } catch (e) { /* 저장본이 깨졌으면 빈 상태로 시작합니다 */ }
     return null;
   }
@@ -131,6 +131,7 @@ window.Pins = (function () {
     const rec = {
       id: uid("PIN"),
       meetingId: m.id,
+      agendaId: openAgendaId,
       batchId: input.batchId,
       batchLabel: input.batchLabel || input.batchId,
       sampleId: input.sampleId || null,
@@ -175,6 +176,17 @@ window.Pins = (function () {
     return state.pins.filter(p => p.batchId === batchId && fieldKeyOf(p) === fieldKey);
   }
 
+  /* 핀을 트러블슈팅 사례로 승격했을 때 연결을 남깁니다 —
+     같은 지적이 사례집에 두 번 등록되는 것을 막습니다. */
+  function linkIssue(pinId, issueId) {
+    const p = get(pinId);
+    if (!p) return false;
+    p.issueId = issueId;
+    p.issueAt = now();
+    emit();
+    return true;
+  }
+
   function remove(id) {
     const n = state.pins.length;
     state.pins = state.pins.filter(p => p.id !== id);
@@ -206,6 +218,7 @@ window.Pins = (function () {
     const rec = {
       id: uid("NOTE"),
       meetingId: m.id,
+      agendaId: openAgendaId,
       kind: kind,
       text: text,
       assignee: input.assignee || null,
@@ -276,6 +289,7 @@ window.Pins = (function () {
     const ns = notesOf(m.id);
     return {
       meeting: m,
+      agenda: agenda(m.id),
       pins: state.pins.filter(p => p.meetingId === m.id),
       decisions: ns.filter(n => n.kind === "decision"),
       actions: ns.filter(n => n.kind === "action")
@@ -296,37 +310,185 @@ window.Pins = (function () {
     L.push("- 작성: " + d.meeting.by);
     L.push("");
 
-    L.push("## 검토 중 지적된 값 (" + d.pins.length + "건)");
-    if (!d.pins.length) L.push("- 없음");
-    d.pins.forEach(function (p) {
-      L.push("- [" + KIND[p.kind].ko + "] " + p.batchLabel + " · " + p.metricLabel +
-        (p.value !== null ? " " + p.value + (p.unit ? " " + p.unit : "") : " (미입력)") +
-        (p.day ? " · " + p.day : "") + " — " + p.text + " (" + p.createdBy + ")");
-    });
-    L.push("");
+    /* 안건이 있으면 안건별로 묶습니다 — 회의록은 "무엇을 논의했는가" 순서로
+       읽히는 게 자연스럽고, 다음 회의에서 이어붙이기도 쉽습니다. */
+    const pinLine = p => "- [" + KIND[p.kind].ko + "] " + p.batchLabel + " · " + p.metricLabel +
+      (p.value !== null ? " " + p.value + (p.unit ? " " + p.unit : "") : " (미입력)") +
+      (p.day ? " · " + p.day : "") + " — " + p.text + " (" + p.createdBy + ")";
+    const decLine = n => "- [결정] " + n.text + " (" + n.createdBy + ")";
+    const actLine = n => "- [조치] " + n.text + " — 담당 " + (n.assignee || "미지정") +
+      (n.due ? " · 기한 " + n.due : "") + (n.todoId ? " · To-Do 등록됨" : "");
 
-    L.push("## 결정 사항 (" + d.decisions.length + "건)");
-    if (!d.decisions.length) L.push("- 없음");
-    d.decisions.forEach(n => L.push("- " + n.text + " (" + n.createdBy + ")"));
-    L.push("");
+    if (d.agenda && d.agenda.length) {
+      L.push("## 안건별 기록");
+      d.agenda.forEach(function (a, i) {
+        L.push("");
+        L.push("### " + (i + 1) + ". " + a.title + (a.done ? "  [완료]" : "  [미완료]") +
+          (a.carriedFrom ? "  (지난 회의에서 이월)" : ""));
+        const ps = d.pins.filter(p => p.agendaId === a.id);
+        const ds = d.decisions.filter(n => n.agendaId === a.id);
+        const as = d.actions.filter(n => n.agendaId === a.id);
+        if (!ps.length && !ds.length && !as.length) { L.push("- 기록 없음"); return; }
+        ps.forEach(p => L.push(pinLine(p)));
+        ds.forEach(n => L.push(decLine(n)));
+        as.forEach(n => L.push(actLine(n)));
+      });
 
-    L.push("## 조치 사항 (" + d.actions.length + "건)");
-    if (!d.actions.length) L.push("- 없음");
-    d.actions.forEach(function (n) {
-      L.push("- " + n.text + " — 담당 " + (n.assignee || "미지정") +
-        (n.due ? " · 기한 " + n.due : "") + (n.todoId ? " · To-Do 등록됨" : ""));
-    });
-    L.push("");
+      /* 안건에 묶이지 않은 기록도 빠뜨리지 않습니다 */
+      const loose = {
+        pins: d.pins.filter(p => !p.agendaId),
+        dec: d.decisions.filter(n => !n.agendaId),
+        act: d.actions.filter(n => !n.agendaId)
+      };
+      if (loose.pins.length || loose.dec.length || loose.act.length) {
+        L.push("");
+        L.push("### 안건 밖 기록");
+        loose.pins.forEach(p => L.push(pinLine(p)));
+        loose.dec.forEach(n => L.push(decLine(n)));
+        loose.act.forEach(n => L.push(actLine(n)));
+      }
+      L.push("");
+    } else {
+      L.push("## 검토 중 지적된 값 (" + d.pins.length + "건)");
+      if (!d.pins.length) L.push("- 없음");
+      d.pins.forEach(p => L.push(pinLine(p)));
+      L.push("");
+
+      L.push("## 결정 사항 (" + d.decisions.length + "건)");
+      if (!d.decisions.length) L.push("- 없음");
+      d.decisions.forEach(n => L.push("- " + n.text + " (" + n.createdBy + ")"));
+      L.push("");
+
+      L.push("## 조치 사항 (" + d.actions.length + "건)");
+      if (!d.actions.length) L.push("- 없음");
+      d.actions.forEach(n => L.push(actLine(n)));
+      L.push("");
+    }
+
+    /* 조치는 담당자별로 한 번 더 모읍니다 — 회의 끝나고 각자 자기 것만
+       떼어 가는 게 실제 사용 방식입니다. */
+    if (d.actions.length) {
+      L.push("## 담당자별 조치");
+      const by = {};
+      d.actions.forEach(n => { (by[n.assignee || "미지정"] = by[n.assignee || "미지정"] || []).push(n); });
+      Object.keys(by).forEach(function (who2) {
+        L.push("- " + who2 + " (" + by[who2].length + "건)");
+        by[who2].forEach(n => L.push("  - " + n.text + (n.due ? " · " + n.due : "")));
+      });
+      L.push("");
+    }
+
     L.push("— 값은 Batch_Data_example.xlsx 원본과 생성된 정제 데이터에서 조회한 것입니다.");
+    L.push("— 규격표가 없어 Pass/Fail 판정은 포함하지 않습니다. 이탈 표시는 같은 Study 내 ±2SD 기준입니다.");
     return L.join("\n");
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     안건 (Agenda)
+
+     회의를 순서대로 진행하기 위한 목록입니다. 핀 · 노트는 만들어질 때
+     "지금 진행 중인 안건"에 묶이고, 회의록이 안건별로 정리됩니다.
+
+     끝나지 않은 안건은 다음 회의로 넘길 수 있습니다 — 회의에서 못 다룬 것이
+     아무 데도 안 남는 게 실제로 제일 흔한 문제입니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  let openAgendaId = null;
+
+  function addAgenda(o) {
+    const input = o || {};
+    const title = String(input.title || "").trim();
+    if (title.length < 2) return { ok: false, reason: "안건을 2자 이상 입력하세요" };
+    const m = ensureMeeting(input.context);
+    const mine = state.agenda.filter(a => a.meetingId === m.id);
+    const rec = {
+      id: uid("AG"),
+      meetingId: m.id,
+      title: title,
+      done: false, doneAt: null,
+      order: mine.length,
+      carriedFrom: input.carriedFrom || null,
+      createdBy: who(), createdAt: now()
+    };
+    state.agenda.push(rec);
+    if (!openAgendaId) openAgendaId = rec.id;
+    emit();
+    return { ok: true, item: rec };
+  }
+
+  function agenda(meetingId) {
+    const id = meetingId || (currentMeeting() ? currentMeeting().id : null);
+    if (!id) return [];
+    return state.agenda.filter(a => a.meetingId === id)
+      .slice().sort((a, b) => a.order - b.order);
+  }
+
+  function toggleAgenda(id) {
+    const a = state.agenda.find(x => x.id === id);
+    if (!a) return false;
+    a.done = !a.done;
+    a.doneAt = a.done ? now() : null;
+    /* 끝낸 안건이 "진행 중"으로 남아 있으면 다음 핀이 엉뚱한 곳에 묶입니다 */
+    if (a.done && openAgendaId === id) {
+      const next = agenda(a.meetingId).find(x => !x.done);
+      openAgendaId = next ? next.id : null;
+    }
+    emit();
+    return true;
+  }
+
+  function removeAgenda(id) {
+    const n = state.agenda.length;
+    state.agenda = state.agenda.filter(a => a.id !== id);
+    if (openAgendaId === id) openAgendaId = null;
+    /* 안건이 사라져도 핀 · 노트는 남습니다 — 기록을 지우지 않습니다 */
+    state.pins.forEach(p => { if (p.agendaId === id) p.agendaId = null; });
+    state.notes.forEach(x => { if (x.agendaId === id) x.agendaId = null; });
+    if (state.agenda.length !== n) { emit(); return true; }
+    return false;
+  }
+
+  function moveAgenda(id, dir) {
+    const a = state.agenda.find(x => x.id === id);
+    if (!a) return false;
+    const list = agenda(a.meetingId);
+    const i = list.findIndex(x => x.id === id);
+    const j = i + (dir < 0 ? -1 : 1);
+    if (i < 0 || j < 0 || j >= list.length) return false;
+    const t = list[i].order; list[i].order = list[j].order; list[j].order = t;
+    emit();
+    return true;
+  }
+
+  function setCurrentAgenda(id) {
+    openAgendaId = id || null;
+    emit();
+    return openAgendaId;
+  }
+  function currentAgenda() {
+    if (!openAgendaId) return null;
+    return state.agenda.find(a => a.id === openAgendaId) || null;
+  }
+
+  /* 지난 회의에서 못 끝낸 안건을 이번 회의로 */
+  function carryOverAgenda(ctx) {
+    const prev = state.meetings
+      .filter(m => m.endedAt && (!currentMeeting() || m.id !== currentMeeting().id))
+      .sort((a, b) => String(b.endedAt).localeCompare(String(a.endedAt)))[0];
+    if (!prev) return { ok: false, reason: "이전 회의가 없습니다" };
+    const left = state.agenda.filter(a => a.meetingId === prev.id && !a.done);
+    if (!left.length) return { ok: false, reason: "지난 회의에 남은 안건이 없습니다" };
+    left.forEach(a => addAgenda({ title: a.title, carriedFrom: prev.id, context: ctx }));
+    return { ok: true, count: left.length };
   }
 
   return {
     subscribe, KIND,
-    add, all, get, forBatch, forCell, forField, remove, resolve,
+    add, all, get, forBatch, forCell, forField, remove, resolve, linkIssue,
     metricId, fieldKeyOf,
     addNote, notes, notesOf, removeNote, openActions,
     ensureMeeting, endMeeting, currentMeeting, resumeRecent, meetings,
+    addAgenda, agenda, toggleAgenda, removeAgenda, moveAgenda,
+    setCurrentAgenda, currentAgenda, carryOverAgenda,
     minutes, minutesText
   };
 })();

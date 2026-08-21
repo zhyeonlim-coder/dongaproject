@@ -37,10 +37,12 @@ window.AskTables = (function () {
      1. 내부 데이터 → 테이블
      ══════════════════════════════════════════════════════════════════════ */
 
-  /* 배치 1건이 행 1개입니다. 분석 항목은 대표 시료 값이 들어옵니다. */
-  function buildInternal() {
+  /* 배치 1건이 행 1개입니다. 분석 항목은 대표 시료 값이 들어옵니다.
+     batchList 를 받는 이유: 회의 모드는 지금 보고 있는 과제·Study 범위 안에서만
+     답해야 합니다. 전체 데이터로 답하면 화면에 없는 배치를 가리킵니다. */
+  function buildInternal(batchList, label, note) {
     const R = window.Repo;
-    const batches = (window.DATA_BATCHES || []).filter(b => b.active !== false);
+    const batches = (batchList || window.DATA_BATCHES || []).filter(b => b && b.active !== false);
     /* Repo.getAnalyteGroups() 는 Promise 를 돌려줍니다 (비동기 API 흉내).
        테이블 구성은 동기라야 해서 원본 배열을 그대로 씁니다. */
     const groups = window.DATA_ANALYTE_GROUPS || [];
@@ -84,9 +86,9 @@ window.AskTables = (function () {
     });
 
     return {
-      id: "internal", kind: "internal",
-      label: "사내 실험 데이터 (Batch)",
-      note: "배양·분석 항목은 Batch_Data_example.xlsx 원본입니다. 정제 항목은 원본에 컬럼이 없어 생성한 값입니다.",
+      id: batchList ? "scoped" : "internal", kind: "internal",
+      label: label || "사내 실험 데이터 (Batch)",
+      note: note || "배양·분석 항목은 Batch_Data_example.xlsx 원본입니다. 정제 항목은 원본에 컬럼이 없어 생성한 값입니다.",
       columns, rows
     };
   }
@@ -110,6 +112,10 @@ window.AskTables = (function () {
     if (!internalCache) internalCache = buildInternal();
     return internalCache;
   }
+
+  /* 임의의 배치 목록으로 같은 모양의 표를 만듭니다 (회의 모드 범위 질의용).
+     캐시하지 않습니다 — 범위가 매번 다릅니다. */
+  function build(list, label, note) { return buildInternal(list, label, note); }
   /* EBR 입력이 바뀌면 내부 테이블을 다시 만들어야 합니다 */
   function invalidate() { internalCache = null; emit(); }
 
@@ -327,7 +333,7 @@ window.AskTables = (function () {
   }
 
   return {
-    on, internal, invalidate, all, uploads, get, addFile, remove,
+    on, internal, build, invalidate, all, uploads, get, addFile, remove,
     numericColumns, filledCount,
     /* 검증·테스트용 */
     _parseCSV: parseCSV, _matrixToTable: matrixToTable, _splitUnit: splitUnit
