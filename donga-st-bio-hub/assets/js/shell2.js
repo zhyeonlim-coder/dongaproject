@@ -35,9 +35,13 @@ window.Shell = (function () {
     { id: "hub", href: "hub.html", ko: "DoE & Intelligence",
       icon: '<path d="M4 19h16M7 19V9M12 19V5M17 19v-7"/>' },
     { id: "booking", href: "booking.html", ko: "장비 예약",
-      icon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>' },
-    { id: "explorer", href: "explorer.html", ko: "데이터 탐색",
-      icon: '<path d="M3 5h7l2 2h9v12H3z"/>' }
+      icon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>' }
+    /* 데이터 탐색(explorer.html)은 메뉴에서 내렸습니다.
+       그 화면만 이전 단계의 아카이브 데이터셋을 쓰고 selection.js 를 싣지 않아,
+       상단에서 과제를 바꿔도 따라오지 않았습니다. 사용자 눈에는 화면마다
+       규칙이 다른 것으로 — 즉 고장으로 — 보입니다.
+       파일은 남겨 두었으므로 주소를 직접 열면 그대로 동작합니다. 새 데이터
+       계층으로 이관하면 그때 메뉴로 되돌립니다. */
   ];
 
   let currentProject = null;
@@ -132,6 +136,12 @@ window.Shell = (function () {
           '<span class="badge-dot"></span>샘플<span class="badge-sample-en"> 데이터</span></span>' +
         '<span class="avatar" style="background:var(--c-accent-hi);color:#0A192F" title="' + esc(user.name) + '">' +
           esc(user.initials) + '</span>' +
+        '<button class="btn-icon" id="topbackup" aria-label="데이터 내보내기 및 가져오기" ' +
+          'title="데이터 내보내기 · 가져오기" style="color:#8FA2BB">' +
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+          'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+          '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>' +
+          '<path d="M7 10l5 5 5-5M12 15V3"/></svg></button>' +
         '<button class="btn-icon" id="signout" aria-label="로그아웃" style="color:#8FA2BB">' +
           '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
           '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>' +
@@ -152,6 +162,8 @@ window.Shell = (function () {
       const i = v.indexOf(":");
       window.Scope.setScope(v.slice(0, i), v.slice(i + 1));
     });
+    const bk = document.getElementById("topbackup");
+    if (bk && window.Backup) bk.addEventListener("click", () => window.Backup.open());
     document.getElementById("signout").addEventListener("click", () => window.Auth.signOut());
 
     /* 선택이 다른 경로로 바뀌어도 상단 셀렉터가 항상 실제 상태를 보여주도록

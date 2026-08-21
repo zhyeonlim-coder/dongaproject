@@ -2366,6 +2366,39 @@ tr:hover .mm-pinb, .mm-cell:focus-within .mm-pinb,
 .mm-item-btn:hover { border-color: var(--c-accent-mid); color: var(--c-accent); }
 .mm-item-m.is-ok { color: var(--c-ok); }
 
+/* ==========================================================================
+   데이터 내보내기 · 가져오기 모달
+   -------------------------------------------------------------------------- */
+.bk-sec-h {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--c-text-mute); margin-bottom: var(--s-3);
+}
+.bk-tbl { font-size: 12.5px; margin-bottom: var(--s-3); }
+.bk-tbl td { padding: 6px var(--s-3); }
+.bk-note { font-size: 11.5px; color: var(--c-text-mute); line-height: 1.7; margin: 0 0 var(--s-3); }
+.bk-msg {
+  font-size: 12.5px; line-height: 1.7; border-radius: var(--r-sm);
+  padding: 8px 11px; margin: 0 0 var(--s-4);
+}
+.bk-msg.is-ok   { background: #EAF6EE; color: #14632F; }
+.bk-msg.is-bad  { background: #FBEBEB; color: #9B1C1C; }
+.bk-msg.is-info { background: var(--c-accent-bg); color: var(--c-accent); }
+.bk-file {
+  font-size: 12.5px; line-height: 1.7; color: var(--c-text-mute);
+  background: var(--c-paper); border-radius: var(--r-sm);
+  padding: 8px 11px; margin-bottom: var(--s-3);
+}
+.bk-modes { display: grid; gap: 8px; margin: var(--s-4) 0; }
+.bk-mode {
+  display: flex; gap: 9px; align-items: flex-start; cursor: pointer;
+  border: 1px solid var(--c-border); border-radius: var(--r-md);
+  padding: 10px 12px; font-size: 12.5px; line-height: 1.7;
+}
+.bk-mode:hover { border-color: var(--c-accent-mid); }
+.bk-mode input { margin-top: 3px; accent-color: var(--c-accent); flex: none; }
+.bk-mode:has(input:checked) { border-color: var(--c-accent); background: var(--c-accent-bg); }
+.bk-actions { display: flex; gap: var(--s-2); }
+
 @media print {
   .sidebar, .topbar, .scrim { display: none; }
   .shell { grid-template-columns: 1fr; }

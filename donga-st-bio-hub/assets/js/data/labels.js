@@ -2,11 +2,24 @@
    labels.js — 라벨 상수 (명세서 §5 용어 정비)
 
    원칙: 하나의 개념에는 하나의 표기만.
-     · 수확 → Harvest
-     · OOS  → Fail        (판정은 Pass / Fail 로 통일, "적합/부적합" 혼용 금지)
-     · 공정명(배양·정제·분석)은 한글, 지표명(Titer·HCP·VCD)은 영문
 
-   화면에 나가는 문자열은 가능한 한 이 파일을 거치도록 합니다.
+     · 공정 단계 · 사건 이름은 **현업에서 쓰는 영문**
+         Inoculation · Culture · Harvest · Purification · Analysis
+       "접종/배양 시작", "수확"처럼 한글로 적으면 같은 사건이 화면마다 다른
+       이름으로 나옵니다. 실제로 그렇게 갈려 있었습니다 —
+       store.js 는 "B2402 수확 예정", calendar.js 는 "B123-2 Harvest".
+
+     · 조직 이름은 한글       배양공정팀 · 정제공정팀 · 바이오분석팀
+     · 지표명은 영문          Titer · HCP · VCD · qP
+     · 상태 · UI 문구는 한글  예정 · 진행중 · 완료 · 미입력
+     · 판정은 Pass / Fail     (OOS · "적합/부적합" 혼용 금지)
+
+   ⚠ 아래 process 상수는 오랫동안 **선언만 되고 아무 데서도 쓰이지 않았습니다.**
+     규칙이 코드로 강제되지 않으니 표기가 갈렸습니다. 지금 화면에 나가는
+     공정 단계 문자열은 두 곳에서 만들어집니다 — 새 문구를 넣을 때 여기부터
+     맞춰 주세요.
+         data/calendar.js  KIND · excelEvents()   (대시보드 · 일정 · EBR · 데이터 조회)
+         store.js          seed() · touchEvent()  (장비 예약 화면의 레일)
    ========================================================================== */
 
 window.LABELS = (function () {
@@ -30,13 +43,14 @@ window.LABELS = (function () {
     noResult: "선택한 조건에 해당하는 데이터가 없습니다.",
     noResultHint: "조건을 넓히거나 [초기화]를 눌러 전체 데이터를 다시 보세요.",
 
-    /* 공정 단계 (한글) */
+    /* 공정 단계 · 사건 — 현업에서 쓰는 영문으로 통일 */
     process: {
-      culture: "배양",
-      harvest: "Harvest",          // 기존 "수확" 전면 대체
-      purification: "정제",
-      analysis: "분석",
-      report: "보고서"
+      inoculation: "Inoculation",   // 기존 "접종" · "배양 시작" 대체
+      culture: "Culture",
+      harvest: "Harvest",           // 기존 "수확" 대체
+      purification: "Purification", // 기존 "정제"(사건명) 대체 — 팀 이름은 한글 유지
+      analysis: "Analysis",         // 기존 "분석"(사건명) 대체
+      report: "보고서"              // 문서 종류라 한글
     },
 
     /* 부서 */

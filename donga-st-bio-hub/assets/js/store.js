@@ -69,17 +69,17 @@ window.Store = (function () {
     /* refs are composite (`B2401#inoc`) so a daily record can never collide
        with — and overwrite — the inoculation or harvest entry. */
     L.BATCHES.forEach(b => {
-      state.events.push({ id: uid("ev"), date: b.inoc, ko: b.id + " 접종", kind: "culture",
+      state.events.push({ id: uid("ev"), date: b.inoc, ko: b.id + " Inoculation", kind: "culture",
         status: "완료", ref: b.id + "#inoc" });
-      state.events.push({ id: uid("ev"), date: addDays(b.inoc, b.days), ko: b.id + " 수확 예정",
+      state.events.push({ id: uid("ev"), date: addDays(b.inoc, b.days), ko: b.id + " Harvest 예정",
         kind: "culture", status: b.status === "완료" ? "완료" : "진행중", ref: b.id + "#harvest" });
     });
     L.PURIF_RUNS.forEach(p => {
-      state.events.push({ id: uid("ev"), date: p.date, ko: p.id + " 정제", kind: "purif",
+      state.events.push({ id: uid("ev"), date: p.date, ko: p.id + " Purification", kind: "purif",
         status: "완료", ref: p.id });
     });
     L.ANALYSES.forEach(a => {
-      state.events.push({ id: uid("ev"), date: a.date, ko: a.id + " " + a.method + " 분석",
+      state.events.push({ id: uid("ev"), date: a.date, ko: a.id + " " + a.method + " Analysis",
         kind: "analysis", status: "완료", ref: a.id });
     });
     state.events.push({ id: uid("ev"), date: "2026-07-31", ko: "ST-01 중간 보고", kind: "milestone", status: "예정" });
@@ -132,17 +132,17 @@ window.Store = (function () {
 
   function addBatch(b) {
     state.batches.push(b);
-    state.events.push({ id: uid("ev"), date: b.inoc, ko: b.id + " 접종", kind: "culture",
+    state.events.push({ id: uid("ev"), date: b.inoc, ko: b.id + " Inoculation", kind: "culture",
       status: "완료", ref: b.id + "#inoc" });
     emit("batch");
   }
 
-  /* Harvest flips the seeded 수확 예정 entry to 완료 — the 진행 중 → 완료
+  /* Harvest flips the seeded Harvest 예정 entry to 완료 — the 진행 중 → 완료
      transition the brief asks for. */
   function completeHarvest(batchId) {
     const ev = state.events.find(e => e.ref === batchId + "#harvest");
-    if (ev) { ev.status = "완료"; ev.ko = batchId + " 수확 완료"; }
-    else state.events.push({ id: uid("ev"), date: today(), ko: batchId + " 수확 완료",
+    if (ev) { ev.status = "완료"; ev.ko = batchId + " Harvest 완료"; }
+    else state.events.push({ id: uid("ev"), date: today(), ko: batchId + " Harvest 완료",
       kind: "culture", status: "완료", ref: batchId + "#harvest" });
     const b = state.batches.find(x => x.id === batchId);
     if (b) b.status = "완료";
@@ -152,14 +152,14 @@ window.Store = (function () {
   function savePurifRun(run) {
     const i = state.purifRuns.findIndex(r => r.id === run.id);
     if (i > -1) state.purifRuns[i] = run; else state.purifRuns.push(run);
-    touchEvent(run.id, "purif", run.id + " 정제", run.date);
+    touchEvent(run.id, "purif", run.id + " Purification", run.date);
     emit("purif");
   }
 
   function saveAnalysis(a) {
     const i = state.analyses.findIndex(x => x.id === a.id);
     if (i > -1) state.analyses[i] = a; else state.analyses.push(a);
-    touchEvent(a.id, "analysis", a.id + " " + a.method + " 분석", a.date);
+    touchEvent(a.id, "analysis", a.id + " " + a.method + " Analysis", a.date);
     emit("analysis");
   }
 

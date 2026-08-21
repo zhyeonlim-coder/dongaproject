@@ -33,9 +33,9 @@ window.HubCalendar = (function () {
   const UKEY = "hub.schedule.v2";        // 일정 관리 화면이 쓰는 저장소와 동일
 
   const KIND = {
-    culture:   { ko: "배양",      color: "var(--c-accent)" },
+    culture:   { ko: "Culture",    color: "var(--c-accent)" },
     harvest:   { ko: "Harvest",   color: "#6D28D9" },
-    analysis:  { ko: "분석",      color: "#0F766E" },
+    analysis:  { ko: "Analysis",   color: "#0F766E" },
     meeting:   { ko: "회의",      color: "#B45309" },
     deadline:  { ko: "마감",      color: "var(--c-risk)" },
     milestone: { ko: "마일스톤",  color: "var(--c-navy-600)" },
@@ -84,7 +84,7 @@ window.HubCalendar = (function () {
       const st = studyById[b.studyId];
       const prj = st ? st.projectId : null;
       if (b.initialDate) out.push({
-        id: b.id + "#inoc", date: b.initialDate, ko: b.id + " 배양 시작",
+        id: b.id + "#inoc", date: b.initialDate, ko: b.id + " Inoculation",
         kind: "culture", src: "excel", projectId: prj, studyId: b.studyId, ref: b.id
       });
       if (b.endDate) out.push({
