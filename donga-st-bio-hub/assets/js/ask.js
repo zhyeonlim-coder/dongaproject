@@ -33,7 +33,8 @@ window.Ask = (function () {
     narration: null,       // { text, model } | null
     narrating: false,
     error: null,
-    uploadMsg: null
+    uploadMsg: null,
+    prev: null            // 직전 질의의 범위·항목 (후속 질문이 이어받습니다)
   };
 
   const CHIPS = [
@@ -468,11 +469,16 @@ window.Ask = (function () {
       let r;
       try {
         const table = window.AskTables.get(S.tableId) || window.AskTables.internal();
-        r = window.AskEngine.answer(q, { table: table });
+        /* 직전 1턴만 넘깁니다 — "그럼 정제는?" 처럼 이어받는 표현이 있을 때만
+           엔진이 씁니다. 표시 없이 물려받으면 사용자가 전체를 물었는데도
+           조용히 범위가 좁아집니다. */
+        r = window.AskEngine.answer(q, { table: table, prev: S.prev });
       } catch (e) {
         S.busy = false; S.error = "조회 중 오류가 발생했습니다 — " + (e.message || e); repaint(); return;
       }
-      S.busy = false; S.result = r; repaint();
+      S.busy = false; S.result = r;
+      if (r.carry) S.prev = { carry: r.carry, question: q };
+      repaint();
       if (r.ok) narrate(r, my);
     }, 180);
   }

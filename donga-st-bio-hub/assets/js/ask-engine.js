@@ -153,44 +153,100 @@ window.AskEngine = (function () {
     return "list";
   }
 
+  /* 영문 Study · Project 이름을 한글로 물어도 걸리도록 하는 별칭 사전.
+
+     원본의 Study 명이 "Media screening test" 라 "미디어 스크리닝" 이 아무
+     데도 걸리지 않았습니다. 음차(미디어)와 번역(배지)을 모두 받아 줍니다.
+     이름 자체를 바꾸지는 않습니다 — 원본 표기는 그대로 두고 입구만 넓힙니다. */
+  const WORD_KO = {
+    media: ["미디어", "배지"],
+    screening: ["스크리닝", "선별"],
+    doe: ["디오이", "도이", "실험계획", "실험계획법"],
+    feasibility: ["피저빌리티", "피지빌리티", "타당성", "실현가능성"],
+    test: ["테스트", "시험"],
+    development: ["개발"],
+    process: ["공정"],
+    stability: ["안정성"],
+    comparability: ["동등성"]
+  };
+  /* 어느 Study 에나 붙는 말이라 이것만으로는 지목했다고 보지 않습니다 */
+  const NAME_STOP = ["test", "테스트", "시험", "study", "스터디", "data", "데이터"];
+
+  function nameAliases(name) {
+    const raw = String(name || "").toLowerCase().trim();
+    if (!raw) return { all: [], strong: [] };
+    const all = [raw, raw.replace(/\s+/g, "")];
+    const strong = [];
+    raw.split(/[\s\-_]+/).forEach(function (tok) {
+      if (!tok) return;
+      const isStop = NAME_STOP.indexOf(tok) > -1;
+      /* "테스트" · "시험" 은 Study 이름마다 다 붙습니다. 별칭으로 두면
+         "디오이 테스트" 가 세 Study 를 모두 지목해 범위가 전체로 벌어집니다. */
+      if (isStop) return;
+      if (tok.length >= 3) strong.push(tok);
+      (WORD_KO[tok] || []).forEach(function (k) { all.push(k); strong.push(k); });
+    });
+    /* 음차를 이어 붙인 형태 — "미디어 스크리닝" · "미디어스크리닝" */
+    const parts = raw.split(/[\s\-_]+/).filter(t => t && NAME_STOP.indexOf(t) === -1);
+    if (parts.length > 1) {
+      const heads = parts.map(t => (WORD_KO[t] || [t])[0]);
+      all.push(heads.join(" "), heads.join(""));
+      strong.push(heads.join(" "), heads.join(""));
+    }
+    return { all: all.concat(strong), strong: strong };
+  }
+
+  /* 과제 코드를 숫자만으로 부르는 경우("1234" → DA-1234)를 받되, 그 숫자가
+     값 조건으로 쓰였으면 무시합니다. 이 방어가 없으면 "Titer 1234 이상" 이
+     과제 DA-1234 로 조용히 좁아집니다 — 정확히 없애려는 그 부류의 오답입니다. */
+  function bareNumberHit(text, digits) {
+    const re = new RegExp("(^|[^0-9.])" + digits + "([^0-9.]|$)", "g");
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const after = text.slice(m.index + m[0].length - (m[2] ? m[2].length : 0));
+      if (/^\s*(%|이상|이하|초과|미만|보다|넘|개|건|위|일|월|년|~|-|에서|부터|사이)/.test(after)) continue;
+      return true;
+    }
+    return false;
+  }
+
+  function matchesName(text, name) {
+    const a = nameAliases(name);
+    if (a.all.some(x => x && has(text, x))) return true;
+    return a.strong.some(x => x && has(text, x));
+  }
+
+  /* 범위를 "명세"로 만들어 둡니다 — 후속 질문이 이어받을 수 있어야 하고,
+     화면에도 그대로 설명할 수 있어야 하기 때문입니다. */
   function detectScope(text, table) {
-    const scope = { filters: [], label: [] };
-    if (table.kind !== "internal") return scope;
+    const spec = { projects: [], studies: [], batchIds: [] };
+    const scope = { spec: spec, label: [], filters: [] };
+    if (table.kind !== "internal") return finishScope(scope, table);
 
     (window.DATA_PROJECTS || []).forEach(function (p) {
       const code = String(p.code || "").toLowerCase();
-      if (code && (has(text, code) || has(text, code.replace("da-", "")))) {
-        scope.filters.push(r => r.project === p.code);
-        scope.label.push(p.code);
+      const digits = code.replace(/[^0-9]/g, "");
+      if (code && (has(text, code) ||
+                   (digits.length >= 3 && bareNumberHit(text, digits)) ||
+                   (matchesName(text, p.name) && String(p.name) !== String(p.code)))) {
+        spec.projects.push(p.code);
       }
     });
 
     (window.DATA_STUDIES || []).forEach(function (s) {
-      const n = String(s.name || "").toLowerCase();
-      if (n && has(text, n)) {
-        scope.filters.push(r => r.study === s.name);
-        scope.label.push(s.name);
-      }
-    });
-
-    /* 팀은 "팀"이 붙은 표현으로만 잡습니다. 짧은 이름(배양 · 정제 · 분석)을
-       그대로 매칭하면 "배양 조건" · "정제 수율" 같은 말이 팀 필터로 오독돼
-       조회 범위가 조용히 좁아집니다. */
-    (window.DATA_TEAMS || []).forEach(function (t) {
-      const forms = [t.ko, t.short + "팀", t.id, String(t.en || "").toLowerCase()];
-      if (forms.some(f => f && has(text, f))) {
-        scope.filters.push(r => r.team === t.ko);
-        scope.label.push(t.ko);
-      }
+      if (s.name && matchesName(text, s.name)) spec.studies.push(s.name);
     });
 
     /* 배치 이름 직접 지목 */
-    const named = table.rows.filter(r => r.__label && has(text, String(r.__label).toLowerCase()));
-    if (named.length) {
-      const ids = named.map(r => r.__id);
-      scope.filters.push(r => ids.indexOf(r.__id) > -1);
-      scope.label.push(named.map(r => r.__label).join(", "));
-    }
+    table.rows.forEach(function (r) {
+      if (r.__label && has(text, String(r.__label).toLowerCase())) spec.batchIds.push(r.__id);
+    });
+
+    /* 팀(배양 · 정제 · 분석)은 더 이상 행을 자르지 않습니다.
+       28행 전부 team="배양공정팀" 이고 정제 · 분석 값은 컬럼으로 있어서,
+       행을 자르면 "정제팀 데이터"가 0건이 됐습니다. 팀은 detectGroups 에서
+       "볼 컬럼"을 고르는 데 씁니다. */
+    return finishScope(scope, table);
 
     /* 달력 날짜(연 · 월 · 기간)는 여기서 다루지 않습니다 — parseConditions 의
        기간 파서가 담당합니다. 예전에는 여기서 연도만 뽑아 썼는데, 그러면
@@ -204,11 +260,120 @@ window.AskEngine = (function () {
     return scope;
   }
 
+  /* 명세 → 실제 필터 · 라벨. 직접 물어서 만든 범위든, 앞 질문에서 물려받은
+     범위든 같은 함수를 지나므로 둘의 동작이 어긋나지 않습니다. */
+  function finishScope(scope, table) {
+    const s = scope.spec;
+    scope.filters = [];
+    scope.label = [];
+    if (s.projects.length) {
+      scope.filters.push(r => s.projects.indexOf(r.project) > -1);
+      scope.label.push(s.projects.join(", "));
+    }
+    if (s.studies.length) {
+      scope.filters.push(r => s.studies.indexOf(r.study) > -1);
+      scope.label.push(s.studies.join(", "));
+    }
+    if (s.batchIds.length) {
+      scope.filters.push(r => s.batchIds.indexOf(r.__id) > -1);
+      const labels = table.rows.filter(r => s.batchIds.indexOf(r.__id) > -1).map(r => r.__label);
+      scope.label.push(labels.join(", "));
+    }
+    return scope;
+  }
+  function emptySpec() { return { projects: [], studies: [], batchIds: [] }; }
+  function specIsEmpty(s) { return !s.projects.length && !s.studies.length && !s.batchIds.length; }
+
   function applyScope(rows, scope) {
     let out = rows.slice();
     scope.filters.forEach(f => { out = out.filter(f); });
     return out;
   }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     2-c. 조회 대상 4종 — metric · group · entity · meta (+ 날짜 열)
+
+     예전에는 대상이 "수치 항목" 하나뿐이라, 행 자체 · 지표군 · 데이터셋
+     자체 · 날짜를 가리킬 단어를 아예 만들 수 없었습니다. 사전을 늘려도
+     안 되던 것이 이것이라, 표현 종류를 늘립니다.
+     ══════════════════════════════════════════════════════════════════════ */
+
+  /* 팀 = 볼 컬럼 묶음. 행을 자르지 않습니다 (28행 전부 배양공정팀 소속이라
+     행으로 자르면 정제 · 분석이 0건이 됩니다). */
+  const TEAM_ALIAS = {
+    upstream:   ["배양공정팀", "배양팀", "배양 데이터", "배양 결과", "배양 전체", "업스트림", "upstream"],
+    downstream: ["정제공정팀", "정제팀", "정제 데이터", "정제 결과", "정제 전체", "다운스트림", "downstream"],
+    analytics:  ["바이오분석팀", "분석팀", "분석 데이터", "분석 결과", "분석 전체", "cqa", "품질특성", "특성분석", "analytics"]
+  };
+  /* 팀 이름 없이 짧게 부르는 말 — 더 구체적인 것이 없을 때만 씁니다 */
+  const TEAM_SHORT = { upstream: ["배양"], downstream: ["정제"], analytics: ["분석"] };
+
+  const META_HINTS = ["무슨 데이터", "어떤 데이터", "무슨 항목", "어떤 항목", "뭘 물어", "뭐 물어",
+    "무엇을 물어", "물어볼 수 있", "조회 가능", "데이터 목록", "항목 목록", "데이터 범위",
+    "언제부터 언제까지", "기간이 어떻게", "어디까지 있", "얼마나 있", "도움말", "가능한 질문"];
+
+  const DATE_ALIAS = {
+    date:    ["시작일", "시작 날짜", "배양 시작", "언제 배양", "언제 시작", "접종일", "initial date", "inoculation"],
+    endDate: ["종료일", "완료일", "끝난 날", "언제 끝", "end date", "harvest", "하베스트", "수확일"]
+  };
+  const DATE_GENERIC = ["언제", "며칠", "날짜", "일정이"];
+
+  const ENTITY_HINTS = ["어느 과제", "무슨 과제", "어떤 과제", "어느 스터디", "무슨 스터디",
+    "어디 거", "어디 것", "소속", "정보 보여", "정보 알려", "상세", "전체 항목"];
+
+  function detectMeta(text) { return META_HINTS.some(h => has(text, h)); }
+
+  function detectDateCols(text, table) {
+    const hit = [];
+    Object.keys(DATE_ALIAS).forEach(function (k) {
+      const col = table.columns.find(c => c.key === k);
+      if (col && DATE_ALIAS[k].some(a => has(text, a))) hit.push(col);
+    });
+    if (!hit.length && DATE_GENERIC.some(g => has(text, g))) {
+      table.columns.filter(c => c.type === "date").forEach(c => hit.push(c));
+    }
+    return hit;
+  }
+
+  /* 지표군 — 팀 단위(정제 전체) 와 분석 세부 그룹(SE-HPLC 등) 을 모두 받습니다 */
+  function detectGroups(text, table) {
+    const out = [];
+    const seen = {};
+    const push = (id, label, cols) => {
+      if (seen[id] || !cols.length) return;
+      seen[id] = 1; out.push({ id: id, label: label, columns: cols });
+    };
+    (window.DATA_TEAMS || []).forEach(function (t) {
+      const cols = table.columns.filter(c => c.team === t.id && c.type === "num");
+      if ((TEAM_ALIAS[t.id] || []).some(a => has(text, a))) push("team:" + t.id, t.ko, cols);
+    });
+    /* 분석 세부 그룹 (SE-HPLC · N-glycan …) */
+    const byGroup = {};
+    table.columns.forEach(function (c) {
+      if (c.type !== "num" || !c.group || c.group === "base") return;
+      (byGroup[c.group] = byGroup[c.group] || { label: c.groupLabel || c.group, cols: [] }).cols.push(c);
+    });
+    Object.keys(byGroup).forEach(function (g) {
+      const lab = String(byGroup[g].label || "").toLowerCase();
+      if (lab.length >= 3 && has(text, lab)) push("grp:" + g, byGroup[g].label, byGroup[g].cols);
+    });
+    /* 짧은 호칭은 더 구체적인 것이 아무것도 안 걸렸을 때만 */
+    if (!out.length) {
+      (window.DATA_TEAMS || []).forEach(function (t) {
+        const cols = table.columns.filter(c => c.team === t.id && c.type === "num");
+        if ((TEAM_SHORT[t.id] || []).some(a => has(text, a))) push("team:" + t.id, t.ko, cols);
+      });
+    }
+    return out;
+  }
+
+  function detectEntityAsk(text) { return ENTITY_HINTS.some(h => has(text, h)); }
+
+  /* 후속 질문 표시 — 이것이 있을 때만 앞 질의를 이어받습니다.
+     표시가 없는데도 이어받으면 사용자가 전체를 물었는데 조용히 좁아집니다. */
+  const FOLLOWUP = ["그럼", "그러면", "그건", "그거", "그 배치", "이 배치", "아까", "방금",
+    "이어서", "위에서", "앞에서", "같은 범위", "동일 범위", "계속"];
+  function looksFollowUp(text) { return FOLLOWUP.some(f => has(text, f)); }
 
   /* ══════════════════════════════════════════════════════════════════════
      2-b. 조건 파서 — 임계값 · 상위N · 기간 · 제외
@@ -272,8 +437,9 @@ window.AskEngine = (function () {
   /* 조건처럼 보이지만 지금 구조로는 처리할 수 없는 것들 — 반드시 밝힙니다 */
   const CANT_YET = [
     { terms: ["왜", "원인", "이유", "때문"], ko: "원인 분석(\"왜\")", why: "값 조회만 가능하고 원인 추론은 아직 지원하지 않습니다" },
-    { terms: ["스펙", "규격", "spec", "합격", "불합격", "pass", "fail", "일탈", "ooS", "oos"], ko: "규격 판정", why: "규격 한계값 테이블이 아직 도입되지 않아 Pass/Fail 을 판정할 수 없습니다" },
-    { terms: ["그거", "그럼", "아까", "방금", "이어서", "위에서", "앞에서"], ko: "앞 질문 이어받기", why: "지금은 질문을 하나씩 독립으로 처리합니다" }
+    { terms: ["스펙", "규격", "spec", "합격", "불합격", "pass", "fail", "일탈", "ooS", "oos"], ko: "규격 판정", why: "규격 한계값 테이블이 아직 도입되지 않아 Pass/Fail 을 판정할 수 없습니다" }
+    /* "그거 · 그럼" 같은 후속 표현은 이제 직전 질의에서 이어받습니다
+       (answer() 의 맥락 승계). 이어받을 것이 없을 때만 안내를 붙입니다. */
   ];
 
   function parseConditions(text, table, metrics) {
@@ -554,11 +720,43 @@ window.AskEngine = (function () {
     }
 
     const intent = detectIntent(text);
-    const metrics = detectMetrics(text, table);
+    let metrics = detectMetrics(text, table);
     const missingAsked = table.kind === "internal" ? detectNotRecorded(text) : [];
     const askedCondition = CONDITION_WORDS.some(t => has(text, t));
     const scope = detectScope(text, table);
+    const isMeta = detectMeta(text);
+    let dateCols = detectDateCols(text, table);
+    let groups = detectGroups(text, table);
+    const askedEntity = detectEntityAsk(text);
+
+    /* ── 맥락 승계 — 새 질문에 없는 것만 직전 질의에서 물려받습니다 ─────── */
+    const prev = o.prev && o.prev.carry ? o.prev.carry : null;
+    const inherited = [];
+    if (looksFollowUp(text)) {
+      if (prev && !specIsEmpty(prev.spec) && specIsEmpty(scope.spec)) {
+        scope.spec = { projects: prev.spec.projects.slice(), studies: prev.spec.studies.slice(),
+                       batchIds: prev.spec.batchIds.slice() };
+        finishScope(scope, table);
+        inherited.push("직전 질의의 " + scope.label.join(" · ") + " 범위를 유지했습니다");
+      }
+      /* 대상은 새 질문 쪽을 우선합니다 — "그럼 정제는?" 은 범위만 잇고
+         보는 항목은 정제로 바꾸는 것이 자연스럽습니다 */
+      if (prev && !metrics.length && !groups.length && !dateCols.length && !isMeta) {
+        if (prev.metricKeys && prev.metricKeys.length) {
+          metrics = prev.metricKeys.map(k => table.columns.find(c => c.key === k)).filter(Boolean);
+          if (metrics.length) inherited.push("직전 질의의 항목(" + metrics[0].label + ")을 이어받았습니다");
+        }
+      }
+      if (!prev) {
+        inherited.push("이어받을 앞 질문이 없어 이번 질문만으로 조회했습니다");
+      }
+    }
+
     const cond = parseConditions(text, table, metrics);
+    if (looksFollowUp(text) && !prev) {
+      cond.unhandled.push("앞 질문 이어받기 — 이 세션에 직전 질의가 없습니다");
+    }
+    inherited.forEach(x => cond.applied.push(x));
 
     const scoped = applyScope(table.rows, scope);
     let rows = applyConditions(scoped, cond);
@@ -569,8 +767,14 @@ window.AskEngine = (function () {
       ok: true, question: question, table: { id: table.id, label: table.label, kind: table.kind },
       intent: intent, scopeLabel: scope.label.join(" · ") || "전체",
       scopeRows: rows.length, notRecorded: missingAsked, askedCondition: askedCondition,
-      conditions: cond
+      conditions: cond,
+      /* 다음 질문이 이어받을 것 — ask.js 가 그대로 되돌려 줍니다 */
+      carry: { spec: scope.spec, metricKeys: metrics.map(c => c.key),
+               groupIds: groups.map(g => g.id), rowIds: [] }
     };
+
+    /* ── 데이터셋 자체를 물었을 때 (meta) ─────────────────────────────── */
+    if (isMeta) return decorate(metaAnswer(base, table), cond, table);
 
     /* ── 0건 — 왜 0건인지와 다음 수를 함께 줍니다 ─────────────────────── */
     if (!rows.length) {
@@ -608,6 +812,18 @@ window.AskEngine = (function () {
       }), cond, table);
     }
 
+    base.carry.rowIds = rows.map(r => r.__id);
+
+    /* ── 수치 항목이 아닌 대상들 — 날짜 열 · 지표군 · 행 자체 ──────────
+       수치 항목이 함께 잡혔으면 기존 계산 경로를 그대로 씁니다 (회귀 방지). */
+    if (!metrics.length) {
+      if (dateCols.length) return decorate(dateAnswer(base, table, rows, dateCols), cond, table);
+      if (groups.length) return decorate(groupAnswer(base, table, rows, groups, cond), cond, table);
+      if (rows.length === 1 || askedEntity) {
+        return decorate(entityAnswer(base, table, rows, missingAsked, askedEntity), cond, table);
+      }
+    }
+
     /* ── 항목을 못 찾았을 때 — 포기하지 않고 추려진 범위를 그대로 보여 줍니다 ──
        예전에는 여기서 "조회할 항목을 찾지 못했습니다" 로 끝냈습니다. 범위가
        1건으로 정확히 좁혀진 상태에서도 그 1건을 버렸습니다. 손에 쥔 데이터를
@@ -641,6 +857,172 @@ window.AskEngine = (function () {
                                          : out.rows.slice(-cond.topN.n);
     }
     return decorate(out, cond, table);
+  }
+
+  /* ── meta — 데이터셋 자체에 대한 질문 ────────────────────────────────
+     값은 전부 데이터에서 셉니다. 목록을 코드에 적어 두면 원본이 바뀔 때
+     화면만 옛날 이야기를 하게 됩니다. */
+  function metaAnswer(base, table, rows) {
+    const rg = dateRangeOf(table);
+    const projects = {}, studies = {};
+    table.rows.forEach(function (r) {
+      if (r.project) projects[r.project] = (projects[r.project] || 0) + 1;
+      if (r.study) studies[r.study] = (studies[r.study] || 0) + 1;
+    });
+    const byTeam = (window.DATA_TEAMS || []).map(function (t) {
+      const cols = table.columns.filter(c => c.team === t.id && c.type === "num");
+      const filled = cols.filter(c => window.AskTables.filledCount(table, c.key) > 0);
+      return { team: t, ko: t.ko, total: cols.length, filled: filled.length };
+    }).filter(x => x.total > 0);
+
+    const facts = [
+      { k: "배치", v: table.rows.length + "건" },
+      { k: "기간", v: rg ? rg.min + " ~ " + rg.max : "미입력" },
+      { k: "과제", v: Object.keys(projects).length + "개" },
+      { k: "Study", v: Object.keys(studies).length + "개" },
+      { k: "조회 가능 항목", v: suggestList(table).length + "개" }
+    ];
+    byTeam.forEach(x => facts.push({ k: x.ko + " 항목", v: x.filled + " / " + x.total + "개" }));
+
+    const hints = [];
+    Object.keys(projects).forEach(function (p) {
+      const ss = Object.keys(studies).filter(s => table.rows.some(r => r.project === p && r.study === s));
+      hints.push("과제 " + p + " — " + projects[p] + "건 · Study: " + (ss.join(", ") || "미지정"));
+    });
+    hints.push("예: \"" + (suggestList(table)[0] || "Titer") + " 가장 높은 배치는?\" · \"" +
+      (rg ? rg.max.slice(0, 4) + "년 " + Number(rg.max.slice(5, 7)) + "월 배치 보여줘" : "전체 목록") + "\"");
+
+    return Object.assign(base, {
+      kind: "meta",
+      headline: "이 데이터에는 배치 " + table.rows.length + "건이 있고, 기간은 " +
+        (rg ? rg.min + " ~ " + rg.max : "미입력") + " 입니다. 과제 " +
+        Object.keys(projects).length + "개 · Study " + Object.keys(studies).length +
+        "개 · 조회 가능한 측정 항목은 " + suggestList(table).length + "개입니다.",
+      facts: facts, hints: hints, suggestions: suggestList(table)
+    });
+  }
+
+  /* ── 날짜 열 — "언제 배양한 거야?" ──────────────────────────────────── */
+  function dateAnswer(base, table, rows, dateCols) {
+    const cols = dateCols.slice(0, 2);
+    const evCols = [{ key: "__label", label: "Batch" }];
+    if (table.kind === "internal") evCols.push({ key: "project", label: "과제" }, { key: "study", label: "Study" });
+    cols.forEach(c => evCols.push({ key: c.key, label: c.label }));
+
+    const evRows = rows.slice(0, 15).map(function (r) {
+      const o = { __label: r.__label };
+      if (table.kind === "internal") { o.project = r.project; o.study = r.study; }
+      cols.forEach(c => { o[c.key] = r[c.key] || "미입력"; });
+      return o;
+    });
+
+    const ds = rows.map(r => r.date).filter(Boolean).sort();
+    const headline = rows.length === 1
+      ? rows[0].__label + " 은(는) " + (rows[0].date || "미입력") + " 에 배양을 시작해 " +
+        (rows[0].endDate || "미입력") + " 에 종료했습니다." +
+        (typeof rows[0].cultureDays === "number" ? " 배양 일수는 " + rows[0].cultureDays + "일입니다." : "")
+      : base.scopeLabel + " 범위 " + rows.length + "건의 배양 시작일은 " +
+        (ds.length ? ds[0] + " ~ " + ds[ds.length - 1] : "모두 미입력") + " 입니다.";
+
+    return Object.assign(base, {
+      kind: "date", headline: headline,
+      facts: rows.length === 1 ? rowMeta(rows[0], table) : [
+        { k: "대상", v: rows.length + "건" },
+        { k: "가장 이른 시작", v: ds[0] || "미입력" },
+        { k: "가장 늦은 시작", v: ds[ds.length - 1] || "미입력" }],
+      rows: evRows, evidenceCols: evCols,
+      note: "날짜는 원본의 Initial Date · End Date 입니다. 배양 경과일(D10 등)과는 다른 축입니다."
+    });
+  }
+
+  /* ── 지표군 — "정제 전체" · "정제팀 데이터" · "분석 항목" ──────────────
+     팀은 행이 아니라 볼 컬럼을 고릅니다. 28행 전부 배양공정팀 소속이라
+     행으로 자르면 정제 · 분석이 0건이 되기 때문입니다. */
+  function groupAnswer(base, table, rows, groups, cond) {
+    const g = groups[0];
+    const cols = g.columns.filter(c => rows.some(r => typeof r[c.key] === "number")).slice(0, 8);
+    const empty = g.columns.filter(c => !rows.some(r => typeof r[c.key] === "number"));
+
+    if (!cols.length) {
+      return Object.assign(base, {
+        ok: false, kind: "no-value",
+        headline: g.label + " 의 항목 " + g.columns.length + "개는 " + base.scopeLabel +
+          " 범위에서 모두 미입력입니다.",
+        hints: ["항목: " + g.columns.map(c => c.label).join(", "),
+                "값을 추정해 채우지 않습니다. 범위를 넓히면 기록된 배치가 있을 수 있습니다."],
+        suggestions: suggestList(table)
+      });
+    }
+
+    const evCols = [{ key: "__label", label: "Batch" }];
+    if (table.kind === "internal") evCols.push({ key: "study", label: "Study" });
+    cols.forEach(c => evCols.push({ key: c.key, label: c.label + (c.unit ? " (" + c.unit + ")" : "") }));
+
+    const cap = cond && cond.topN ? cond.topN.n : 15;
+    const evRows = rows.slice(0, cap).map(function (r) {
+      const o = { __label: r.__label };
+      if (table.kind === "internal") o.study = r.study;
+      cols.forEach(c => { o[c.key] = (r[c.key] === null || r[c.key] === undefined) ? "미입력" : fmt(r[c.key], c); });
+      return o;
+    });
+
+    const facts = cols.slice(0, 6).map(function (c) {
+      const s = stats(values(rows, c.key));
+      return { k: c.label, v: s ? fmt(s.mean, c) + " (n=" + s.n + ")" : "미입력" };
+    });
+
+    const notes = [];
+    if (empty.length) notes.push("이 범위에서 값이 없는 항목 " + empty.length + "개는 표에서 뺐습니다 — " +
+      empty.slice(0, 5).map(c => c.label).join(", ") + (empty.length > 5 ? " 외" : "") + ".");
+    if (cols.some(c => c.group === "downstream")) notes.push("정제 항목은 원본에 컬럼이 없어 생성한 값입니다.");
+    if (cols.length < g.columns.length - empty.length) notes.push("항목이 많아 앞 " + cols.length + "개만 표시했습니다.");
+
+    return Object.assign(base, {
+      kind: "group",
+      headline: base.scopeLabel + " 범위 " + rows.length + "건의 " + g.label + " 항목 " +
+        cols.length + "개를 표시합니다. 각 항목의 평균은 아래와 같습니다.",
+      facts: facts, rows: evRows, evidenceCols: evCols, note: notes.join(" "),
+      suggestions: cols.map(c => c.label)
+    });
+  }
+
+  /* ── 행 자체 — "B045-2가 어느 과제 거야?" ───────────────────────────── */
+  function entityAnswer(base, table, rows, missingAsked, askedEntity) {
+    if (rows.length !== 1) {
+      return Object.assign(base, {
+        kind: "entity",
+        headline: base.scopeLabel + " 범위에 배치가 " + rows.length +
+          "건 있습니다. 한 건을 지목해 주시면 그 배치의 기록을 전부 펼쳐 드립니다.",
+        facts: [{ k: "대상", v: rows.length + "건" }],
+        rows: rows.slice(0, 15).map(r => ({ __label: r.__label, project: r.project, study: r.study, date: r.date })),
+        evidenceCols: [{ key: "__label", label: "Batch" }, { key: "project", label: "과제" },
+                       { key: "study", label: "Study" }, { key: "date", label: "시작일" }],
+        suggestions: suggestList(table)
+      });
+    }
+    const r = rows[0];
+    const meta = rowMeta(r, table);
+    const vals = [];
+    table.columns.forEach(function (col) {
+      if (col.group === "base") return;
+      const v = r[col.key];
+      if (v === null || v === undefined) return;
+      vals.push({ k: col.label, v: fmt(v, col) });
+    });
+    /* "어느 과제 거야?" 는 소속을 먼저 답합니다 */
+    const head = askedEntity && (r.project || r.study)
+      ? r.__label + " 은(는) " + (r.project || "미지정") + " 과제 · " +
+        (r.study || "미지정") + " Study 소속입니다. 기록된 값은 " + vals.length + "개입니다."
+      : r.__label + " 의 기록된 값 " + vals.length + "개를 표시합니다.";
+
+    return Object.assign(base, {
+      kind: "entity", headline: head,
+      facts: meta.concat(vals),
+      note: (missingAsked.length
+        ? missingAsked.join(" · ") + "은(는) 원본에 컬럼이 없어 표시할 수 없습니다. " : "") +
+        "특정 항목만 보시려면 항목 이름을 넣어 다시 물어봐 주세요.",
+      suggestions: suggestList(table)
+    });
   }
 
   /* 항목 없이 물었을 때의 기본 답 — 범위를 유지한 채 있는 것을 보여 줍니다 */
