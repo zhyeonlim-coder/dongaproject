@@ -59,19 +59,28 @@ window.MeetingAsk = (function () {
   /* ══════════════════════════════════════════════════════════════════════
      질문에서 임계값 뽑기 — 엔진은 "무슨 항목/무슨 집계"까지만 읽습니다
      ══════════════════════════════════════════════════════════════════════ */
-  function parseThreshold(q) {
-    const t = String(q || "").replace(/,/g, "");
-    /* 구간: "800~1200" · "800 - 1200" · "800에서 1200" */
-    let m = t.match(/(-?\d+(?:\.\d+)?)\s*(?:~|-|—|에서|부터)\s*(-?\d+(?:\.\d+)?)/);
-    if (m) {
-      const a = Number(m[1]), b = Number(m[2]);
-      return { min: Math.min(a, b), max: Math.max(a, b), how: "between" };
+  /* 파싱과 단위 해석은 Units 한 곳에서 합니다. 예전에는 이 파일이 자기
+     정규식을 따로 갖고 있어서, AI 검색만 고치면 같은 질문이 회의 모드에서만
+     다르게 동작했습니다. 단위 대조("Titer 3" 이 mg/L 인지 g/L 인지)도
+     여기서 같이 받습니다.
+     col · rows 를 넘기면 실측 범위와 대조하고, 없으면 숫자를 그대로 씁니다. */
+  function parseThreshold(q, col, rows) {
+    const U = window.Units;
+    if (!U) return null;
+    const list = U.parseThresholds(q);
+    if (!list.length) return null;
+    const th = list[0];
+    let min = th.min, max = th.max;
+
+    if (col) {
+      const res = U.interpretThreshold(th, col, rows || []);
+      /* 단위가 분명하지 않으면 화면 조건을 건드리지 않습니다 —
+         잘못된 범위로 슬라이더를 움직이면 걸러진 것처럼 보입니다. */
+      if (res.suspect) return { ambiguous: true, options: res.options, raw: th.raw, label: col.label };
+      min = res.th.min; max = res.th.max;
     }
-    m = t.match(/(-?\d+(?:\.\d+)?)\s*%?\s*(이상|초과|넘는|넘게|초과인|이상인|over|above|>=?)/);
-    if (m) return { min: Number(m[1]), max: null, how: "min" };
-    m = t.match(/(-?\d+(?:\.\d+)?)\s*%?\s*(이하|미만|below|under|<=?)/);
-    if (m) return { min: null, max: Number(m[1]), how: "max" };
-    return null;
+    return { min: min, max: max,
+             how: th.op === "between" ? "between" : (th.op === "gte" || th.op === "gt") ? "min" : "max" };
   }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -91,8 +100,15 @@ window.MeetingAsk = (function () {
       }
 
       const slot = ctx.rangeSlotFor(conv.dotted);
-      const th = parseThreshold(r.question);
-      if (slot && th) {
+      /* 실측 범위와 대조해 단위를 확인합니다 — 회의 중에 잘못된 범위로
+         슬라이더가 움직이면 세 팀이 같은 화면을 보며 오해합니다. */
+      const col = { key: r.metric.key, label: r.metric.label, unit: r.metric.unit };
+      const th = parseThreshold(r.question, col, (window.AskTables && r.table && r.table.id
+        ? (window.AskTables.get(r.table.id) || { rows: [] }).rows : []));
+      if (th && th.ambiguous) {
+        cmd.parts.push("\"" + th.raw + "\" 의 단위가 분명하지 않아 범위는 건드리지 않았습니다 (" +
+          th.options.map(o => o.label).join(" / ") + " 중 어느 쪽인지 확인해 주세요)");
+      } else if (slot && th) {
         cmd.range = { id: slot, key: conv.dotted, min: th.min, max: th.max };
         cmd.parts.push(conv.item.label + " 범위를 " +
           (th.min !== null ? th.min : "최소") + " ~ " + (th.max !== null ? th.max : "최대") +

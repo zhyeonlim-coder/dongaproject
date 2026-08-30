@@ -136,7 +136,20 @@ window.Ask = (function () {
       h += '<div class="ask-cond is-miss"><span class="ask-cond-k">반영 못 함</span>' +
         r.unhandled.map(x => '<span class="ask-cond-v">' + esc(x) + "</span>").join("") + "</div>";
     }
+    /* 조건이 걸렸는데 아무것도 못 걸렀을 때 — 가장 눈에 띄어야 합니다.
+       라벨만 붙고 결과가 그대로면 걸러진 것으로 오해하기 때문입니다. */
+    if (r.warnings && r.warnings.length) {
+      h += r.warnings.map(x => '<p class="ask-warn">⚠ ' + esc(x) + "</p>").join("");
+    }
     return h;
+  }
+
+  /* 단위 되묻기 — 값을 대신 고르지 않고 각 해석의 결과 건수를 보여 줍니다 */
+  function choiceBlock(r) {
+    if (!r.choices || !r.choices.length) return "";
+    return '<div class="ask-choices">' + r.choices.map((c, i) =>
+      '<button type="button" class="btn ask-choice" data-choice="' + i + '">' +
+        "<b>" + esc(c.label) + "</b><span>" + esc(c.hint) + "</span></button>").join("") + "</div>";
   }
 
   function hintBlock(r) {
@@ -180,6 +193,7 @@ window.Ask = (function () {
 
       condBlock(r) +
       '<p class="ask-head" id="ask-headline">' + esc(headText) + "</p>" +
+      choiceBlock(r) +
       hintBlock(r) +
 
       (S.narration
@@ -367,6 +381,17 @@ window.Ask = (function () {
 
     $$(".ai-chip").forEach(c => c.addEventListener("click", function () {
       S.q = c.dataset.q;
+      const i = $("#ask-q"); if (i) i.value = S.q;
+      run();
+    }));
+
+    /* 단위 되묻기 — 고른 쪽을 단위까지 적어 다시 묻습니다.
+       질문을 그대로 다시 보내므로 어떤 조건으로 조회했는지 기록에 남습니다. */
+    $$(".ask-choice").forEach(b => b.addEventListener("click", function () {
+      const r = S.result;
+      const c = r && r.choices ? r.choices[Number(b.dataset.choice)] : null;
+      if (!c) return;
+      S.q = c.question;
       const i = $("#ask-q"); if (i) i.value = S.q;
       run();
     }));

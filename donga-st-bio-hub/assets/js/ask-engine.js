@@ -147,7 +147,10 @@ window.AskEngine = (function () {
     if (["미입력", "결측", "빠진", "누락", "missing", "비어"].some(t => has(text, t))) return "missing";
     if (["비교", "대비", "차이", "versus", " vs ", "compare"].some(t => has(text, t))) return "compare";
     if (["가장 높", "제일 높", "최고", "최대", "highest", "max", "top", "베스트", "best"].some(t => has(text, t))) return "max";
-    if (["가장 낮", "제일 낮", "최저", "최소", "lowest", "min", "worst"].some(t => has(text, t))) return "min";
+    /* 정성어도 최고/최저로 읽습니다 — "제일 좋았어?" 가 목록으로 떨어지지 않게 */
+    if (["가장 낮", "제일 낮", "최저", "최소", "lowest", "min", "worst",
+         "제일 나쁘", "가장 나쁘", "제일 안 좋", "가장 안 좋", "안좋", "부진"].some(t => has(text, t))) return "min";
+    if (["제일 좋", "가장 좋", "젤 좋", "잘 나온", "잘나온", "우수"].some(t => has(text, t))) return "max";
     if (["평균", "average", "mean", "표준편차", "편차", "분포", "범위"].some(t => has(text, t))) return "stat";
     if (["몇 건", "몇건", "몇 개", "몇개", "개수", "건수", "how many", "count"].some(t => has(text, t))) return "count";
     return "list";
@@ -308,9 +311,11 @@ window.AskEngine = (function () {
   /* 팀 이름 없이 짧게 부르는 말 — 더 구체적인 것이 없을 때만 씁니다 */
   const TEAM_SHORT = { upstream: ["배양"], downstream: ["정제"], analytics: ["분석"] };
 
-  const META_HINTS = ["무슨 데이터", "어떤 데이터", "무슨 항목", "어떤 항목", "뭘 물어", "뭐 물어",
-    "무엇을 물어", "물어볼 수 있", "조회 가능", "데이터 목록", "항목 목록", "데이터 범위",
-    "언제부터 언제까지", "기간이 어떻게", "어디까지 있", "얼마나 있", "도움말", "가능한 질문"];
+  /* 데이터 요약을 묻는 것과 사용법을 묻는 것은 다른 질문입니다 */
+  const META_DATA = ["무슨 데이터", "어떤 데이터", "데이터 목록", "데이터 범위",
+    "언제부터 언제까지", "기간이 어떻게", "어디까지 있", "얼마나 있", "데이터 요약"];
+  const META_HELP = ["뭘 물어", "뭐 물어", "무엇을 물어", "물어볼 수 있", "어떻게 물어",
+    "조회 가능", "무슨 항목", "어떤 항목", "항목 목록", "도움말", "가능한 질문", "사용법", "help"];
 
   const DATE_ALIAS = {
     date:    ["시작일", "시작 날짜", "배양 시작", "언제 배양", "언제 시작", "접종일", "initial date", "inoculation"],
@@ -321,7 +326,34 @@ window.AskEngine = (function () {
   const ENTITY_HINTS = ["어느 과제", "무슨 과제", "어떤 과제", "어느 스터디", "무슨 스터디",
     "어디 거", "어디 것", "소속", "정보 보여", "정보 알려", "상세", "전체 항목"];
 
-  function detectMeta(text) { return META_HINTS.some(h => has(text, h)); }
+  function detectMeta(text) {
+    if (META_HELP.some(h => has(text, h))) return "help";
+    return META_DATA.some(h => has(text, h)) ? "data" : false;
+  }
+
+  /* ── 정성어("제일 좋았어") → 지표 ────────────────────────────────────
+     "좋다"의 기준은 팀마다 다릅니다. 무엇으로 읽었는지 반드시 밝힙니다. */
+  const GOOD_WORDS = ["제일 좋", "가장 좋", "젤 좋", "잘 나온", "잘나온", "우수", "베스트", "best"];
+  const BAD_WORDS  = ["제일 나쁘", "가장 나쁘", "제일 안 좋", "가장 안 좋", "안좋", "부진", "worst"];
+  const TEAM_DEFAULT_METRIC = {
+    upstream:   { key: "titerHCCF",              ko: "Titer" },
+    downstream: { key: "downstream_totalYield",  ko: "Total Yield" },
+    analytics:  { key: null, ko: "규격 판정",
+                  why: "규격 한계값 테이블이 아직 없어 분석 항목의 좋고 나쁨은 판정할 수 없습니다" }
+  };
+  function qualitativeMetric(text, table, groups) {
+    if (!GOOD_WORDS.some(w => has(text, w)) && !BAD_WORDS.some(w => has(text, w))) return null;
+    /* 지표군을 함께 말했으면 그 팀의 기본 지표로, 아니면 배양 기준으로 */
+    let teamId = "upstream";
+    if (groups && groups.length) {
+      const m = String(groups[0].id).match(/^team:(.+)$/);
+      if (m) teamId = m[1];
+      else if (groups[0].columns[0] && groups[0].columns[0].team) teamId = groups[0].columns[0].team;
+    }
+    const def = TEAM_DEFAULT_METRIC[teamId] || TEAM_DEFAULT_METRIC.upstream;
+    const col = def.key ? table.columns.find(c => c.key === def.key) : null;
+    return { col: col, teamId: teamId, ko: def.ko, why: def.why || null };
+  }
 
   function detectDateCols(text, table) {
     const hit = [];
@@ -371,9 +403,17 @@ window.AskEngine = (function () {
 
   /* 후속 질문 표시 — 이것이 있을 때만 앞 질의를 이어받습니다.
      표시가 없는데도 이어받으면 사용자가 전체를 물었는데 조용히 좁아집니다. */
-  const FOLLOWUP = ["그럼", "그러면", "그건", "그거", "그 배치", "이 배치", "아까", "방금",
-    "이어서", "위에서", "앞에서", "같은 범위", "동일 범위", "계속"];
+  /* 생략형 후속 질문 — 범위를 그대로 두고 보는 항목만 바꿉니다 */
+  const FOLLOWUP = ["그럼", "그러면", "그건", "이어서", "위에서", "앞에서",
+    "같은 범위", "동일 범위", "계속"];
+  /* 지시어 — 직전 답변이 지목한 그 배치를 가리킵니다 */
+  const DEICTIC = ["그거", "그것", "저거", "그 배치", "이 배치", "해당 배치", "방금 그", "아까 그"];
   function looksFollowUp(text) { return FOLLOWUP.some(f => has(text, f)); }
+  function looksDeictic(text) {
+    let hit = null;
+    DEICTIC.forEach(function (d) { if (!hit && has(text, d)) hit = d; });
+    return hit;
+  }
 
   /* ══════════════════════════════════════════════════════════════════════
      2-b. 조건 파서 — 임계값 · 상위N · 기간 · 제외
@@ -446,7 +486,8 @@ window.AskEngine = (function () {
     const primary = metrics && metrics.length ? metrics[0] : null;
     const c = {
       period: null, thresholds: [], topN: null, excludeMissing: false,
-      dayRef: null, applied: [], unhandled: [], ignoredTokens: []
+      dayRef: null, applied: [], unhandled: [], warnings: [], clarify: null,
+      ignoredTokens: []
     };
     let t = " " + text + " ";
     const eat = (re, fn) => {
@@ -548,33 +589,46 @@ window.AskEngine = (function () {
       return false;
     });
 
-    /* ── 3. 임계값 ─────────────────────────────────────────────────── */
-    const num = "(-?\\d+(?:\\.\\d+)?)";
-    const pushTh = (op, min, max, raw) => {
+    /* ── 3. 임계값 — 파싱과 단위 해석은 Units 한 곳에서 합니다 ────────
+       회의 모드 봇도 같은 모듈을 씁니다. 두 화면이 같은 질문에 다르게
+       동작하지 않게 하려면 숫자를 조건으로 바꾸는 자리가 하나여야 합니다. */
+    const U = window.Units;
+    (U ? U.parseThresholds(t) : []).forEach(function (th) {
       if (!primary) {
-        c.unhandled.push("\"" + raw + "\" — 어느 항목에 적용할지 알 수 없습니다. \"Titer 3 이상\"처럼 항목 이름과 함께 물어봐 주세요");
+        c.unhandled.push("\"" + th.raw + "\" — 어느 항목에 적용할지 알 수 없습니다. \"Titer 1000 이상\"처럼 항목 이름과 함께 물어봐 주세요");
         return;
       }
-      c.thresholds.push({ key: primary.key, label: primary.label, op: op, min: min, max: max });
+      const res = U.interpretThreshold(th, primary, table.rows);
+
+      /* 실측 범위와 어긋나면 마음대로 고르지 않고 되묻습니다.
+         "Titer 3 이상"(실측 18~2494 mg/L)이 28건 전부를 통과시켜 조건 없는
+         질문과 같은 결과를 내던 것이 이 분기를 만든 이유입니다. */
+      if (res.suspect) {
+        c.clarify = { metric: primary, th: th, options: res.options,
+                      note: res.notes.join(" "), side: res.side };
+        return;
+      }
+      res.notes.forEach(n => c.applied.push(n));
+      c.thresholds.push({ key: primary.key, label: primary.label,
+                          op: res.th.op, min: res.th.min, max: res.th.max });
       const u = primary.unit ? " " + primary.unit : "";
+      const T = res.th;
       c.applied.push(primary.label + " " + (
-        op === "between" ? min + u + " ~ " + max + u :
-        op === "gte" ? "≥ " + min + u : op === "gt" ? "> " + min + u :
-        op === "lte" ? "≤ " + max + u : "< " + max + u));
-    };
-    eat(new RegExp(num + "\\s*%?\\s*(?:~|—|에서|부터)\\s*" + num + "\\s*%?\\s*(?:사이|이내)?", "g"), function (m) {
-      const a = Math.min(+m[1], +m[2]), b = Math.max(+m[1], +m[2]);
-      pushTh("between", a, b, m[0].trim());
-      return false;
+        T.op === "between" ? T.min + u + " ~ " + T.max + u :
+        T.op === "gte" ? "≥ " + T.min + u : T.op === "gt" ? "> " + T.min + u :
+        T.op === "lte" ? "≤ " + T.max + u : "< " + T.max + u));
+
+      /* 조건이 아무것도 못 거르면 그 사실을 말해야 합니다 */
+      const chk = U.isNoOp(table.rows, primary.key, res.th);
+      if (chk.noop) {
+        c.warnings.push("이 조건은 " + primary.label + " 값이 있는 " + chk.total +
+          "건 전부에 해당하여 결과가 좁혀지지 않았습니다. 단위나 기준값을 확인해 주세요 " +
+          "(실측 범위 " + (function () {
+            const rg = U.observedRange(table.rows, primary.key);
+            return rg ? rg.min + " ~ " + rg.max + (primary.unit ? " " + primary.unit : "") : "알 수 없음";
+          })() + ").");
+      }
     });
-    eat(new RegExp(num + "\\s*%?\\s*보다\\s*(?:더\\s*)?(크|큰|높|많)", "g"), m => pushTh("gt", +m[1], null, m[0].trim()));
-    eat(new RegExp(num + "\\s*%?\\s*보다\\s*(?:더\\s*)?(작|적|낮)", "g"), m => pushTh("lt", null, +m[1], m[0].trim()));
-    eat(new RegExp(num + "\\s*%?\\s*(?:초과|넘는|넘게)", "g"), m => pushTh("gt", +m[1], null, m[0].trim()));
-    eat(new RegExp(num + "\\s*%?\\s*(?:미만)", "g"), m => pushTh("lt", null, +m[1], m[0].trim()));
-    eat(new RegExp(num + "\\s*%?\\s*(?:이상|over|above|>=?)", "g"), m => pushTh("gte", +m[1], null, m[0].trim()));
-    eat(new RegExp(num + "\\s*%?\\s*(?:이하|below|under|<=?)", "g"), m => pushTh("lte", null, +m[1], m[0].trim()));
-    eat(new RegExp("최소\\s*" + num, "g"), m => pushTh("gte", +m[1], null, m[0].trim()));
-    eat(new RegExp("최대\\s*" + num, "g"), m => pushTh("lte", null, +m[1], m[0].trim()));
 
     /* ── 4. 제외 ───────────────────────────────────────────────────── */
     if (/(미입력|결측|빈\s*값|null)[^.]{0,6}(빼고|제외|except|없는 것만 빼)/.test(text)) {
@@ -684,6 +738,14 @@ window.AskEngine = (function () {
   function decorate(r, cond, table) {
     r.applied = (cond && cond.applied) ? cond.applied.slice() : [];
     r.unhandled = (cond && cond.unhandled) ? cond.unhandled.slice() : [];
+    r.warnings = (cond && cond.warnings) ? cond.warnings.slice() : [];
+    /* 이 응답이 지목한 배치를 기록합니다 — 다음 질문의 "그거" 가 이것입니다.
+       최고/최저는 그 한 건, 1건짜리 조회는 그 건. 목록은 지목한 것이 없습니다. */
+    if (r.carry && r.focusLabels && r.focusLabels.length && table) {
+      const ids = table.rows.filter(x => r.focusLabels.indexOf(x.__label) > -1).map(x => x.__id);
+      if (ids.length) r.carry.focus = { ids: ids, labels: r.focusLabels.slice() };
+      delete r.focusLabels;
+    }
     /* 해석한 조건을 문장 맨 앞에 박아 둡니다. 조건이 다르면 답도 반드시
        달라 보여야 합니다 — "3 이상" 과 "상위 5개" 와 조건 없는 질문이
        똑같은 문장을 내놓던 것이 이번 수정의 출발점이었습니다. */
@@ -697,7 +759,7 @@ window.AskEngine = (function () {
     if (window.console && console.debug) {
       console.debug("[AskEngine]", r.question, {
         의도: r.intent, 결과: r.kind, 조회건수: r.scopeRows,
-        해석한조건: r.applied, 무시한조건: r.unhandled,
+        해석한조건: r.applied, 무시한조건: r.unhandled, 경고: r.warnings,
         남은토큰: cond ? cond.ignoredTokens : []
       });
     }
@@ -729,37 +791,76 @@ window.AskEngine = (function () {
     let groups = detectGroups(text, table);
     const askedEntity = detectEntityAsk(text);
 
-    /* ── 맥락 승계 — 새 질문에 없는 것만 직전 질의에서 물려받습니다 ─────── */
+    /* ── 맥락 승계 — 두 층으로 나눕니다 ────────────────────────────────
+       scope  : 직전 질의의 조회 범위 (과제 · Study · 배치)
+       focus  : 직전 응답이 실제로 지목한 배치 (최고값 배치 등)
+
+       "그거"(지시어)는 직전 답변이 가리킨 그 배치를 뜻하고,
+       "그럼 …은?"(생략형)은 범위를 그대로 두고 보는 항목만 바꾸는 말입니다.
+       둘을 한 층으로 묶으면 "그거 언제 배양했어?" 가 과제 18건을 되돌려
+       줍니다 — 사용자가 가리킨 것은 한 건인데도. */
     const prev = o.prev && o.prev.carry ? o.prev.carry : null;
     const inherited = [];
-    if (looksFollowUp(text)) {
-      if (prev && !specIsEmpty(prev.spec) && specIsEmpty(scope.spec)) {
+    const deictic = looksDeictic(text);
+    const elliptic = looksFollowUp(text);
+    if (deictic || elliptic) {
+      if (!prev) {
+        inherited.push("이어받을 앞 질문이 없어 이번 질문만으로 조회했습니다");
+      } else if (deictic && prev.focus && prev.focus.ids && prev.focus.ids.length && specIsEmpty(scope.spec)) {
+        scope.spec = { projects: [], studies: [], batchIds: prev.focus.ids.slice() };
+        finishScope(scope, table);
+        inherited.push("\"" + deictic + "\" 는 직전 답변이 지목한 " +
+          prev.focus.labels.join(", ") + " 를 가리키는 것으로 봤습니다");
+      } else if (!specIsEmpty(prev.spec) && specIsEmpty(scope.spec)) {
         scope.spec = { projects: prev.spec.projects.slice(), studies: prev.spec.studies.slice(),
                        batchIds: prev.spec.batchIds.slice() };
         finishScope(scope, table);
         inherited.push("직전 질의의 " + scope.label.join(" · ") + " 범위를 유지했습니다");
       }
-      /* 대상은 새 질문 쪽을 우선합니다 — "그럼 정제는?" 은 범위만 잇고
-         보는 항목은 정제로 바꾸는 것이 자연스럽습니다 */
+      /* 보는 항목은 새 질문 쪽이 우선입니다 — "그럼 정제는?" 은 범위만 잇습니다 */
       if (prev && !metrics.length && !groups.length && !dateCols.length && !isMeta) {
         if (prev.metricKeys && prev.metricKeys.length) {
           metrics = prev.metricKeys.map(k => table.columns.find(c => c.key === k)).filter(Boolean);
           if (metrics.length) inherited.push("직전 질의의 항목(" + metrics[0].label + ")을 이어받았습니다");
         }
       }
-      if (!prev) {
-        inherited.push("이어받을 앞 질문이 없어 이번 질문만으로 조회했습니다");
+    }
+
+    /* ── 정성어("제일 좋았어") → 팀 기본 지표 ─────────────────────────── */
+    let qualNote = null;
+    if (!metrics.length) {
+      const qm = qualitativeMetric(text, table, groups);
+      if (qm && qm.col) {
+        metrics = [qm.col];
+        qualNote = "\"좋다/나쁘다\" 를 " + qm.ko + " 기준으로 해석했습니다. " +
+          "다른 기준으로 보시려면 항목을 지정해 주세요.";
+      } else if (qm && !qm.col) {
+        qualNote = null;
       }
     }
 
     const cond = parseConditions(text, table, metrics);
-    if (looksFollowUp(text) && !prev) {
+    if ((deictic || elliptic) && !prev) {
       cond.unhandled.push("앞 질문 이어받기 — 이 세션에 직전 질의가 없습니다");
     }
     inherited.forEach(x => cond.applied.push(x));
+    if (qualNote) cond.applied.push(qualNote);
+    /* 분석 항목의 "좋고 나쁨"은 규격이 있어야 판정할 수 있습니다 */
+    (function () {
+      const qm = qualitativeMetric(text, table, groups);
+      if (qm && !qm.col && qm.why) cond.unhandled.push(qm.ko + " — " + qm.why);
+    })();
 
     const scoped = applyScope(table.rows, scope);
     let rows = applyConditions(scoped, cond);
+
+    /* 조건을 걸었는데 한 건도 걸러지지 않았으면 알려 줍니다. 라벨만 붙고
+       결과가 그대로면 연구원은 걸러진 것으로 봅니다 — 그게 조용한 오답입니다. */
+    const filtered = cond.thresholds.length || cond.period || cond.excludeMissing;
+    if (filtered && rows.length === scoped.length && !cond.warnings.length) {
+      cond.warnings.push("이 조건은 대상 " + scoped.length +
+        "건 전부에 해당하여 결과가 좁혀지지 않았습니다. 단위나 기준값을 확인해 주세요.");
+    }
 
     if (scope.label.length) cond.applied.unshift("범위 " + scope.label.join(" · "));
 
@@ -768,12 +869,21 @@ window.AskEngine = (function () {
       intent: intent, scopeLabel: scope.label.join(" · ") || "전체",
       scopeRows: rows.length, notRecorded: missingAsked, askedCondition: askedCondition,
       conditions: cond,
-      /* 다음 질문이 이어받을 것 — ask.js 가 그대로 되돌려 줍니다 */
+      /* 다음 질문이 이어받을 것 — ask.js 가 그대로 되돌려 줍니다.
+         spec(범위) 과 focus(지목한 배치) 를 나눠 둡니다. */
       carry: { spec: scope.spec, metricKeys: metrics.map(c => c.key),
-               groupIds: groups.map(g => g.id), rowIds: [] }
+               groupIds: groups.map(g => g.id), rowIds: [],
+               /* 지목한 배치는 새로 지목할 때까지 유지합니다. 목록을 한 번
+                  보여 줬다고 "그거" 의 대상이 사라지지는 않습니다. */
+               focus: (prev && prev.focus) ? prev.focus : null }
     };
 
-    /* ── 데이터셋 자체를 물었을 때 (meta) ─────────────────────────────── */
+    /* ── 단위가 분명하지 않으면 답하기 전에 되묻습니다 ────────────────── */
+    if (cond.clarify) return decorate(clarifyAnswer(base, table, scoped, cond), cond, table);
+
+    /* ── 데이터셋 자체를 물었을 때 ────────────────────────────────────
+       "무슨 데이터 있어"(요약) 와 "뭘 물어볼 수 있어"(사용법)는 다른 질문입니다. */
+    if (isMeta === "help") return decorate(helpAnswer(base, table), cond, table);
     if (isMeta) return decorate(metaAnswer(base, table), cond, table);
 
     /* ── 0건 — 왜 0건인지와 다음 수를 함께 줍니다 ─────────────────────── */
@@ -857,6 +967,78 @@ window.AskEngine = (function () {
                                          : out.rows.slice(-cond.topN.n);
     }
     return decorate(out, cond, table);
+  }
+
+  /* ── 되묻기 — 단위가 분명하지 않을 때 ────────────────────────────────
+     값을 마음대로 고르지 않습니다. 대신 각 해석이 몇 건을 남기는지 미리
+     계산해 보여 주고 고르게 합니다. */
+  function clarifyAnswer(base, table, scoped, cond) {
+    const cl = cond.clarify, col = cl.metric;
+    const opts = cl.options.map(function (o) {
+      const th = Object.assign({}, cl.th);
+      th[cl.side] = o.value;
+      const chk = window.Units.isNoOp(scoped, col.key, th);
+      return {
+        label: o.label, unit: o.unit, value: o.value,
+        kept: chk.kept, total: chk.total,
+        hint: chk.kept + " / " + chk.total + "건" + (chk.noop ? " (전부 해당 — 걸러지지 않음)" : ""),
+        /* 이 버튼을 누르면 단위를 명시해 다시 묻습니다.
+           숫자만 바꾸고 "이상 · 이하" 같은 연산자는 그대로 둡니다 —
+           통째로 갈아치우면 조건이 사라진 질문이 됩니다. */
+        question: base.question.replace(cl.th.raw,
+          cl.th.raw.replace(/^-?\d+(?:\.\d+)?/, o.value + (col.unit ? " " + col.unit : "")))
+      };
+    });
+    const rg = window.Units.observedRange(scoped, col.key);
+    return Object.assign(base, {
+      kind: "clarify",
+      headline: "\"" + cl.th.raw + "\" 를 어느 단위로 읽어야 할지 분명하지 않아 먼저 여쭙습니다. " +
+        col.label + " 의 실측 범위는 " + (rg ? rg.min + " ~ " + rg.max : "알 수 없음") +
+        (col.unit ? " " + col.unit : "") + " 입니다.",
+      choices: opts,
+      hints: opts.map(o => o.label + " 로 보면 → " + o.hint)
+        .concat(["단위를 직접 적어 물어보셔도 됩니다 — 예: \"" + col.label + " 3 g/L 이상\"."]),
+      note: cl.note + " 값을 임의로 바꾸지 않고 그대로 두었습니다.",
+      suggestions: suggestList(table)
+    });
+  }
+
+  /* ── help — "뭘 물어볼 수 있어?" ────────────────────────────────────
+     데이터 요약(metaAnswer)과는 다른 질문입니다. 여기서는 "이 시스템이
+     무엇을 할 수 있고 무엇을 못 하는지"를 답합니다. */
+  function helpAnswer(base, table) {
+    const byTeam = (window.DATA_TEAMS || []).map(function (t) {
+      const cols = table.columns.filter(c => c.team === t.id && c.type === "num" &&
+        window.AskTables.filledCount(table, c.key) > 0);
+      return { ko: t.ko, cols: cols };
+    }).filter(x => x.cols.length);
+
+    const first = (byTeam[0] && byTeam[0].cols[0]) ? byTeam[0].cols[0].label : "Titer HCCF";
+    const rg = dateRangeOf(table);
+    const mon = rg ? rg.max.slice(0, 4) + "년 " + Number(rg.max.slice(5, 7)) + "월" : "2024년 12월";
+
+    const examples = [
+      "최고 · 최저 — \"" + first + " 가장 높은 배치는?\"",
+      "평균 · 편차 — \"" + first + " 평균이랑 편차\"",
+      "추이       — \"일자별 Titer 추이\"",
+      "비교       — \"과제별 Total Yield 비교\"",
+      "결측       — \"미입력이 가장 많은 항목은?\"",
+      "목록 · 조건 — \"" + mon + " 배치 보여줘\" · \"Titer 1000 이상인 배치\" · \"Titer 상위 5개\""
+    ];
+
+    return Object.assign(base, {
+      kind: "help",
+      headline: "질문 유형 6가지(최고·최저 / 평균·편차 / 추이 / 비교 / 결측 / 목록·조건)를 " +
+        "지원하고, 조회 가능한 측정 항목은 " + suggestList(table).length + "개입니다. " +
+        "배치 이름 · 과제 · Study · 기간 · 값 조건을 섞어 물어보실 수 있습니다.",
+      facts: byTeam.map(x => ({ k: x.ko, v: x.cols.length + "개 — " + x.cols.slice(0, 4).map(c => c.label).join(", ") +
+        (x.cols.length > 4 ? " 외" : "") })),
+      hints: examples,
+      note: "아직 못 하는 것 — 규격 판정(Pass/Fail: 한계값 테이블 미도입) · " +
+        "원인 분석(\"왜 낮았지?\") · 오늘 날짜 기준 상대 기간(\"지난달\"). " +
+        "이런 질문에는 답 대신 그 사실을 알려 드립니다.",
+      suggestions: suggestList(table)
+    });
   }
 
   /* ── meta — 데이터셋 자체에 대한 질문 ────────────────────────────────
@@ -1018,8 +1200,10 @@ window.AskEngine = (function () {
     return Object.assign(base, {
       kind: "entity", headline: head,
       facts: meta.concat(vals),
-      note: (missingAsked.length
-        ? missingAsked.join(" · ") + "은(는) 원본에 컬럼이 없어 표시할 수 없습니다. " : "") +
+      focusLabels: [r.__label],
+      note: (r.__unnamed ? r.__label + " 은(는) 원본에 배치번호(Exp. No.)가 비어 있어 가져올 때 부여한 임시 이름입니다. " : "") +
+        (missingAsked.length
+          ? missingAsked.join(" · ") + "은(는) 원본에 컬럼이 없어 표시할 수 없습니다. " : "") +
         "특정 항목만 보시려면 항목 이름을 넣어 다시 물어봐 주세요.",
       suggestions: suggestList(table)
     });
@@ -1159,11 +1343,19 @@ window.AskEngine = (function () {
     if (alt.length) notes.push("비슷한 항목도 함께 인식했습니다 — " + alt.join(", ") + ". 다른 항목을 원하시면 이름을 그대로 넣어 다시 물어보세요.");
     if (scope.recent) notes.push("\"최근\"은 기간을 임의로 자르지 않고 최신순 정렬로만 반영했습니다.");
 
+    /* 배치번호가 원본에 없던 행이면 그 사실을 밝힙니다 — 지어낸 이름을
+       실제 배치번호처럼 읽게 두면 안 됩니다 (원본 Exp. No. 공란 1건). */
+    if (top.__unnamed) {
+      notes.push(top.__label + " 은(는) 원본에 배치번호(Exp. No.)가 비어 있어 " +
+        "가져올 때 부여한 임시 이름입니다. 값은 원본 그대로이며, 행을 빼지 않고 그대로 셉니다.");
+    }
+
     return Object.assign(base, {
       kind: "extreme", headline: headline, facts: facts, context: ctx,
       stats: s, metric: { key: metric.key, label: metric.label, unit: metric.unit },
       rows: sorted.slice(0, 8).map(r => evidence(r, table, metric)),
       evidenceCols: evidenceCols(table, metric),
+      focusLabels: [top.__label],
       note: notes.join(" ")
     });
   }

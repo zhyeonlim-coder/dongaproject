@@ -71,6 +71,9 @@ window.AskTables = (function () {
       const row = {
         __id: b.id,
         __label: b.expNo || b.id,
+        /* 원본에 Exp. No. 가 비어 있어 가져올 때 id 를 이름으로 쓴 행입니다.
+           지어낸 이름을 실제 배치번호처럼 읽지 않도록 표시해 둡니다. */
+        __unnamed: !b.expNo,
         project: study ? projectCode(study.projectId) : null,
         study: study ? study.name : null,
         team: teamKo(b.team),
