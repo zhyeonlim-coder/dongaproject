@@ -4,3 +4,7 @@ Batch_Data_example.xlsx
 # 배포에 필요 없는 것들
 .claude/
 .git/
+
+# 개발용 회귀 테스트 — 배포 사이트에 올릴 이유가 없습니다.
+# 로컬에서 tests/ask-regression.html 을 열어 돌립니다.
+donga-st-bio-hub/tests/

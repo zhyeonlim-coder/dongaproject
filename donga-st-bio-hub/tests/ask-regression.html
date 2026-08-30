@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 검색 회귀 테스트 · Bio Knowledge Hub</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 24px; background: #0A192F; color: #E6ECF5;
+         font: 13px/1.6 "IBM Plex Mono", ui-monospace, Consolas, monospace; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .sub { color: #8FA2BB; font-size: 12px; margin-bottom: 18px; }
+  .verdict { display: inline-block; padding: 4px 12px; border-radius: 999px;
+             font-weight: 700; margin-bottom: 16px; }
+  .ok { background: #123A2A; color: #6EE7B7; }
+  .no { background: #3A1218; color: #FCA5A5; }
+  pre { white-space: pre; overflow-x: auto; background: #0E2340; border: 1px solid #1E3A5F;
+        border-radius: 8px; padding: 14px; }
+  .hint { color: #8FA2BB; font-size: 12px; margin-top: 14px; line-height: 1.8; }
+  code { background: #0E2340; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>AI 검색 회귀 테스트</h1>
+<p class="sub">
+  ask-engine.js 를 고칠 때마다 이 페이지를 열어 전부 통과하는지 확인합니다.
+  로그인 · 화면(shell) 은 싣지 않습니다 — 엔진과 데이터 계층만 봅니다.
+</p>
+
+<div id="verdict"></div>
+<pre id="out">실행 중…</pre>
+
+<p class="hint">
+  콘솔에서 직접: <code>AskRegression.run()</code> (결과 객체) ·
+  <code>AskRegression.text()</code> (표) ·
+  <code>copy(AskRegression.text())</code> (클립보드로 복사)<br>
+  질문을 추가하려면 <code>tests/ask-regression.js</code> 의 <code>BATTERY</code> 에 한 줄 넣으면 됩니다.
+</p>
+
+<!-- 데이터 계층 (hub.html 과 같은 순서 · UI 는 뺐습니다) -->
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/data/labels.js"></script>
+<script src="../assets/js/data/value.js"></script>
+<script src="../assets/js/data/projects.js"></script>
+<script src="../assets/js/data/studies.js"></script>
+<script src="../assets/js/data/batches.js"></script>
+<script src="../assets/js/data/downstream.js"></script>
+<script src="../assets/js/data/samples.js"></script>
+<script src="../assets/js/data/entries.js"></script>
+<script src="../assets/js/data/repo.js"></script>
+<script src="../assets/js/data/lots.js"></script>
+
+<!-- 검사 대상 -->
+<script src="../assets/js/data/tables.js"></script>
+<script src="../assets/js/ask-engine.js"></script>
+
+<script src="ask-regression.js"></script>
+<script>
+  (function () {
+    const out = document.getElementById("out");
+    const v = document.getElementById("verdict");
+    try {
+      const res = window.AskRegression.run();
+      out.textContent = window.AskRegression.text(res);
+      v.className = "verdict " + (res.pass ? "ok" : "no");
+      v.textContent = res.pass ? "전체 통과" : "실패 있음 — 아래 표에서 [실패] 를 확인하세요";
+      window.__lastRegression = res;
+    } catch (e) {
+      v.className = "verdict no";
+      v.textContent = "실행 실패";
+      out.textContent = (e && e.stack) || String(e);
+    }
+  })();
+</script>
+</body>
+</html>
