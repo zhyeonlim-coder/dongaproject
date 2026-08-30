@@ -192,15 +192,14 @@ window.AskEngine = (function () {
       scope.label.push(named.map(r => r.__label).join(", "));
     }
 
-    /* 연도 */
-    const yr = text.match(/(20\d{2})\s*년?/);
-    if (yr) {
-      scope.filters.push(r => String(r.date || "").slice(0, 4) === yr[1]);
-      scope.label.push(yr[1] + "년");
-    }
+    /* 달력 날짜(연 · 월 · 기간)는 여기서 다루지 않습니다 — parseConditions 의
+       기간 파서가 담당합니다. 예전에는 여기서 연도만 뽑아 썼는데, 그러면
+       "2024년 1월부터 7월까지" 가 그냥 "2024년" 이 되어 8 · 11 · 12월까지
+       조용히 딸려 들어왔습니다. 조건을 반쯤 읽고 넘어가는 경로를 없앱니다. */
 
     /* "최근" — 정렬만 최신순으로 바꾸고 행을 잘라내지는 않습니다.
-       임의로 N건을 자르면 "최근"의 범위를 시스템이 지어내는 셈이 됩니다. */
+       임의로 N건을 자르면 "최근"의 범위를 시스템이 지어내는 셈이 됩니다.
+       ("최근 3개월"처럼 기간이 붙은 표현은 기간 파서가 따로 처리합니다) */
     scope.recent = ["최근", "최신", "요즘", "latest", "recent"].some(t => has(text, t));
     return scope;
   }
@@ -208,6 +207,247 @@ window.AskEngine = (function () {
   function applyScope(rows, scope) {
     let out = rows.slice();
     scope.filters.forEach(f => { out = out.filter(f); });
+    return out;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     2-b. 조건 파서 — 임계값 · 상위N · 기간 · 제외
+
+     이 파서의 계약은 "읽은 것과 못 읽은 것을 모두 돌려준다" 입니다.
+     예전에는 "Titer 3 이상" 의 "3 이상" 이 그냥 사라져서, 걸러지지 않은
+     28건이 걸러진 결과처럼 보였습니다. 조용한 오답은 명시적 실패보다
+     위험합니다 — 연구원이 그 숫자를 그대로 보고서에 쓰기 때문입니다.
+     그래서 applied / unhandled 를 항상 함께 내보내고, 화면은 둘 다 띄웁니다.
+     ══════════════════════════════════════════════════════════════════════ */
+
+  const MONTH_LAST = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  function lastDay(y, m) {
+    if (m === 2 && ((y % 4 === 0 && y % 100 !== 0) || y % 400 === 0)) return 29;
+    return MONTH_LAST[m - 1];
+  }
+  function iso(y, m, d) {
+    return String(y) + "-" + String(m).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+  }
+  function shiftMonths(ymd, n) {
+    const y = Number(ymd.slice(0, 4)), m = Number(ymd.slice(5, 7)), d = Number(ymd.slice(8, 10));
+    const t = (y * 12 + (m - 1)) + n;
+    const ny = Math.floor(t / 12), nm = (t % 12) + 1;
+    return iso(ny, nm, Math.min(d, lastDay(ny, nm)));
+  }
+
+  /* 보유 구간은 늘 데이터에서 계산합니다 (하드코딩 금지 — 원본이 바뀌면 같이 바뀝니다) */
+  function dateRangeOf(table) {
+    const ds = table.rows.map(r => r.date).filter(Boolean).sort();
+    return ds.length ? { min: ds[0], max: ds[ds.length - 1], n: ds.length } : null;
+  }
+  function yearsOf(table) {
+    const set = {};
+    table.rows.forEach(r => { if (r.date) set[r.date.slice(0, 4)] = 1; });
+    return Object.keys(set).map(Number).sort((a, b) => b - a);   /* 최신 연도부터 */
+  }
+  function countBetween(table, from, to) {
+    return table.rows.filter(r => r.date && r.date >= from && r.date <= to).length;
+  }
+
+  /* 연도가 없는 월 표현 — "올해" 로 넘겨짚지 않습니다. 데이터가 실제로 있는
+     가장 최근 연도로 붙이고, 그렇게 해석했다는 사실을 라벨에 남깁니다. */
+  function resolveYearless(fromM, toM, table) {
+    const years = yearsOf(table);
+    const spans = years.map(function (y) {
+      const endY = toM >= fromM ? y : y + 1;                     /* 12월~1월 = 해 넘김 */
+      return { from: iso(y, fromM, 1), to: iso(endY, toM, lastDay(endY, toM)), guessed: true };
+    });
+    for (let i = 0; i < spans.length; i++) {
+      if (countBetween(table, spans[i].from, spans[i].to) > 0) return spans[i];
+    }
+    return spans[0] || null;
+  }
+
+  /* 오늘 날짜에 기대는 상대 기간 — 해석하지 않고 그 이유를 말합니다.
+     데이터 보유 구간이 오늘과 멀면 조용히 0건이 나와 오해를 부릅니다. */
+  const RELATIVE_DATE = ["이번 달", "이번달", "지난달", "지난 달", "이번 주", "이번주",
+    "지난주", "지난 주", "이번 분기", "이번분기", "지난 분기", "지난분기",
+    "올해", "작년", "재작년", "어제", "오늘", "내일"];
+
+  /* 조건처럼 보이지만 지금 구조로는 처리할 수 없는 것들 — 반드시 밝힙니다 */
+  const CANT_YET = [
+    { terms: ["왜", "원인", "이유", "때문"], ko: "원인 분석(\"왜\")", why: "값 조회만 가능하고 원인 추론은 아직 지원하지 않습니다" },
+    { terms: ["스펙", "규격", "spec", "합격", "불합격", "pass", "fail", "일탈", "ooS", "oos"], ko: "규격 판정", why: "규격 한계값 테이블이 아직 도입되지 않아 Pass/Fail 을 판정할 수 없습니다" },
+    { terms: ["그거", "그럼", "아까", "방금", "이어서", "위에서", "앞에서"], ko: "앞 질문 이어받기", why: "지금은 질문을 하나씩 독립으로 처리합니다" }
+  ];
+
+  function parseConditions(text, table, metrics) {
+    const primary = metrics && metrics.length ? metrics[0] : null;
+    const c = {
+      period: null, thresholds: [], topN: null, excludeMissing: false,
+      dayRef: null, applied: [], unhandled: [], ignoredTokens: []
+    };
+    let t = " " + text + " ";
+    const eat = (re, fn) => {
+      let m;
+      while ((m = re.exec(t)) !== null) {
+        const keep = fn(m);
+        t = t.slice(0, m.index) + " ".repeat(m[0].length) + t.slice(m.index + m[0].length);
+        re.lastIndex = 0;
+        if (keep === false) break;
+      }
+    };
+
+    /* ── 0. 배양 경과일 먼저 걷어냅니다 ────────────────────────────────
+       D10 · 10일차 는 배양 시작 후 며칠인지(경과일)이고, INITIAL DATE 는
+       달력 날짜입니다. 축이 다릅니다. 먼저 소비해 두지 않으면 "10일차" 의
+       10 이 기간이나 임계값으로 잘못 읽힙니다. */
+    eat(/(?:^|[^a-z0-9])d\s?(\d{1,2})(?![0-9])|(\d{1,2})\s*일\s*차|day\s*(\d{1,2})(?![0-9])/g, function (m) {
+      const d = m[1] || m[2] || m[3];
+      c.dayRef = "D" + d;
+      c.unhandled.push("\"D" + d + "\"(배양 경과일) — 특정 일차만 골라내는 조회는 아직 없습니다. \"일자별 추이\"로 물으면 전체 일차를 표로 보여 드립니다");
+    });
+
+    /* ── 1. 기간 ────────────────────────────────────────────────────── */
+    /* 1-1. ISO 날짜 (하루 또는 구간) */
+    eat(/(20\d{2})-(\d{1,2})-(\d{1,2})\s*(?:~|-|—|부터|에서)\s*(20\d{2})-(\d{1,2})-(\d{1,2})/g, function (m) {
+      c.period = { from: iso(+m[1], +m[2], +m[3]), to: iso(+m[4], +m[5], +m[6]) };
+      return false;
+    });
+    if (!c.period) eat(/(20\d{2})-(\d{1,2})-(\d{1,2})/g, function (m) {
+      const d = iso(+m[1], +m[2], +m[3]);
+      c.period = { from: d, to: d };
+      return false;
+    });
+    /* 1-2. "최근 N개월 · N일" — 오늘이 아니라 데이터 최신일 기준 */
+    if (!c.period) eat(/최근\s*(\d{1,2})\s*(개월|달|일)/g, function (m) {
+      const rg = dateRangeOf(table);
+      if (!rg) return false;
+      const n = +m[1];
+      c.period = m[2] === "일"
+        ? { from: iso(+rg.max.slice(0,4), +rg.max.slice(5,7), Math.max(1, +rg.max.slice(8,10) - n + 1)), to: rg.max, anchored: rg.max }
+        : { from: shiftMonths(rg.max, -n), to: rg.max, anchored: rg.max };
+      return false;
+    });
+    /* 1-3. "2024년 1월부터 7월까지" · "2024년 9월" · "2024년 상반기/3분기" · "2024년" */
+    if (!c.period) eat(/(20\d{2}|\d{2})\s*년\s*(\d{1,2})\s*월\s*(?:~|-|—|부터|에서)\s*(\d{1,2})\s*월/g, function (m) {
+      const y = m[1].length === 2 ? 2000 + +m[1] : +m[1];
+      const a = +m[2], b = +m[3], endY = b >= a ? y : y + 1;
+      c.period = { from: iso(y, a, 1), to: iso(endY, b, lastDay(endY, b)) };
+      return false;
+    });
+    if (!c.period) eat(/(20\d{2}|\d{2})\s*년\s*(\d{1,2})\s*월/g, function (m) {
+      const y = m[1].length === 2 ? 2000 + +m[1] : +m[1], a = +m[2];
+      c.period = { from: iso(y, a, 1), to: iso(y, a, lastDay(y, a)) };
+      return false;
+    });
+    if (!c.period) eat(/(20\d{2}|\d{2})\s*년\s*(상반기|하반기)/g, function (m) {
+      const y = m[1].length === 2 ? 2000 + +m[1] : +m[1];
+      c.period = m[2] === "상반기" ? { from: iso(y,1,1), to: iso(y,6,30) } : { from: iso(y,7,1), to: iso(y,12,31) };
+      return false;
+    });
+    if (!c.period) eat(/(20\d{2}|\d{2})\s*년\s*([1-4])\s*분기/g, function (m) {
+      const y = m[1].length === 2 ? 2000 + +m[1] : +m[1], q = +m[2], a = q * 3 - 2, b = q * 3;
+      c.period = { from: iso(y, a, 1), to: iso(y, b, lastDay(y, b)) };
+      return false;
+    });
+    if (!c.period) eat(/(20\d{2})\s*년(?!\s*\d)/g, function (m) {
+      c.period = { from: iso(+m[1],1,1), to: iso(+m[1],12,31) };
+      return false;
+    });
+    /* 1-4. 연도 없는 월 표현 */
+    if (!c.period) eat(/(\d{1,2})\s*월\s*(?:~|-|—|부터|에서)\s*(\d{1,2})\s*월/g, function (m) {
+      c.period = resolveYearless(+m[1], +m[2], table);
+      return false;
+    });
+    if (!c.period) eat(/(\d{1,2})\s*월(?!\s*\d)/g, function (m) {
+      c.period = resolveYearless(+m[1], +m[1], table);
+      return false;
+    });
+
+    if (c.period) {
+      let lab = "기간 " + c.period.from + " ~ " + c.period.to;
+      if (c.period.guessed) lab += " (연도를 말씀하지 않아 데이터가 있는 가장 최근 연도로 해석)";
+      if (c.period.anchored) lab += " (오늘이 아니라 데이터 최신일 " + c.period.anchored + " 기준)";
+      c.applied.push(lab);
+    }
+    RELATIVE_DATE.forEach(function (w) {
+      if (has(text, w)) {
+        const rg = dateRangeOf(table);
+        c.unhandled.push("\"" + w + "\" — 오늘 날짜 기준 상대 기간입니다. 데이터 보유 구간(" +
+          (rg ? rg.min + " ~ " + rg.max : "없음") + ")과 어긋날 수 있어 임의로 해석하지 않았습니다");
+      }
+    });
+
+    /* ── 2. 상위 / 하위 N ───────────────────────────────────────────── */
+    eat(/(상위|최상위|top|하위|최하위|bottom)\s*(\d{1,3})\s*(?:개|건|위)?/g, function (m) {
+      const dir = /하위|bottom/.test(m[1]) ? "bottom" : "top";
+      c.topN = { dir: dir, n: +m[2] };
+      c.applied.push((dir === "top" ? "상위 " : "하위 ") + m[2] + "건만");
+      return false;
+    });
+
+    /* ── 3. 임계값 ─────────────────────────────────────────────────── */
+    const num = "(-?\\d+(?:\\.\\d+)?)";
+    const pushTh = (op, min, max, raw) => {
+      if (!primary) {
+        c.unhandled.push("\"" + raw + "\" — 어느 항목에 적용할지 알 수 없습니다. \"Titer 3 이상\"처럼 항목 이름과 함께 물어봐 주세요");
+        return;
+      }
+      c.thresholds.push({ key: primary.key, label: primary.label, op: op, min: min, max: max });
+      const u = primary.unit ? " " + primary.unit : "";
+      c.applied.push(primary.label + " " + (
+        op === "between" ? min + u + " ~ " + max + u :
+        op === "gte" ? "≥ " + min + u : op === "gt" ? "> " + min + u :
+        op === "lte" ? "≤ " + max + u : "< " + max + u));
+    };
+    eat(new RegExp(num + "\\s*%?\\s*(?:~|—|에서|부터)\\s*" + num + "\\s*%?\\s*(?:사이|이내)?", "g"), function (m) {
+      const a = Math.min(+m[1], +m[2]), b = Math.max(+m[1], +m[2]);
+      pushTh("between", a, b, m[0].trim());
+      return false;
+    });
+    eat(new RegExp(num + "\\s*%?\\s*보다\\s*(?:더\\s*)?(크|큰|높|많)", "g"), m => pushTh("gt", +m[1], null, m[0].trim()));
+    eat(new RegExp(num + "\\s*%?\\s*보다\\s*(?:더\\s*)?(작|적|낮)", "g"), m => pushTh("lt", null, +m[1], m[0].trim()));
+    eat(new RegExp(num + "\\s*%?\\s*(?:초과|넘는|넘게)", "g"), m => pushTh("gt", +m[1], null, m[0].trim()));
+    eat(new RegExp(num + "\\s*%?\\s*(?:미만)", "g"), m => pushTh("lt", null, +m[1], m[0].trim()));
+    eat(new RegExp(num + "\\s*%?\\s*(?:이상|over|above|>=?)", "g"), m => pushTh("gte", +m[1], null, m[0].trim()));
+    eat(new RegExp(num + "\\s*%?\\s*(?:이하|below|under|<=?)", "g"), m => pushTh("lte", null, +m[1], m[0].trim()));
+    eat(new RegExp("최소\\s*" + num, "g"), m => pushTh("gte", +m[1], null, m[0].trim()));
+    eat(new RegExp("최대\\s*" + num, "g"), m => pushTh("lte", null, +m[1], m[0].trim()));
+
+    /* ── 4. 제외 ───────────────────────────────────────────────────── */
+    if (/(미입력|결측|빈\s*값|null)[^.]{0,6}(빼고|제외|except|없는 것만 빼)/.test(text)) {
+      if (primary) {
+        c.excludeMissing = true;
+        c.excludeMissingKey = primary.key;
+        c.applied.push(primary.label + " 미입력 행 제외");
+      } else {
+        c.unhandled.push("\"미입력 제외\" — 어느 항목의 미입력인지 알 수 없습니다");
+      }
+    }
+
+    /* ── 5. 아직 못 하는 것들 ──────────────────────────────────────── */
+    CANT_YET.forEach(function (e) {
+      if (e.terms.some(x => has(text, x))) c.unhandled.push(e.ko + " — " + e.why);
+    });
+
+    /* 남은 낱말 중 숫자가 붙은 토큰 = 못 읽은 조건일 가능성 (디버그용) */
+    c.ignoredTokens = (t.match(/\S*\d+\S*/g) || []).filter(x => x.length < 20);
+    return c;
+  }
+
+  function applyConditions(rows, c) {
+    let out = rows;
+    if (c.period) out = out.filter(r => r.date && r.date >= c.period.from && r.date <= c.period.to);
+    c.thresholds.forEach(function (th) {
+      out = out.filter(function (r) {
+        const v = r[th.key];
+        if (typeof v !== "number" || !isFinite(v)) return false;   /* 값이 없으면 조건 판정 불가 */
+        if (th.op === "between") return v >= th.min && v <= th.max;
+        if (th.op === "gte") return v >= th.min;
+        if (th.op === "gt") return v > th.min;
+        if (th.op === "lte") return v <= th.max;
+        return v < th.max;
+      });
+    });
+    if (c.excludeMissing && c.excludeMissingKey) {
+      out = out.filter(r => typeof r[c.excludeMissingKey] === "number" && isFinite(r[c.excludeMissingKey]));
+    }
     return out;
   }
 
@@ -266,59 +506,213 @@ window.AskEngine = (function () {
     return meta;
   }
 
+  /* 모든 응답이 반드시 지나는 단일 관문.
+
+     해석한 조건(applied)과 반영하지 못한 것(unhandled)을 결과에 붙입니다.
+     answer() 의 반환은 예외 없이 여기를 통과하므로, 조건을 조용히 버리는
+     경로가 구조적으로 남을 수 없습니다.
+
+     headline 이 아니라 별도 필드에 담는 것이 핵심입니다 — headline 은
+     /api/narrate 가 문장을 다시 씁니다. 조건을 headline 안에만 넣으면
+     모델이 지워버릴 수 있어, 화면은 이 필드를 따로 렌더링합니다. */
+  function decorate(r, cond, table) {
+    r.applied = (cond && cond.applied) ? cond.applied.slice() : [];
+    r.unhandled = (cond && cond.unhandled) ? cond.unhandled.slice() : [];
+    /* 해석한 조건을 문장 맨 앞에 박아 둡니다. 조건이 다르면 답도 반드시
+       달라 보여야 합니다 — "3 이상" 과 "상위 5개" 와 조건 없는 질문이
+       똑같은 문장을 내놓던 것이 이번 수정의 출발점이었습니다. */
+    if (r.applied.length) {
+      r.headline = "[" + r.applied.join(" · ") + "] " + (r.headline || "");
+    }
+    if (r.unhandled.length) {
+      r.note = (r.note ? r.note + " " : "") +
+        "이번 조회에 반영하지 못한 조건이 있습니다 — " + r.unhandled.join(" · ") + ".";
+    }
+    if (window.console && console.debug) {
+      console.debug("[AskEngine]", r.question, {
+        의도: r.intent, 결과: r.kind, 조회건수: r.scopeRows,
+        해석한조건: r.applied, 무시한조건: r.unhandled,
+        남은토큰: cond ? cond.ignoredTokens : []
+      });
+    }
+    return r;
+  }
+
   function answer(question, opts) {
     const o = opts || {};
     const text = norm(question);
-    if (!text) return { ok: false, kind: "empty", headline: "질문을 입력해 주세요." };
-
     const table = o.table || window.AskTables.internal();
+
+    if (!text) {
+      return decorate({
+        ok: false, kind: "empty", question: question, intent: "list",
+        table: { id: table.id, label: table.label, kind: table.kind },
+        scopeLabel: "전체", scopeRows: table.rows.length,
+        headline: "질문을 입력하면 실제 데이터에서 값을 찾아 답합니다.",
+        hints: sampleQuestions(table), suggestions: suggestList(table)
+      }, null, table);
+    }
+
     const intent = detectIntent(text);
     const metrics = detectMetrics(text, table);
     const missingAsked = table.kind === "internal" ? detectNotRecorded(text) : [];
     const askedCondition = CONDITION_WORDS.some(t => has(text, t));
     const scope = detectScope(text, table);
-    let rows = applyScope(table.rows, scope);
+    const cond = parseConditions(text, table, metrics);
+
+    const scoped = applyScope(table.rows, scope);
+    let rows = applyConditions(scoped, cond);
+
+    if (scope.label.length) cond.applied.unshift("범위 " + scope.label.join(" · "));
 
     const base = {
       ok: true, question: question, table: { id: table.id, label: table.label, kind: table.kind },
       intent: intent, scopeLabel: scope.label.join(" · ") || "전체",
-      scopeRows: rows.length, notRecorded: missingAsked, askedCondition: askedCondition
+      scopeRows: rows.length, notRecorded: missingAsked, askedCondition: askedCondition,
+      conditions: cond
     };
 
+    /* ── 0건 — 왜 0건인지와 다음 수를 함께 줍니다 ─────────────────────── */
     if (!rows.length) {
-      return Object.assign(base, {
-        ok: false, kind: "no-rows",
-        headline: "선택한 조건(" + base.scopeLabel + ")에 해당하는 데이터가 없습니다."
-      });
-    }
-
-    /* 항목을 못 찾았을 때 — 아는 척하지 않고 무엇을 읽을 수 있는지 보여 줍니다 */
-    if (!metrics.length && intent !== "missing" && intent !== "count") {
-      if (missingAsked.length) {
-        return Object.assign(base, {
-          ok: false, kind: "not-recorded",
-          headline: missingAsked.join(" · ") + "은(는) 원본 데이터에 기록되어 있지 않습니다.",
-          note: "Batch_Data_example.xlsx 에 해당 컬럼이 없습니다. 값을 추정해 채우지 않습니다.",
-          suggestions: suggestList(table)
+      const rg = dateRangeOf(table);
+      const hints = [];
+      /* 어느 조건에서 0건이 됐는지 짚어 줍니다. 기간 안에 데이터가 있는데도
+         "그 기간에 기록이 없다"고 말하면 그 자체가 잘못된 안내가 됩니다. */
+      const afterPeriod = cond.period
+        ? scoped.filter(r => r.date && r.date >= cond.period.from && r.date <= cond.period.to)
+        : scoped;
+      if (cond.period && !afterPeriod.length) {
+        hints.push("이 데이터의 보유 구간은 " + (rg ? rg.min + " ~ " + rg.max : "없음") +
+          " 입니다. 요청하신 " + cond.period.from + " ~ " + cond.period.to + " 에는 기록이 없습니다.");
+      } else if (cond.period && cond.thresholds.length) {
+        hints.push("기간 " + cond.period.from + " ~ " + cond.period.to + " 안에는 " +
+          afterPeriod.length + "건이 있습니다. 0건이 된 것은 값 조건 때문입니다.");
+      }
+      if (cond.thresholds.length) {
+        cond.thresholds.forEach(function (th) {
+          const col = table.columns.find(c => c.key === th.key) || th;
+          const s = stats(values(afterPeriod.length ? afterPeriod : scoped, th.key));
+          if (s) hints.push(th.label + " 의 실제 분포는 " + fmt(s.min, col) + " ~ " + fmt(s.max, col) +
+            " (평균 " + fmt(s.mean, col) + ", n=" + s.n + ") 입니다. 조건을 넓혀 보세요.");
         });
       }
-      return Object.assign(base, {
-        ok: false, kind: "no-metric",
-        headline: "질문에서 조회할 항목을 찾지 못했습니다.",
-        suggestions: suggestList(table)
-      });
+      if (scope.label.length && !cond.period && !cond.thresholds.length) {
+        hints.push("범위(" + scope.label.join(" · ") + ")를 빼고 다시 물어보면 전체 " +
+          table.rows.length + "건에서 찾습니다.");
+      }
+      if (!hints.length) hints.push("조건을 하나씩 빼면서 다시 물어봐 주세요.");
+      return decorate(Object.assign(base, {
+        ok: false, kind: "no-rows",
+        headline: "조건에 맞는 데이터가 0건입니다.",
+        hints: hints, suggestions: suggestList(table)
+      }), cond, table);
+    }
+
+    /* ── 항목을 못 찾았을 때 — 포기하지 않고 추려진 범위를 그대로 보여 줍니다 ──
+       예전에는 여기서 "조회할 항목을 찾지 못했습니다" 로 끝냈습니다. 범위가
+       1건으로 정확히 좁혀진 상태에서도 그 1건을 버렸습니다. 손에 쥔 데이터를
+       버리지 않는 것이 이 폴백의 목적입니다. */
+    if (!metrics.length && intent !== "missing" && intent !== "count") {
+      /* 목록을 보여 주더라도 "무엇을 못 알아들었는지"는 반드시 말합니다.
+         질문을 못 읽은 채 전체를 펼쳐 놓고 잠자코 있으면, 그것도 조용한
+         오답입니다 — 사용자는 자기 질문이 반영된 결과라고 믿게 됩니다. */
+      cond.unhandled.push(scope.label.length
+        ? "조회할 항목을 특정하지 못했습니다 — 범위만 적용하고 그 안의 기록을 그대로 펼쳤습니다"
+        : "질문에서 조회할 항목도 범위(과제 · Study · 배치)도 찾지 못했습니다 — 전체 목록을 보여 드립니다");
+      return decorate(overviewAnswer(base, table, rows, missingAsked), cond, table);
     }
 
     const metric = metrics[0];
     const alt = metrics.slice(1, 4).map(c => c.label);
 
-    if (intent === "trend") return trendAnswer(base, table, rows, metric, scope);
-    if (intent === "missing") return missingAnswer(base, table, rows, metrics);
-    if (intent === "compare") return compareAnswer(base, table, rows, metric);
-    if (intent === "count") return countAnswer(base, table, rows, metric);
-    if (intent === "stat") return statAnswer(base, table, rows, metric, alt);
-    if (intent === "max" || intent === "min") return extremeAnswer(base, table, rows, metric, intent, alt, askedCondition, missingAsked, scope);
-    return listAnswer(base, table, rows, metric, alt, scope);
+    let out;
+    if (intent === "trend") out = trendAnswer(base, table, rows, metric, scope);
+    else if (intent === "missing") out = missingAnswer(base, table, rows, metrics);
+    else if (intent === "compare") out = compareAnswer(base, table, rows, metric);
+    else if (intent === "count") out = countAnswer(base, table, rows, metric);
+    else if (intent === "stat") out = statAnswer(base, table, rows, metric, alt);
+    else if (intent === "max" || intent === "min")
+      out = extremeAnswer(base, table, rows, metric, intent, alt, askedCondition, missingAsked, scope);
+    else out = listAnswer(base, table, rows, metric, alt, scope, cond);
+
+    /* 상위/하위 N — list 이외의 의도에서도 개수를 실제로 반영합니다 */
+    if (cond.topN && out.rows && out.rows.length > cond.topN.n) {
+      out.rows = cond.topN.dir === "top" ? out.rows.slice(0, cond.topN.n)
+                                         : out.rows.slice(-cond.topN.n);
+    }
+    return decorate(out, cond, table);
+  }
+
+  /* 항목 없이 물었을 때의 기본 답 — 범위를 유지한 채 있는 것을 보여 줍니다 */
+  function overviewAnswer(base, table, rows, missingAsked) {
+    const avail = suggestList(table);
+
+    /* 1건으로 좁혀졌으면 그 배치의 기록된 값을 전부 펼칩니다 */
+    if (rows.length === 1) {
+      const r = rows[0];
+      const facts = rowMeta(r, table).slice();
+      table.columns.forEach(function (col) {
+        if (col.group === "base") return;
+        const v = r[col.key];
+        if (v === null || v === undefined) return;
+        facts.push({ k: col.label, v: fmt(v, col) });
+      });
+      return Object.assign(base, {
+        kind: "overview",
+        headline: r.__label + " 의 기록된 값 " + (facts.length - rowMeta(r, table).length) +
+          "개를 표시합니다. 특정 항목을 물으시면 그 항목만 계산해 드립니다.",
+        facts: facts,
+        note: (missingAsked.length
+          ? missingAsked.join(" · ") + "은(는) 원본에 컬럼이 없어 표시할 수 없습니다. "
+          : "") + "질문에서 조회할 항목을 특정하지 못해 이 배치의 전체 기록을 펼쳤습니다.",
+        suggestions: avail
+      });
+    }
+
+    /* 여러 건이면 목록 — 값이 실제로 있는 대표 항목만 컬럼으로 붙입니다 */
+    const preferred = ["cultureDays", "maxVCD", "finalViability", "titerHCCF", "downstream_totalYield"];
+    const cols = preferred
+      .map(k => table.columns.find(c => c.key === k))
+      .filter(c => c && rows.some(r => typeof r[c.key] === "number"))
+      .slice(0, 4);
+
+    const evCols = [{ key: "__label", label: "Batch" }];
+    if (table.kind === "internal") {
+      evCols.push({ key: "project", label: "과제" }, { key: "study", label: "Study" }, { key: "date", label: "시작일" });
+    }
+    cols.forEach(c => evCols.push({ key: c.key, label: c.label + (c.unit ? " (" + c.unit + ")" : "") }));
+
+    const evRows = rows.slice(0, 15).map(function (r) {
+      const o = { __label: r.__label };
+      if (table.kind === "internal") { o.project = r.project; o.study = r.study; o.date = r.date; }
+      cols.forEach(c => { o[c.key] = (r[c.key] === null || r[c.key] === undefined) ? "미입력" : fmt(r[c.key], c); });
+      return o;
+    });
+
+    return Object.assign(base, {
+      kind: "overview",
+      headline: base.scopeLabel + " 범위의 배치 " + rows.length + "건을 표시합니다. " +
+        "질문에서 특정 항목을 찾지 못해 목록으로 보여 드립니다.",
+      facts: [{ k: "대상", v: rows.length + "건" }, { k: "범위", v: base.scopeLabel }],
+      rows: evRows, evidenceCols: evCols,
+      note: (missingAsked.length
+        ? missingAsked.join(" · ") + "은(는) 원본에 컬럼이 없어 표시할 수 없습니다. " : "") +
+        "항목 이름을 넣어 다시 물으면 그 항목만 계산합니다 (예: \"" +
+        (avail[0] || "Titer") + " 평균\").",
+      suggestions: avail
+    });
+  }
+
+  /* 빈 질문일 때 보여 줄 실제로 동작하는 예시 — 지어내지 않고 데이터에서 만듭니다 */
+  function sampleQuestions(table) {
+    const avail = suggestList(table);
+    const rg = dateRangeOf(table);
+    const out = [];
+    if (avail[0]) out.push(avail[0] + " 가장 높은 배치는?");
+    if (avail[0]) out.push(avail[0] + " 평균이랑 편차");
+    if (rg) out.push(rg.max.slice(0, 4) + "년 " + Number(rg.max.slice(5, 7)) + "월 배치 보여줘");
+    out.push("미입력이 가장 많은 항목은?");
+    return out;
   }
 
   function suggestList(table) {
@@ -327,13 +721,32 @@ window.AskEngine = (function () {
       .map(c => c.label);
   }
 
+  /* 그 항목이 이 범위 밖에는 있는지 알려 줍니다 — "없다"로 끝내지 않기 위해 */
+  function filledElsewhere(table, metric, rows) {
+    const all = table.rows.filter(r => typeof r[metric.key] === "number" && isFinite(r[metric.key]));
+    const hints = [];
+    if (all.length) {
+      hints.push(metric.label + " 는 전체 데이터에는 " + all.length + "건 기록돼 있습니다 (예: " +
+        all.slice(0, 3).map(r => r.__label).join(", ") + "). 범위를 빼고 다시 물어보세요.");
+    } else {
+      hints.push(metric.label + " 는 원본 전체에서 한 건도 기록돼 있지 않습니다. 값을 추정해 채우지 않습니다.");
+    }
+    const alt = table.columns.filter(c => c.type === "num" && c.group === metric.group &&
+      c.key !== metric.key && rows.some(r => typeof r[c.key] === "number")).slice(0, 3);
+    if (alt.length) hints.push("같은 그룹에서 값이 있는 항목 — " + alt.map(c => c.label).join(", ") + ".");
+    return hints;
+  }
+
   /* ── 최고 / 최저 ─────────────────────────────────────────────────────── */
   function extremeAnswer(base, table, rows, metric, intent, alt, askedCondition, missingAsked, scope) {
     const withVal = rows.filter(r => typeof r[metric.key] === "number" && isFinite(r[metric.key]));
     if (!withVal.length) {
       return Object.assign(base, {
         ok: false, kind: "no-value",
-        headline: metric.label + " 값이 기록된 행이 " + base.scopeLabel + " 범위에 없습니다."
+        headline: metric.label + " 값이 기록된 행이 " + base.scopeLabel + " 범위에 " +
+          rows.length + "건 중 하나도 없습니다.",
+        hints: filledElsewhere(table, metric, rows),
+        suggestions: suggestList(table)
       });
     }
     const sorted = withVal.slice().sort((a, b) =>
@@ -379,7 +792,10 @@ window.AskEngine = (function () {
     const s = stats(vals);
     if (!s) {
       return Object.assign(base, { ok: false, kind: "no-value",
-        headline: metric.label + " 값이 기록된 행이 없습니다." });
+        headline: metric.label + " 값이 기록된 행이 " + base.scopeLabel + " 범위에 " +
+          rows.length + "건 중 하나도 없어 평균을 낼 수 없습니다.",
+        hints: filledElsewhere(table, metric, rows),
+        suggestions: suggestList(table) });
     }
     const headline = base.scopeLabel + " 범위 " + s.n + "건의 " + metric.label +
       " 평균은 " + fmt(s.mean, metric) + "입니다. 중앙값 " + fmt(s.median, metric) +
@@ -410,11 +826,14 @@ window.AskEngine = (function () {
   }
 
   /* ── 목록·순위 ───────────────────────────────────────────────────────── */
-  function listAnswer(base, table, rows, metric, alt, scope) {
+  function listAnswer(base, table, rows, metric, alt, scope, cond) {
+    const topN = cond && cond.topN ? cond.topN : null;
+    const cap = topN ? topN.n : 12;
     const withVal = rows.filter(r => typeof r[metric.key] === "number" && isFinite(r[metric.key]));
-    const sorted = scope.recent
+    let sorted = scope.recent
       ? rows.slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
       : withVal.slice().sort((a, b) => b[metric.key] - a[metric.key]);
+    if (topN && topN.dir === "bottom") sorted = sorted.slice().reverse();
     const s = stats(values(rows, metric.key));
     const headline = base.scopeLabel + " 범위에서 " + metric.label + "이(가) 기록된 배치는 " +
       withVal.length + "건입니다." +
@@ -429,7 +848,7 @@ window.AskEngine = (function () {
       metric: { key: metric.key, label: metric.label, unit: metric.unit },
       facts: s ? [{ k: "건수", v: withVal.length + "건" }, { k: "평균", v: fmt(s.mean, metric) },
                   { k: "범위", v: fmt(s.min, metric) + " ~ " + fmt(s.max, metric) }] : [],
-      rows: sorted.slice(0, 12).map(r => evidence(r, table, metric)),
+      rows: sorted.slice(0, cap).map(r => evidence(r, table, metric)),
       evidenceCols: evidenceCols(table, metric),
       note: notes.join(" ")
     });
@@ -467,7 +886,10 @@ window.AskEngine = (function () {
       : null;
     if (!axisKey) {
       return Object.assign(base, { ok: false, kind: "no-axis",
-        headline: "비교할 축(과제 · Study · 팀)을 찾지 못했습니다." });
+        headline: "비교할 축(과제 · Study · 팀)을 찾지 못했습니다.",
+        hints: ["업로드한 표에는 과제 · Study 구분이 없어 그룹을 나눌 수 없습니다.",
+                "사내 데이터로 바꾸면 과제별 · Study별 비교가 가능합니다."],
+        suggestions: suggestList(table) });
     }
     const groups = {};
     rows.forEach(function (r) {
@@ -480,8 +902,16 @@ window.AskEngine = (function () {
     }).filter(x => x.n > 0).sort((a, b) => b.mean - a.mean);
 
     if (summary.length < 2) {
+      const axisKo0 = axisKey === "project" ? "과제" : axisKey === "study" ? "Study" : "팀";
       return Object.assign(base, { ok: false, kind: "no-axis",
-        headline: "비교하려면 " + metric.label + " 값이 있는 그룹이 2개 이상 필요합니다." });
+        headline: "비교하려면 " + metric.label + " 값이 있는 " + axisKo0 +
+          "이(가) 2개 이상 필요한데, 지금 범위(" + base.scopeLabel + ")에는 " +
+          summary.length + "개뿐입니다.",
+        hints: [summary.length === 1
+          ? "값이 있는 " + axisKo0 + "은(는) " + summary[0].group + " 하나뿐입니다. 범위를 넓혀 다시 물어보세요."
+          : metric.label + " 값이 기록된 행이 이 범위에 없습니다.",
+          "범위를 빼고 \"" + axisKo0 + "별 " + metric.label + " 비교\"로 물으면 전체에서 비교합니다."],
+        suggestions: suggestList(table) });
     }
     const axisKo = axisKey === "project" ? "과제" : axisKey === "study" ? "Study" : "팀";
     const hi = summary[0], lo = summary[summary.length - 1];
@@ -507,7 +937,10 @@ window.AskEngine = (function () {
   function trendAnswer(base, table, rows, metric, scope) {
     if (table.kind !== "internal") {
       return Object.assign(base, { ok: false, kind: "no-trend",
-        headline: "업로드한 표에는 일자별 추이를 계산할 축이 없습니다." });
+        headline: "업로드한 표에는 일자별 추이를 계산할 축이 없습니다.",
+        hints: ["일자별 추이는 사내 데이터의 Titer D10~D20 컬럼으로만 계산합니다.",
+                "업로드한 표에서는 항목별 평균 · 최고 · 비교를 대신 물어보실 수 있습니다."],
+        suggestions: suggestList(table) });
     }
     const days = window.DATA_TITER_DAYS || [];
     const ids = rows.map(r => r.__id);
@@ -521,8 +954,20 @@ window.AskEngine = (function () {
     }).filter(s => s.points.length > 1);
 
     if (!series.length) {
+      /* 전체에는 있는데 이 범위에만 없는 것인지 구분해 줍니다 */
+      const anyAll = (window.DATA_BATCHES || []).filter(function (b) {
+        const tt = b.upstream && b.upstream.titer;
+        return tt && days.filter(d => typeof tt[d] === "number").length > 1;
+      });
       return Object.assign(base, { ok: false, kind: "no-trend",
-        headline: "일자별 Titer 가 2개 이상 기록된 배치가 " + base.scopeLabel + " 범위에 없습니다." });
+        headline: "일자별 Titer 가 2개 이상 기록된 배치가 " + base.scopeLabel + " 범위에 없습니다.",
+        hints: anyAll.length
+          ? ["전체 데이터에는 " + anyAll.length + "건이 있습니다 (예: " +
+             anyAll.slice(0, 3).map(b => b.expNo || b.id).join(", ") + ").",
+             "범위를 빼고 \"일자별 Titer 추이\"로 다시 물어보세요."]
+          : ["원본에 Titer D10~D20 이 2개 이상 기록된 배치가 없습니다.",
+             "최종 Titer(Titer HCCF)로는 조회하실 수 있습니다."],
+        suggestions: suggestList(table) });
     }
     const best = series.slice().sort(function (a, b) {
       return b.points[b.points.length - 1].value - a.points[a.points.length - 1].value;
@@ -597,6 +1042,8 @@ window.AskEngine = (function () {
     answer, looksExternal, knownMetrics,
     /* 검증용 */
     _stats: stats, _detectIntent: detectIntent, _norm: norm, _has: has,
-    _detectMetrics: detectMetrics, _fmt: fmt, NOT_RECORDED
+    _detectMetrics: detectMetrics, _fmt: fmt, NOT_RECORDED,
+    _parseConditions: parseConditions, _applyConditions: applyConditions,
+    _dateRangeOf: dateRangeOf, _detectScope: detectScope
   };
 })();

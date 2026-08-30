@@ -120,18 +120,52 @@ window.Ask = (function () {
       esc(known.slice(0, 12).join(", ")) + (known.length > 12 ? " 외" : "") + "</div></div>";
   }
 
+  /* 해석한 조건 · 반영하지 못한 조건.
+
+     headline 과 분리해 둡니다. headline 은 /api/narrate 가 문장을 다시 쓰기
+     때문에, 조건을 headline 안에만 두면 모델이 지워버릴 수 있습니다. 이
+     블록은 엔진이 실제로 적용한 것만 담고 모델을 거치지 않습니다. */
+  function condBlock(r) {
+    let h = "";
+    if (r.applied && r.applied.length) {
+      h += '<div class="ask-cond"><span class="ask-cond-k">해석한 조건</span>' +
+        r.applied.map(x => '<span class="ask-cond-v">' + esc(x) + "</span>").join("") + "</div>";
+    }
+    if (r.unhandled && r.unhandled.length) {
+      h += '<div class="ask-cond is-miss"><span class="ask-cond-k">반영 못 함</span>' +
+        r.unhandled.map(x => '<span class="ask-cond-v">' + esc(x) + "</span>").join("") + "</div>";
+    }
+    return h;
+  }
+
+  function hintBlock(r) {
+    if (!r.hints || !r.hints.length) return "";
+    return '<ul class="ask-hints">' +
+      r.hints.map(x => "<li>" + esc(x) + "</li>").join("") + "</ul>";
+  }
+
+  /* 조건은 headline 앞에도 [ ] 로 박혀 있습니다 — 문장만 떼어 봐도 조건이
+     따라가도록(내레이션 · 복사 · 로그) 엔진이 그렇게 넣습니다. 화면에는
+     바로 위 칩으로 이미 보이니 여기서는 중복만 걷어냅니다. */
+  function stripCond(r) {
+    return (r.applied && r.applied.length)
+      ? String(r.headline || "").replace(/^\[[^\]]*\]\s*/, "") : r.headline;
+  }
+
   function answerBlock(r) {
     if (!r.ok) {
       return '<div class="ask-answer is-warn">' +
         '<span class="ai-tag">조회 결과</span>' +
-        '<p class="ask-head">' + esc(r.headline) + "</p>" +
+        condBlock(r) +
+        '<p class="ask-head">' + esc(stripCond(r)) + "</p>" +
+        hintBlock(r) +
         (r.note ? '<p class="ask-note">' + esc(r.note) + "</p>" : "") +
         (r.suggestions && r.suggestions.length
           ? '<p class="ask-note">조회 가능한 항목 — ' + esc(r.suggestions.join(", ")) + "</p>" : "") +
         "</div>";
     }
 
-    const headText = S.narration ? S.narration.text : r.headline;
+    const headText = S.narration ? S.narration.text : stripCond(r);
     const badge = S.narration
       ? '<span class="ask-by">문장: Claude ' + esc(shortModel(S.narration.model)) + " · 수치: 브라우저 계산</span>"
       : (S.narrating ? '<span class="ask-by">문장 다듬는 중…</span>'
@@ -143,7 +177,9 @@ window.Ask = (function () {
         'aria-hidden="true"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>' +
         '실제 데이터 조회 결과</span>' + badge +
 
+      condBlock(r) +
       '<p class="ask-head" id="ask-headline">' + esc(headText) + "</p>" +
+      hintBlock(r) +
 
       (S.narration
         ? '<details class="disclose ask-raw"><summary>엔진이 계산한 원문 문장' +
