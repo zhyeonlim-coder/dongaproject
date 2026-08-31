@@ -273,6 +273,19 @@ window.MeetingAsk = (function () {
               "지금 회의에서 선택한 과제 · Study 범위입니다.")
           : (window.AskTables.invalidate(), window.AskTables.internal());
         const r = window.AskEngine.answer(q, { table: table });
+        /* 회의 모드도 같은 검증을 지납니다. 회의 중에 잘못된 수치가 화면에
+           걸리면 세 팀이 같이 오해하므로 오히려 더 중요합니다. */
+        if (window.AskVerify) {
+          window.AskVerify.enforce(r, table);
+          if (r.verified && !r.verified.ok && window.AskLog) {
+            window.AskLog.record({
+              question: q, path: "result-blocked", kind: r.kind, intent: r.intent,
+              rows: r.scopeRows, confidence: null,
+              rejected: ["회의 모드 · 근거 없는 수치: " +
+                r.verified.violations.map(v => v.value).join(", ")]
+            });
+          }
+        }
         S.busy = false;
         S.result = r;
         S.cmd = CTX ? buildCommand(r, CTX) : null;

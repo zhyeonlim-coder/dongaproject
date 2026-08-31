@@ -395,6 +395,10 @@ window.AskRegression = (function () {
       out.verify = runNarrationChecks(t);
       summarize("K. 서술 수치 검증", out.verify, out.verify);
     }
+    if (window.AskVerify && window.AskVerify.checkResult) {
+      out.coverage = runCoverageChecks(t);
+      summarize("O. 수치 검증 적용 범위", out.coverage, out.coverage);
+    }
     if (window.Promote && window.RuleLex) {
       out.core = runCoreSpec(t);
       summarize("M. 승격 안전 스펙", out.core, out.core);
@@ -613,6 +617,83 @@ window.AskRegression = (function () {
     return next();
   }
 
+  /* ── O. 수치 검증 적용 범위 ──────────────────────────────────────────
+     응답 경로마다 대표 질문을 하나씩 놓고, 그 경로의 응답이 검증을 지나는지
+     본다. 경로가 새로 생겼는데 검증을 안 지나면 여기서 걸립니다.
+
+     경로별로 문장을 하나씩 변조해 잡히는지도 확인합니다 — 잡히지 않는
+     경로는 이름만 검증을 지날 뿐 실제로 보호되지 않는 것입니다. */
+  const PATHS = [
+    { id: "extreme(최고·최저)", q: "역가 제일 높은 거" },
+    { id: "stat(통계)",        q: "생존율 평균이랑 편차" },
+    { id: "list(목록)",        q: "Titer 1000 이상인 배치" },
+    { id: "compare(비교)",     q: "과제별 Total Yield 비교" },
+    { id: "trend(추이)",       q: "일자별 Titer 추이" },
+    { id: "missing(결측)",     q: "미입력이 가장 많은 항목은?" },
+    { id: "count(건수)",       q: "DA-1234 배치 몇 개야" },
+    { id: "group(지표군)",     q: "정제팀 데이터 보여줘" },
+    { id: "entity(행)",        q: "B045-2가 어느 과제 거야?" },
+    { id: "date(날짜)",        q: "언제 harvest 했지" },
+    { id: "meta(요약)",        q: "무슨 데이터 있어?" },
+    { id: "help(사용법)",      q: "뭘 물어볼 수 있어?" },
+    { id: "clarify(되묻기)",   q: "Titer 3 이상인 배치" },
+    { id: "overview(폴백 목록)", q: "제일 최근에 한 실험이 뭐야" },
+    { id: "no-rows(0건)",      q: "2024년 1월부터 7월까지 배치" },
+    { id: "no-value(값 없음)", q: "LMW 제일 낮은 거" },
+    { id: "warning(무효 조건)", q: "Titer 10 이상" },
+    { id: "empty(빈 질문)",    q: "" }
+  ];
+
+  function runCoverageChecks(t) {
+    const E = window.AskEngine, V = window.AskVerify;
+    const out = [];
+    PATHS.forEach(function (p) {
+      const r = E.answer(p.q, { table: t });
+      const clean = V.checkResult(r, t);
+      const fail = [];
+      /* 1) 정상 응답은 통과해야 합니다 (거짓 차단 = 맞는 답을 막는 것) */
+      if (!clean.ok) fail.push("정상 응답이 차단됨: " + clean.violations.map(v => v.value).join(","));
+
+      /* 2) 문장을 변조하면 반드시 잡혀야 합니다.
+
+         ★ 검사 자체가 검사 대상 함수에 기대면 안 됩니다. 숫자 유무 판정을
+           V._numbersIn 으로 하면, 그 함수를 무력화했을 때 "숫자 없음" 이 되어
+           변조 검사를 통째로 건너뜁니다 — 변이가 조용히 통과합니다.
+           그래서 여기서는 자체 정규식으로 판정합니다. */
+      const strings = V._visibleStrings(r) || [];
+      const joined = strings.join(" ");
+      const hasNum = /\d/.test(joined.replace(/[A-Za-z]+[-_]?\d+(?:-\d+)*/g, " "));
+
+      if (hasNum) {
+        /* headline 만 보는 축소 변이를 잡으려면 headline 밖도 건드려야 합니다 */
+        const b1 = E.answer(p.q, { table: t });
+        b1.headline = String(b1.headline || "") + " (검증용 삽입: 424242)";
+        if (V.checkResult(b1, t).ok) fail.push("headline 변조가 잡히지 않음");
+
+        const b2 = E.answer(p.q, { table: t });
+        b2.hints = (b2.hints || []).concat(["검증용 삽입 535353 건"]);
+        if (V.checkResult(b2, t).ok) fail.push("headline 밖(hints) 변조가 잡히지 않음");
+
+        const b3 = E.answer(p.q, { table: t });
+        b3.warnings = (b3.warnings || []).concat(["검증용 삽입 646464 건"]);
+        if (V.checkResult(b3, t).ok) fail.push("warnings 변조가 잡히지 않음");
+
+        /* 3) 걸리면 실제로 템플릿으로 대체되어야 합니다 —
+           검증만 하고 그냥 내보내면 사용자에게는 그대로 도달합니다 */
+        const b4 = E.answer(p.q, { table: t });
+        b4.headline = String(b4.headline || "") + " (검증용 삽입: 757575)";
+        const kept = b4.headline;
+        V.enforce(b4, t);
+        if (!b4.verified || b4.verified.ok !== false) fail.push("enforce 가 위반을 표시하지 않음");
+        else if (b4.headline === kept) fail.push("enforce 가 문장을 대체하지 않음");
+      }
+      out.push({ q: p.id + " · \"" + p.q + "\"", pass: !fail.length, fail: fail,
+        kind: r.kind, count: clean.checked, intent: hasNum ? "숫자 있음" : "숫자 없음",
+        applied: "-", unhandled: "-" });
+    });
+    return out;
+  }
+
   /* ── M. 승격 안전 스펙 ───────────────────────────────────────────────
      Promote.CORE_SPEC 를 그대로 돌립니다. 관리자 화면이 승격 전에 돌리는
      검사와 같은 배열입니다 — 두 곳이 조용히 어긋날 수 없습니다. */
@@ -740,7 +821,8 @@ window.AskRegression = (function () {
      ["G. 맥락 승계", r.context], ["H. 무효 조건 경고", r.noop],
      ["I. 하이브리드 30문항", r.hybrid], ["J. 가드", r.guard],
      ["K. 서술 수치 검증", r.verify], ["L. 장애 대비", r.faults],
-     ["M. 승격 안전 스펙", r.core], ["N. 자가 개선 루프", r.loop]]
+     ["M. 승격 안전 스펙", r.core], ["N. 자가 개선 루프", r.loop],
+     ["O. 수치 검증 적용 범위", r.coverage]]
       .forEach(function (pair) {
         if (!pair[1]) return;
         L.push(pair[0]);

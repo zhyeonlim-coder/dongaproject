@@ -185,6 +185,11 @@ window.Ask = (function () {
       " · " + d.ms + "ms" + (d.llmMs !== null ? " (LLM " + d.llmMs + "ms" + (d.cached ? ", 캐시" : "") + ")" : "") +
       " · " + d.rows + "행 · " + esc(d.kind) +
       (d.confidence !== null ? " · confidence " + d.confidence.toFixed(2) : "") +
+      /* 이 응답이 수치 검증을 거쳤는지 — 거치지 않은 경로가 남지 않도록 */
+      " · 수치 검증 " + (d.verified
+        ? (d.verified.ok ? "통과(" + d.verified.checked + "개)" : "차단(" + d.verified.violations.length + "건)")
+        : "미적용") +
+      (d.narration === "blocked" ? " · 서술 차단" : d.narration === "ok" ? " · 서술 검증 통과" : "") +
       '<span class="disclose-note">개발 모드</span></summary>' +
       '<div style="padding:0 var(--s-4) var(--s-4)">' +
       (d.rejected && d.rejected.length
@@ -624,6 +629,23 @@ window.Ask = (function () {
 
   function finish(r, path, ex, t0, my, guard) {
     if (my !== seq) return;
+    /* ★ 모든 응답이 여기를 지납니다 — 규칙 · LLM · 되묻기 · 미지원 · 폴백 ·
+       0건 · 메타 · help 가 예외 없이 한 곳으로 모입니다. 엔진이 만든 문장의
+       숫자를 데이터에서 유도한 허용집합과 대조하고, 근거 없는 값이 있으면
+       문장을 데이터 기반 템플릿으로 바꿉니다. */
+    if (window.AskVerify) {
+      const table = window.AskTables.get(S.tableId) || window.AskTables.internal();
+      window.AskVerify.enforce(r, table);
+      if (r.verified && !r.verified.ok && window.AskLog) {
+        window.AskLog.record({
+          question: r.question, path: "result-blocked", kind: r.kind, intent: r.intent,
+          rows: r.scopeRows, confidence: null,
+          rejected: ["엔진 문장에 근거 없는 수치: " +
+            r.verified.violations.map(v => v.value).join(", ") + " · 원문: " +
+            String(r.blockedHeadline || "").slice(0, 80)]
+        });
+      }
+    }
     const t1 = (window.performance && performance.now) ? performance.now() : Date.now();
     S.busy = false;
     S.result = r;
@@ -633,7 +655,8 @@ window.Ask = (function () {
       slots: ex && ex.slots ? ex.slots : null,
       confidence: guard ? guard.confidence : null,
       rejected: guard ? guard.rejected : [],
-      rows: r.scopeRows, kind: r.kind
+      rows: r.scopeRows, kind: r.kind,
+      verified: r.verified || null, narration: null
     };
     if (r.carry) S.prev = { carry: r.carry, question: r.question };
     S.turns.push({ question: r.question, slots: S.debug.slots, kind: r.kind,
@@ -693,7 +716,9 @@ window.Ask = (function () {
           const v = window.AskVerify.checkNarration(out.body.text, r);
           if (v.ok) {
             S.narration = { text: out.body.text, model: out.body.model };
+            if (S.debug) S.debug.narration = "ok";
           } else {
+            if (S.debug) S.debug.narration = "blocked";
             S.narration = null;
             S.narrationBlocked = {
               nums: v.unknownNums, dates: v.unknownDates, model: out.body.model
