@@ -2028,6 +2028,15 @@ body.modal-open { overflow: hidden; }
 }
 .ask-choice b { font-size: 13px; font-weight: 600; }
 .ask-choice span { font-size: 11.5px; color: var(--c-text-mute); font-weight: 400; }
+
+/* 개발 모드 디버그 패널 — 사용자 화면에는 나오지 않습니다 */
+.ask-dbg { margin-top: var(--s-4); }
+.ask-dbg-pre {
+  margin: 0; padding: 10px 12px; border-radius: 6px;
+  background: var(--c-surface-2); border: 1px solid var(--c-line);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px; line-height: 1.6; white-space: pre; overflow-x: auto;
+}
 .ask-basis {
   font-size: 11px; color: var(--c-text-soft);
   margin: var(--s-4) 0 0; padding-top: var(--s-3);

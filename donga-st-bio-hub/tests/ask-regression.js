@@ -382,7 +382,138 @@ window.AskRegression = (function () {
     out.noop = runSet(NOOP_WARN, false);
     summarize("H. 무효 조건 경고", NOOP_WARN, out.noop);
 
+    /* ── I. 하이브리드 (규칙 → 가드 → 실행) ─────────────────────────────
+       홀드아웃 30문항을 편입한 것입니다. 편입한 순간 홀드아웃이 아니게
+       되므로, 다음 평가에는 새 문항을 만들어야 합니다. */
+    if (window.AskGuard && window.SlotFixtures && window.Catalog) {
+      out.hybrid = runHybrid(t);
+      summarize("I. 하이브리드 30문항", out.hybrid, out.hybrid);
+      out.guard = runGuardChecks(t);
+      summarize("J. 가드", out.guard, out.guard);
+    }
+
     out.pass = out.checks.every(c => c.pass);
+    return out;
+  }
+
+  /* ── 하이브리드 실행 — ask.js 와 같은 순서 ─────────────────────────
+     규칙 → 놓쳤으면 슬롯(고정본) → 가드 → 실행.
+     ⚠ 슬롯은 실제 /api/extract 호출이 아니라 tests/slot-fixtures.js 의
+       고정본입니다. 여기서 검증되는 것은 가드 · 실행 · 응답 계층입니다. */
+  const HYBRID_EXPECT = {
+    "타이터 젤 높은 게 얼마였지": { kind: "extreme" },
+    "B123 애들 수율 어땠어": { kind: "stat", rows: 12 },
+    "요즘 수율 올라가고 있어?": { kind: "unsupported" },
+    "제일 최근에 한 실험이 뭐야": { rows: 1 },
+    "생존율 90 밑으로 떨어진 배치 있나": { rows: 10, applied: /< 90/ },
+    "Total yield 80 넘는 거만": { rows: 15, applied: /> 80/ },
+    "viability 87 이상인 것만 골라줘": { rows: 19, applied: /≥ 87/ },
+    "배양 며칠 걸렸어": { kind: "stat" },
+    "배치 몇 개나 돌렸어": { kind: "count" },
+    "미디어 스크리닝이랑 DOE 중에 뭐가 더 잘 나왔어": { kind: "compare" },
+    "작년 하반기 titer 어땠어": { kind: "stat", rows: 17 },
+    "언제 harvest 했지": { kind: "date" },
+    "스터디 몇 개 있어": { kind: "meta" },
+    "어떤 과제들이 있어": { kind: "meta" },
+    "titer랑 yield 상관관계 있어?": { kind: "unsupported" },
+    "다음 배치는 어떻게 하는 게 좋을까": { kind: "unsupported" },
+    "이 배치 왜 실패했어?": { kind: "unsupported" }
+  };
+
+  function hybridAnswer(q, t, cat, prev) {
+    const E = window.AskEngine;
+    let r = E.answer(q, { table: t, prev: prev });
+    let path = "rule";
+    const slots = window.SlotFixtures.get(q);
+    const missed = window.AskLLM.ruleMissed(r, r.conditions);
+    if (slots && (missed || slots.intent === "unsupported")) {
+      const g = window.AskGuard.check(slots, t, cat);
+      path = "llm";
+      if (g.reason === "unsupported") r = E.unsupportedAnswer(q, t, g.unsupported, g.unhandled);
+      else if (g.clarify) r = E.answer(q, { table: t, prev: prev, plan: g.plan,
+        guardRejected: g.rejected, slotUnhandled: g.unhandled, forceClarify: g.clarify });
+      else if (!g.ok) { path = "llm-rejected"; r.unhandled = (r.unhandled || []).concat(g.rejected); }
+      else r = E.answer(q, { table: t, prev: prev, plan: g.plan,
+        guardRejected: g.rejected, slotUnhandled: g.unhandled });
+    }
+    return { r: r, path: path };
+  }
+
+  function runHybrid(t) {
+    const cat = window.Catalog.get(t);
+    const out = [];
+    let prev = null;
+    window.SlotFixtures.questions().forEach(function (q, i) {
+      const o = hybridAnswer(q, t, cat, prev);
+      const r = o.r;
+      if (r.carry) prev = { carry: r.carry, question: q };
+      const exp = HYBRID_EXPECT[q] || {};
+      const fail = [];
+      if (exp.kind && r.kind !== exp.kind) fail.push("kind=" + r.kind + " 기대=" + exp.kind);
+      if (typeof exp.rows === "number" && r.scopeRows !== exp.rows) fail.push("rows=" + r.scopeRows + " 기대=" + exp.rows);
+      if (exp.applied && !exp.applied.test((r.applied || []).join(" "))) fail.push("해석 조건 없음");
+      /* 어느 문항이든 막다른 응답이면 실패입니다 */
+      const helped = (r.hints && r.hints.length) || (r.suggestions && r.suggestions.length) ||
+                     (r.rows && r.rows.length) || (r.facts && r.facts.length);
+      if (!helped) fail.push("다음 행동 안내가 없음");
+      out.push({ no: i + 1, q: q, ok: r.ok, kind: r.kind, intent: r.intent, path: o.path,
+        applied: (r.applied || []).join(" / ") || "—",
+        unhandled: (r.unhandled || []).map(x => x.split(" — ")[0]).join(" / ") || "—",
+        count: r.scopeRows, shown: r.rows ? r.rows.length + "행" : (r.facts ? r.facts.length + "항목" : "—"),
+        headline: String(r.headline || "").replace(/^\[[^\]]*\]\s*/, ""),
+        pass: !fail.length, fail: fail });
+    });
+    return out;
+  }
+
+  /* ── 가드 자체 검사 — 모델이 헛것을 말해도 걸러지는가 ────────────── */
+  function runGuardChecks(t) {
+    const cat = window.Catalog.get(t);
+    const base = window.SlotFixtures.get("타이터 젤 높은 게 얼마였지");
+    const clone = o => JSON.parse(JSON.stringify(o));
+    const out = [];
+    const add = (q, ok, note) => out.push({ q: q, pass: ok, fail: ok ? [] : [note],
+      kind: "-", count: 0, intent: "-", applied: "-", unhandled: "-" });
+
+    /* a) 없는 컬럼을 지어내면 거절해야 합니다 */
+    let s = clone(base); s.target.keys = ["madeUpColumn"];
+    let g = window.AskGuard.check(s, t, cat);
+    add("가드 · 없는 컬럼 거절", g.rejected.some(x => /madeUpColumn/.test(x)), "거절하지 않음");
+
+    /* b) 없는 과제 · 배치도 거절 */
+    s = clone(base); s.filters.projectIds = ["DA-9999"]; s.filters.batchIds = ["B999-9"];
+    g = window.AskGuard.check(s, t, cat);
+    add("가드 · 없는 과제 · 배치 거절",
+      g.rejected.length >= 2 && g.plan.spec.projects.length === 0 && g.plan.spec.batchIds.length === 0,
+      "거절하지 않음");
+
+    /* c) 단위가 실측 범위 밖이면 되묻기 */
+    s = clone(base);
+    s.filters.conditions = [{ field: "titerHCCF", op: "gte", value: 3, unit: null }];
+    g = window.AskGuard.check(s, t, cat);
+    add("가드 · 단위 되묻기", !!g.clarify && g.clarify.options.length >= 2, "되묻지 않음");
+
+    /* d) 단위를 명시하면 되묻지 않고 환산 */
+    s = clone(base);
+    s.filters.conditions = [{ field: "titerHCCF", op: "gte", value: 3, unit: "g/L" }];
+    g = window.AskGuard.check(s, t, cat);
+    add("가드 · 명시 단위 환산", !g.clarify && g.plan.conditions[0] && g.plan.conditions[0].min === 3000,
+      "환산하지 않음");
+
+    /* e) 낮은 확신은 실행하지 않음 */
+    s = clone(base); s.confidence = 0.3;
+    g = window.AskGuard.check(s, t, cat);
+    add("가드 · 낮은 확신 차단", !g.ok && g.reason === "low-confidence", "차단하지 않음");
+
+    /* f) unhandled 는 그대로 전달되어야 함 */
+    s = clone(base); s.unhandled = ["읽지 못한 표현"];
+    g = window.AskGuard.check(s, t, cat);
+    add("가드 · 미처리 전달", g.unhandled.indexOf("읽지 못한 표현") > -1, "전달되지 않음");
+
+    /* g) 타임아웃 · 오류는 규칙 폴백으로 (LLM 없이도 답이 나와야 함) */
+    const r = window.AskEngine.answer("타이터 젤 높은 게 얼마였지", { table: t });
+    add("폴백 · LLM 없이도 응답", !!r && !!r.headline, "응답이 없음");
+
     return out;
   }
 
@@ -402,7 +533,8 @@ window.AskRegression = (function () {
     });
     L.push("");
     [["E. Phase 1 조건 파서", r.phase1], ["F. Phase 2 어휘 · 팀", r.phase2],
-     ["G. 맥락 승계", r.context], ["H. 무효 조건 경고", r.noop]]
+     ["G. 맥락 승계", r.context], ["H. 무효 조건 경고", r.noop],
+     ["I. 하이브리드 30문항", r.hybrid], ["J. 가드", r.guard]]
       .forEach(function (pair) {
         if (!pair[1]) return;
         L.push(pair[0]);

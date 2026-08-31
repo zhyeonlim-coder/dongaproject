@@ -34,10 +34,90 @@
   let tab = (location.hash || "").replace("#", "") || "doe";
   /* 예전 #lit 링크(K-Ron)는 AI 검색으로 보냅니다 — 북마크가 죽지 않도록 */
   if (tab === "lit") tab = "ai";
-  if (["doe", "ai", "wiki"].indexOf(tab) === -1) tab = "doe";
+  if (["doe", "ai", "wiki", "qlog"].indexOf(tab) === -1) tab = "doe";
 
   /* Troubleshooting 위키 상태 — 작성 중인지 / 어느 기록을 수정 중인지 */
   let wikiWriting = false, wikiEdit = null;
+
+  /* 개발 · 관리자 모드 — ?dev=1 로 켜고 ?dev=0 으로 끕니다 */
+  function devMode() {
+    try {
+      if (/[?&]dev=1/.test(location.search)) { localStorage.setItem("hub.dev", "1"); return true; }
+      if (/[?&]dev=0/.test(location.search)) { localStorage.removeItem("hub.dev"); return false; }
+      return localStorage.getItem("hub.dev") === "1";
+    } catch (e) { return false; }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     미응답 · 저신뢰 질의 — 자가 개선 루프
+
+     규칙이 놓쳐 LLM 으로 넘어간 질문을 빈도순으로 봅니다. LLM 이 확신을 갖고
+     해석한 표현은 규칙 사전에 넣을 후보로 제안합니다. 사전에 들어가면 다음
+     부터는 LLM 없이 즉시 답하므로, 시간이 갈수록 호출이 줄고 빨라집니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function qlogView() {
+    const L = window.AskLog;
+    if (!L) return '<div class="empty"><div class="empty-title">질의 로그 모듈이 로드되지 않았습니다</div></div>';
+    const st = L.state();
+    const list = st.list.slice().sort((a, b) => b.count - a.count || (a.at < b.at ? 1 : -1));
+    const sug = L.suggestions();
+
+    const REASON_COLOR = { "규칙 미스": "#6D28D9", "낮은 확신": "#B45309", "되묻기": "#0F766E",
+      "미지원": "#9F1239", "결과 0건": "#B45309", "가드 거절": "#9F1239",
+      "LLM 폴백": "#B45309", "되묻기 무시 후 재질문": "#6D28D9" };
+
+    return '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
+      '<h2 class="card-title">규칙 사전 추가 후보</h2>' +
+      '<p class="ask-note">LLM 이 해석에 성공했지만 규칙 사전에는 없는 표현입니다. ' +
+      '승인하면 다음부터 규칙으로 처리하도록 사전에 넣을 대상으로 표시됩니다 ' +
+      '(코드는 사람이 반영합니다 — 사전을 자동으로 고치지 않습니다).</p>' +
+      (sug.length
+        ? '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
+          '<th scope="col">표현</th><th scope="col">넣을 곳</th><th scope="col">빈도</th>' +
+          '<th scope="col">원 질문</th><th scope="col"></th></tr></thead><tbody>' +
+          sug.map(s => "<tr><td class=\"mono\" style=\"font-weight:600\">" + esc(s.phrase) + "</td>" +
+            "<td>" + esc(s.target) + "</td>" +
+            '<td class="mono">' + s.count + "회</td>" +
+            "<td>" + esc(s.question) + "</td>" +
+            '<td><button class="btn btn-sm" data-approve="' + esc(s.question) + '">승인</button></td></tr>').join("") +
+          "</tbody></table></div>"
+        : '<div class="empty"><div class="empty-body">아직 제안할 표현이 없습니다.</div></div>') +
+      "</div></section>" +
+
+      '<section class="card"><div class="card-body">' +
+      '<h2 class="card-title">기록된 질의 ' + list.length + "건</h2>" +
+      '<p class="ask-note">규칙이 놓쳤거나 · 확신이 낮았거나 · 되묻기가 났거나 · 0건이었거나 · ' +
+      '미지원이었던 질문만 남습니다. 잘 처리된 질문은 기록하지 않습니다.</p>' +
+      (list.length
+        ? '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
+          '<th scope="col">질문</th><th scope="col">사유</th><th scope="col">경로</th>' +
+          '<th scope="col">결과</th><th scope="col">건수</th><th scope="col">확신</th>' +
+          '<th scope="col">빈도</th></tr></thead><tbody>' +
+          list.map(e => "<tr><td>" + esc(e.question) + "</td>" +
+            "<td>" + e.reasons.map(r => '<span class="pill" style="border-color:' +
+              (REASON_COLOR[r] || "var(--c-line)") + '">' + esc(r) + "</span>").join(" ") + "</td>" +
+            '<td class="mono">' + esc(e.path) + "</td>" +
+            '<td class="mono">' + esc(e.kind || "—") + "</td>" +
+            '<td class="mono">' + (e.rows == null ? "—" : e.rows) + "</td>" +
+            '<td class="mono">' + (typeof e.confidence === "number" ? e.confidence.toFixed(2) : "—") + "</td>" +
+            '<td class="mono">' + e.count + "회</td></tr>").join("") +
+          "</tbody></table></div>" +
+          '<div style="margin-top:var(--s-4)"><button class="btn btn-sm" id="qlog-clear">기록 비우기</button></div>'
+        : '<div class="empty"><div class="empty-body">아직 기록된 질의가 없습니다. ' +
+          'AI 검색에서 규칙이 못 읽는 질문을 하면 여기에 쌓입니다.</div></div>') +
+      "</div></section>";
+  }
+
+  function wireQlog() {
+    $$("[data-approve]").forEach(b => b.addEventListener("click", function () {
+      window.AskLog.approve(b.dataset.approve);
+      paint();
+    }));
+    const c = $("#qlog-clear");
+    if (c) c.addEventListener("click", function () {
+      window.AskLog.clear(); paint();
+    });
+  }
 
   /* ── Sub-menu ───────────────────────────────────────────────────────── */
   function paintSubnav() {
@@ -46,7 +126,10 @@
         { key: "doe", ko: "DoE 조건 설계 & 분석", active: tab === "doe", color: "var(--c-accent-mid)" },
         { key: "ai",  ko: "AI 검색 (데이터 · 문헌)", active: tab === "ai",  color: "#6D28D9" },
         { key: "wiki", ko: "Troubleshooting & Wiki", active: tab === "wiki", color: "#B45309" }
-      ]},
+      ].concat(devMode()
+        /* 질의 로그는 관리자용입니다 — 개발 모드(?dev=1)에서만 메뉴에 뜹니다 */
+        ? [{ key: "qlog", ko: "미응답 · 저신뢰 질의", active: tab === "qlog", color: "#0F766E" }]
+        : [])},
       { label: "바로가기", items: [
         { ko: "대시보드", href: "dashboard.html" },
         { ko: "EBR 입력", href: "ebr.html" }
@@ -502,10 +585,12 @@
     paintSubnav();
     const titles = { doe: "DoE 조건 설계 & 분석",
                      ai: "AI 자연어 검색 · 사내 데이터 & 학술 문헌",
-                     wiki: "Troubleshooting & Lesson Learned" };
+                     wiki: "Troubleshooting & Lesson Learned",
+                     qlog: "미응답 · 저신뢰 질의 (관리자)" };
     $("#page-title").textContent = titles[tab];
     $("#hub-tabs").innerHTML = [["doe", "DoE 설계 & 분석"], ["ai", "AI 검색"],
                                 ["wiki", "Troubleshooting & Wiki"]]
+      .concat(devMode() ? [["qlog", "미응답 · 저신뢰 질의"]] : [])
       .map(([k, ko]) => '<button class="track-tab" data-tab="' + k + '" aria-selected="' + (tab === k) + '" ' +
         'style="min-height:38px;padding:0 var(--s-5)">' + esc(ko) + '</button>').join("");
     $$("[data-tab]").forEach(b => b.addEventListener("click", () => { tab = b.dataset.tab; location.hash = tab; paint(); }));
@@ -513,6 +598,7 @@
     const host = $("#hub-body");
     if (tab === "wiki") { host.innerHTML = wikiView(); wireWiki(); return; }
     if (tab === "ai") { paintAsk(); return; }
+    if (tab === "qlog") { host.innerHTML = qlogView(); wireQlog(); return; }
     host.innerHTML = doeView();
     wireDoe();
   }

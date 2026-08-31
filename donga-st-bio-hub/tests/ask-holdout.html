@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>홀드아웃 30문항 평가 · Bio Knowledge Hub</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  body { margin:0; padding:24px; background:#0A192F; color:#E6ECF5;
+         font:12.5px/1.6 "IBM Plex Mono", ui-monospace, Consolas, monospace; }
+  h1 { font-size:16px; margin:0 0 4px; }
+  .sub { color:#8FA2BB; font-size:12px; margin-bottom:16px; max-width:90ch; }
+  .warn { border:1px solid #B45309; border-left-width:3px; border-radius:6px;
+          padding:10px 13px; margin-bottom:18px; color:#FCD9A0; max-width:100ch; }
+  pre { white-space:pre; overflow-x:auto; background:#0E2340; border:1px solid #1E3A5F;
+        border-radius:8px; padding:14px; }
+</style>
+</head>
+<body>
+<h1>홀드아웃 30문항 평가</h1>
+<p class="sub">기존 20건 배터리와 겹치지 않는 새 문항입니다. <b>이 문항에 맞춰 규칙을 추가하지 않습니다.</b></p>
+<div class="warn">
+  ⚠ 이 페이지의 "LLM 경로" 는 <code>tests/slot-fixtures.js</code> 의 고정 슬롯을 씁니다.
+  개발 환경에 API 키가 없어 <code>/api/extract</code> 를 실제로 호출하지 못했기 때문입니다.
+  따라서 여기서 측정되는 것은 <b>가드 · 실행 · 응답 계층</b>이며,
+  <b>모델이 그 슬롯을 실제로 뽑아 주는지는 측정되지 않았습니다.</b>
+  키를 넣고 배포한 뒤 다시 재야 합니다.
+</div>
+<pre id="out">실행 중…</pre>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/data/labels.js"></script>
+<script src="../assets/js/data/value.js"></script>
+<script src="../assets/js/data/projects.js"></script>
+<script src="../assets/js/data/studies.js"></script>
+<script src="../assets/js/data/batches.js"></script>
+<script src="../assets/js/data/downstream.js"></script>
+<script src="../assets/js/data/samples.js"></script>
+<script src="../assets/js/data/entries.js"></script>
+<script src="../assets/js/data/repo.js"></script>
+<script src="../assets/js/data/lots.js"></script>
+<script src="../assets/js/data/units.js"></script>
+<script src="../assets/js/data/tables.js"></script>
+<script src="../assets/js/ask-engine.js"></script>
+<script src="../assets/js/data/catalog.js"></script>
+<script src="../assets/js/ask-llm.js"></script>
+<script src="../assets/js/ask-guard.js"></script>
+<script src="slot-fixtures.js"></script>
+<script>
+(function () {
+  const E = window.AskEngine, t = window.AskTables.internal();
+  const cat = window.Catalog.get(t);
+  const QS = window.SlotFixtures.questions();
+
+  /* 화면(ask.js)과 같은 순서로 돕니다: 규칙 → 미스면 슬롯 → 가드 → 실행 */
+  function runOne(q, prev) {
+    let r = E.answer(q, { table: t, prev: prev });
+    let path = "규칙";
+    if (window.AskLLM.ruleMissed(r, r.conditions)) {
+      const slots = window.SlotFixtures.get(q);
+      if (slots) {
+        const g = window.AskGuard.check(slots, t, cat);
+        if (g.reason === "unsupported") {
+          r = E.unsupportedAnswer(q, t, g.unsupported, g.unhandled); path = "LLM";
+        } else if (g.clarify) {
+          r = E.answer(q, { table: t, prev: prev, plan: g.plan, guardRejected: g.rejected,
+                            slotUnhandled: g.unhandled, forceClarify: g.clarify }); path = "LLM";
+        } else if (!g.ok) {
+          r.unhandled = (r.unhandled || []).concat(
+            ["확신이 낮아(" + g.confidence.toFixed(2) + ") 해석을 적용하지 않았습니다"], g.rejected);
+          path = "LLM(거절)";
+        } else {
+          r = E.answer(q, { table: t, prev: prev, plan: g.plan,
+                            guardRejected: g.rejected, slotUnhandled: g.unhandled });
+          path = "LLM";
+        }
+      } else { path = "규칙(픽스처 없음)"; }
+    } else {
+      /* 규칙이 잡았어도 슬롯이 unsupported 로 분류했다면 그쪽이 옳습니다 */
+      const slots = window.SlotFixtures.get(q);
+      if (slots && slots.intent === "unsupported") {
+        const g = window.AskGuard.check(slots, t, cat);
+        r = E.unsupportedAnswer(q, t, g.unsupported, g.unhandled); path = "LLM";
+      }
+    }
+    return { r: r, path: path };
+  }
+
+  const rows = [];
+  let prev = null;
+  QS.forEach(function (q, i) {
+    const o = runOne(q, prev);
+    const r = o.r;
+    if (r.carry) prev = { carry: r.carry, question: q };
+    rows.push({
+      no: i + 1, q: q, path: o.path, kind: r.kind, intent: r.intent,
+      applied: (r.applied || []).join(" ; ") || "—",
+      unhandled: (r.unhandled || []).map(x => x.split(" — ")[0]).join(" ; ") || "—",
+      warn: (r.warnings || []).length,
+      rows: r.scopeRows,
+      head: String(r.headline || "").replace(/^\[[^\]]*\]\s*/, "")
+    });
+  });
+
+  const L = [];
+  L.push(" # | 경로   | 의도     | kind      | 건수 | 해석한 조건 / 미처리 / 응답");
+  L.push("---+--------+----------+-----------+------+" + "-".repeat(70));
+  rows.forEach(function (x) {
+    L.push(String(x.no).padStart(2) + " | " + x.path.padEnd(6) + " | " +
+      String(x.intent).padEnd(8) + " | " + x.kind.padEnd(9) + " | " +
+      String(x.rows).padStart(4) + " | " + x.q);
+    L.push("   |        |          |           |      |  해석: " + x.applied.slice(0, 88));
+    L.push("   |        |          |           |      |  미처리: " + x.unhandled.slice(0, 88) +
+      (x.warn ? "  [경고 " + x.warn + "]" : ""));
+    L.push("   |        |          |           |      |  응답: " + x.head.slice(0, 88));
+  });
+  L.push("");
+  L.push("경로 분포: " + JSON.stringify(rows.reduce((m, x) => (m[x.path] = (m[x.path] || 0) + 1, m), {})));
+  document.getElementById("out").textContent = L.join("\n");
+  window.__holdout = rows;
+})();
+</script>
+</body>
+</html>

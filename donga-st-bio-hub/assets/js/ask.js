@@ -34,8 +34,20 @@ window.Ask = (function () {
     narrating: false,
     error: null,
     uploadMsg: null,
-    prev: null            // 직전 질의의 범위·항목 (후속 질문이 이어받습니다)
+    prev: null,           // 직전 질의의 범위·항목 (후속 질문이 이어받습니다)
+    turns: [],            // 최근 3턴 (LLM 에는 2턴만 요약으로 전달)
+    debug: null,          // 경로·슬롯·소요 시간 (개발 모드에서만 표시)
+    lastWasClarify: false // 되묻기에 답하지 않고 새 문장을 던졌는지 판정용
   };
+
+  /* 개발 모드 — ?dev=1 또는 localStorage 로 켭니다. 배포 화면에는 안 뜹니다. */
+  const DEV = (function () {
+    try {
+      if (/[?&]dev=1/.test(location.search)) { localStorage.setItem("hub.dev", "1"); return true; }
+      if (/[?&]dev=0/.test(location.search)) { localStorage.removeItem("hub.dev"); return false; }
+      return localStorage.getItem("hub.dev") === "1";
+    } catch (e) { return false; }
+  })();
 
   const CHIPS = [
     "DA-1234 과제의 최고 Titer 값과 해당 배양 조건 알려줘",
@@ -158,6 +170,24 @@ window.Ask = (function () {
       r.hints.map(x => "<li>" + esc(x) + "</li>").join("") + "</ul>";
   }
 
+  /* 개발 모드 디버그 패널 — 경로 · 슬롯 · 소요 시간 · 조회 건수.
+     사용자 화면에는 나오지 않습니다 (규칙/LLM 구분은 개발 모드에서만). */
+  function debugBlock() {
+    if (!DEV || !S.debug) return "";
+    const d = S.debug;
+    const PATH_KO = { rule: "규칙", llm: "LLM", "rule-fallback": "규칙(폴백)", "llm-rejected": "LLM(가드 거절)" };
+    return '<details class="disclose ask-dbg"><summary>경로: ' + esc(PATH_KO[d.path] || d.path) +
+      " · " + d.ms + "ms" + (d.llmMs !== null ? " (LLM " + d.llmMs + "ms" + (d.cached ? ", 캐시" : "") + ")" : "") +
+      " · " + d.rows + "행 · " + esc(d.kind) +
+      (d.confidence !== null ? " · confidence " + d.confidence.toFixed(2) : "") +
+      '<span class="disclose-note">개발 모드</span></summary>' +
+      '<div style="padding:0 var(--s-4) var(--s-4)">' +
+      (d.rejected && d.rejected.length
+        ? '<p class="ask-note">가드 거절 — ' + esc(d.rejected.join(" · ")) + "</p>" : "") +
+      '<pre class="ask-dbg-pre">' + esc(d.slots ? JSON.stringify(d.slots, null, 1) : "(규칙 경로 — 슬롯 없음)") +
+      "</pre></div></details>";
+  }
+
   /* 조건은 headline 앞에도 [ ] 로 박혀 있습니다 — 문장만 떼어 봐도 조건이
      따라가도록(내레이션 · 복사 · 로그) 엔진이 그렇게 넣습니다. 화면에는
      바로 위 칩으로 이미 보이니 여기서는 중복만 걷어냅니다. */
@@ -176,6 +206,7 @@ window.Ask = (function () {
         (r.note ? '<p class="ask-note">' + esc(r.note) + "</p>" : "") +
         (r.suggestions && r.suggestions.length
           ? '<p class="ask-note">조회 가능한 항목 — ' + esc(r.suggestions.join(", ")) + "</p>" : "") +
+        debugBlock() +
         "</div>";
     }
 
@@ -212,6 +243,7 @@ window.Ask = (function () {
       (r.rows && r.rows.length ? evidenceTable(r) : "") +
       (r.note ? '<p class="ask-note">⚠ ' + esc(r.note) + "</p>" : "") +
 
+      debugBlock() +
       '<p class="ask-basis">근거: ' + esc(r.table.label) + " · 조회 범위 " + esc(r.scopeLabel) +
         " · 대상 " + r.scopeRows + "행" +
         (r.table.kind === "upload" ? " · 업로드한 파일 (브라우저 안에서만 처리)" : "") + "</p>" +
@@ -491,21 +523,119 @@ window.Ask = (function () {
        다음 틱에 실행합니다 — 즉시 결과가 튀면 무엇이 일어났는지 안 보입니다. */
     setTimeout(function () {
       if (my !== seq) return;
+      const table = window.AskTables.get(S.tableId) || window.AskTables.internal();
+      const t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+
+      /* ── [1] 규칙 매칭. 성공하면 여기서 끝납니다 — LLM 을 부르지 않습니다.
+         속도 · 비용 · 결정성이 규칙 경로의 이유입니다. */
       let r;
       try {
-        const table = window.AskTables.get(S.tableId) || window.AskTables.internal();
-        /* 직전 1턴만 넘깁니다 — "그럼 정제는?" 처럼 이어받는 표현이 있을 때만
+        /* 직전 턴을 넘깁니다 — "그럼 정제는?" 처럼 이어받는 표현이 있을 때만
            엔진이 씁니다. 표시 없이 물려받으면 사용자가 전체를 물었는데도
            조용히 범위가 좁아집니다. */
         r = window.AskEngine.answer(q, { table: table, prev: S.prev });
       } catch (e) {
         S.busy = false; S.error = "조회 중 오류가 발생했습니다 — " + (e.message || e); repaint(); return;
       }
-      S.busy = false; S.result = r;
-      if (r.carry) S.prev = { carry: r.carry, question: q };
-      repaint();
-      if (r.ok) narrate(r, my);
+
+      const missed = window.AskLLM &&
+        (window.AskLLM.ruleMissed(r, r.conditions) || S.lastWasClarify);
+      if (!missed) return finish(r, "rule", null, t0, my);
+
+      /* ── [2] 규칙이 놓친 경우에만 LLM 슬롯 추출 ────────────────────── */
+      const catalog = window.Catalog.get(table);
+      window.AskLLM.extract(q, catalog, historyForLLM()).then(function (ex) {
+        if (my !== seq) return;
+        if (!ex.ok) {
+          /* [4f] 타임아웃 · 오류 · 키 없음 → 규칙 결과로 되돌아가고 그 사실을 적습니다 */
+          r.unhandled = (r.unhandled || []).concat([fallbackNote(ex)]);
+          return finish(r, "rule-fallback", ex, t0, my);
+        }
+
+        /* ── [3] 가드 — 카탈로그 · 단위 · 확신도 검증 ─────────────────── */
+        const g = window.AskGuard.check(ex.slots, table, catalog);
+
+        if (g.reason === "unsupported") {
+          const u = window.AskEngine.unsupportedAnswer(q, table, g.unsupported, g.unhandled);
+          return finish(u, "llm", ex, t0, my, g);
+        }
+        if (g.clarify) {
+          /* 단위가 분명하지 않으면 실행하지 않고 되묻습니다 */
+          const c = window.AskEngine.answer(q, {
+            table: table, prev: S.prev, plan: g.plan,
+            guardRejected: g.rejected, slotUnhandled: g.unhandled, forceClarify: g.clarify
+          });
+          return finish(c, "llm", ex, t0, my, g);
+        }
+        if (!g.ok) {
+          /* [4d] 낮은 확신 → 실행하지 않고 규칙 결과 + 이유를 보여 줍니다 */
+          r.unhandled = (r.unhandled || []).concat(
+            ["확신이 낮아(" + g.confidence.toFixed(2) + ") 해석을 적용하지 않았습니다"],
+            g.rejected);
+          return finish(r, "llm-rejected", ex, t0, my, g);
+        }
+
+        /* ── [4] 실행 — 조회 · 집계는 전부 기존 엔진이 합니다 ─────────── */
+        let out;
+        try {
+          out = window.AskEngine.answer(q, {
+            table: table, prev: S.prev, plan: g.plan,
+            guardRejected: g.rejected, slotUnhandled: g.unhandled
+          });
+        } catch (e) {
+          r.unhandled = (r.unhandled || []).concat(["해석을 적용하다 오류가 나 규칙 결과로 되돌렸습니다"]);
+          return finish(r, "rule-fallback", ex, t0, my);
+        }
+        finish(out, "llm", ex, t0, my, g);
+      });
     }, 180);
+  }
+
+  function fallbackNote(ex) {
+    if (ex.reason === "not-configured") return "AI 해석이 설정되지 않아 규칙 매칭 결과만 사용했습니다";
+    if (ex.reason === "timeout") return "AI 해석이 " + (window.AskLLM.TIMEOUT_MS / 1000) +
+      "초 안에 오지 않아 규칙 매칭 결과로 되돌렸습니다";
+    return "AI 해석에 실패해(" + ex.reason + ") 규칙 매칭 결과로 되돌렸습니다";
+  }
+
+  /* 최근 3턴 보관 — LLM 에는 직전 2턴만, 원본 데이터 없이 요약만 보냅니다 */
+  function historyForLLM() {
+    return S.turns.slice(-2).map(t => ({
+      question: t.question, slots: t.slots,
+      summary: t.kind + " · " + t.rows + "행 · " + String(t.headline || "").slice(0, 120)
+    }));
+  }
+
+  function finish(r, path, ex, t0, my, guard) {
+    if (my !== seq) return;
+    const t1 = (window.performance && performance.now) ? performance.now() : Date.now();
+    S.busy = false;
+    S.result = r;
+    S.debug = {
+      path: path, ms: Math.round(t1 - t0), llmMs: ex ? ex.ms : null,
+      cached: !!(ex && ex.cached), model: ex ? ex.model : null,
+      slots: ex && ex.slots ? ex.slots : null,
+      confidence: guard ? guard.confidence : null,
+      rejected: guard ? guard.rejected : [],
+      rows: r.scopeRows, kind: r.kind
+    };
+    if (r.carry) S.prev = { carry: r.carry, question: r.question };
+    S.turns.push({ question: r.question, slots: S.debug.slots, kind: r.kind,
+                   rows: r.scopeRows, headline: r.headline });
+    if (S.turns.length > 3) S.turns.shift();
+
+    if (window.AskLog) {
+      window.AskLog.record({
+        question: r.question, path: path, kind: r.kind, intent: r.intent,
+        rows: r.scopeRows, slots: S.debug.slots,
+        confidence: guard ? guard.confidence : null,
+        rejected: guard ? guard.rejected : [],
+        repeatedAfterClarify: !!S.lastWasClarify
+      });
+    }
+    S.lastWasClarify = (r.kind === "clarify");
+    repaint();
+    if (r.ok) narrate(r, my);
   }
 
   /* ── Claude 문장 다듬기 (선택적) ─────────────────────────────────────── */

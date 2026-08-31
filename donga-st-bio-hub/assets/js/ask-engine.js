@@ -781,15 +781,59 @@ window.AskEngine = (function () {
       }, null, table);
     }
 
-    const intent = detectIntent(text);
+    let intent = detectIntent(text);
     let metrics = detectMetrics(text, table);
     const missingAsked = table.kind === "internal" ? detectNotRecorded(text) : [];
     const askedCondition = CONDITION_WORDS.some(t => has(text, t));
     const scope = detectScope(text, table);
-    const isMeta = detectMeta(text);
+    let isMeta = detectMeta(text);
     let dateCols = detectDateCols(text, table);
     let groups = detectGroups(text, table);
-    const askedEntity = detectEntityAsk(text);
+    let askedEntity = detectEntityAsk(text);
+
+    /* ── LLM 슬롯이 가드를 통과해 들어온 경우 ──────────────────────────
+       규칙 탐지를 먼저 돌린 뒤 덮어씁니다. 슬롯이 없으면 이 블록은 통째로
+       건너뛰므로 규칙 경로의 동작은 조금도 달라지지 않습니다. */
+    const plan = o.plan || null;
+    if (plan) {
+      if (plan.intent && plan.intent !== "ambiguous" && plan.intent !== "unsupported") {
+        intent = plan.intent === "meta" || plan.intent === "help" ? "list" : plan.intent;
+      }
+      isMeta = plan.intent === "meta" ? "data" : plan.intent === "help" ? "help" : false;
+
+      if (plan.targetType === "metric" && plan.targetKeys.length) {
+        metrics = plan.targetKeys.map(k => table.columns.find(c => c.key === k)).filter(Boolean);
+        dateCols = []; groups = [];
+      } else if (plan.targetType === "date") {
+        dateCols = plan.targetKeys.length
+          ? plan.targetKeys.map(k => table.columns.find(c => c.key === k)).filter(Boolean)
+          : table.columns.filter(c => c.type === "date");
+        metrics = []; groups = [];
+      } else if (plan.targetType === "entity") {
+        /* 집계 의도(건수 · 결측 등)가 함께 왔으면 그쪽이 먼저입니다 —
+           "배치 몇 개나 돌렸어" 에 배치 목록을 펼치면 답이 아닙니다 */
+        askedEntity = (plan.intent === "list");
+        metrics = []; groups = []; dateCols = [];
+      } else if (plan.targetType === "group" || plan.team) {
+        const teamId = plan.team ||
+          (plan.targetKeys[0] && (table.columns.find(c => c.key === plan.targetKeys[0]) || {}).team);
+        const cols = table.columns.filter(c => c.team === teamId && c.type === "num");
+        const t = (window.DATA_TEAMS || []).find(x => x.id === teamId);
+        if (cols.length) groups = [{ id: "team:" + teamId, label: t ? t.ko : teamId, columns: cols }];
+        metrics = []; dateCols = [];
+      }
+      /* 팀이 따로 왔는데 대상이 지표군이 아니면 컬럼만 좁힙니다 */
+      if (plan.team && !groups.length && !metrics.length) {
+        const cols = table.columns.filter(c => c.team === plan.team && c.type === "num");
+        const t = (window.DATA_TEAMS || []).find(x => x.id === plan.team);
+        if (cols.length) groups = [{ id: "team:" + plan.team, label: t ? t.ko : plan.team, columns: cols }];
+      }
+
+      scope.spec = { projects: plan.spec.projects.slice(),
+                     studies: plan.spec.studies.slice(),
+                     batchIds: plan.spec.batchIds.slice() };
+      finishScope(scope, table);
+    }
 
     /* ── 맥락 승계 — 두 층으로 나눕니다 ────────────────────────────────
        scope  : 직전 질의의 조회 범위 (과제 · Study · 배치)
@@ -802,7 +846,9 @@ window.AskEngine = (function () {
     const prev = o.prev && o.prev.carry ? o.prev.carry : null;
     const inherited = [];
     const deictic = looksDeictic(text);
-    const elliptic = looksFollowUp(text);
+    /* 슬롯이 "앞 질문을 가리킨다"고 했는데 지시어가 없으면 생략형으로 봅니다 —
+       "그 중에" 는 앞 답변의 한 건이 아니라 앞 범위를 가리킵니다. */
+    const elliptic = looksFollowUp(text) || (!!plan && plan.refersToPrevious && !deictic);
     if (deictic || elliptic) {
       if (!prev) {
         inherited.push("이어받을 앞 질문이 없어 이번 질문만으로 조회했습니다");
@@ -840,6 +886,44 @@ window.AskEngine = (function () {
     }
 
     const cond = parseConditions(text, table, metrics);
+
+    /* 슬롯이 있으면 조건도 슬롯 쪽을 씁니다. 단위 대조 · 무효 조건 경고는
+       가드가 이미 같은 Units 로 처리했으므로 결과만 옮겨 담습니다. */
+    if (plan) {
+      cond.thresholds = plan.conditions.map(c => ({ key: c.key, label: c.label,
+                                                    op: c.op, min: c.min, max: c.max }));
+      cond.period = plan.period;
+      cond.topN = plan.topN;
+      cond.excludeMissing = plan.excludeMissing;
+      if (plan.excludeMissing && metrics[0]) cond.excludeMissingKey = metrics[0].key;
+      cond.applied = [];
+      plan.conditions.forEach(function (c) {
+        (c.notes || []).forEach(n => cond.applied.push(n));
+        const col = table.columns.find(x => x.key === c.key) || c;
+        const u = col.unit ? " " + col.unit : "";
+        cond.applied.push(c.label + " " + (
+          c.op === "between" ? c.min + u + " ~ " + c.max + u :
+          c.op === "gte" ? "≥ " + c.min + u : c.op === "gt" ? "> " + c.min + u :
+          c.op === "lte" ? "≤ " + c.max + u : "< " + c.max + u));
+        const chk = window.Units.isNoOp(table.rows, c.key, c);
+        if (chk.noop) {
+          const rg = window.Units.observedRange(table.rows, c.key);
+          cond.warnings.push("이 조건은 " + c.label + " 값이 있는 " + chk.total +
+            "건 전부에 해당하여 결과가 좁혀지지 않았습니다. 단위나 기준값을 확인해 주세요 (실측 범위 " +
+            (rg ? rg.min + " ~ " + rg.max + u : "알 수 없음") + ").");
+        }
+      });
+      if (cond.period) {
+        cond.applied.push("기간 " + (cond.period.from || "처음") + " ~ " + (cond.period.to || "끝"));
+      }
+      if (cond.topN) cond.applied.push((cond.topN.dir === "top" ? "상위 " : "하위 ") + cond.topN.n + "건만");
+      if (plan.excludeMissing && metrics[0]) cond.applied.push(metrics[0].label + " 미입력 행 제외");
+      (o.guardRejected || []).forEach(r => cond.unhandled.push(r));
+      (o.slotUnhandled || []).forEach(r => cond.unhandled.push("\"" + r + "\" 는 해석하지 못했습니다"));
+      /* 가드가 단위를 의심했으면 실행하지 않고 되묻습니다 (규칙 경로와 동일) */
+      if (o.forceClarify) cond.clarify = o.forceClarify;
+    }
+
     if ((deictic || elliptic) && !prev) {
       cond.unhandled.push("앞 질문 이어받기 — 이 세션에 직전 질의가 없습니다");
     }
@@ -920,6 +1004,25 @@ window.AskEngine = (function () {
         headline: "조건에 맞는 데이터가 0건입니다.",
         hints: hints, suggestions: suggestList(table)
       }), cond, table);
+    }
+
+    /* 슬롯 경로에서만 — sortBy · limit 은 "보여 줄 개수"가 아니라 결과 자체를
+       줄이는 조건입니다 ("제일 최근에 한 실험이 뭐야" 는 1건이 답입니다).
+       규칙 경로의 상위N(표시 상한)과 구분해 둡니다. */
+    if (plan && plan.sortField) {
+      const sc = table.columns.find(c => c.key === plan.sortField);
+      if (sc) {
+        const asc = plan.topN && plan.topN.dir === "bottom";
+        rows = rows.slice().sort(function (a, b) {
+          const x = a[sc.key], y = b[sc.key];
+          if (x == null) return 1;
+          if (y == null) return -1;
+          const d = sc.type === "date" ? String(x).localeCompare(String(y)) : x - y;
+          return asc ? d : -d;
+        });
+        if (plan.topN) { rows = rows.slice(0, plan.topN.n); cond.topN = null; }
+        base.scopeRows = rows.length;
+      }
     }
 
     base.carry.rowIds = rows.map(r => r.__id);
@@ -1041,6 +1144,24 @@ window.AskEngine = (function () {
     });
   }
 
+  /* ── unsupported — 못 하는 질문 ──────────────────────────────────────
+     얼버무리지 않습니다. 무엇을 못 하는지, 왜 못 하는지, 대신 무엇을 드릴 수
+     있는지를 말합니다. 그럴듯한 다른 조회로 슬쩍 바꾸지 않습니다. */
+  function unsupportedAnswer(question, table, feature, unhandled) {
+    const f = feature || { ko: "이 요청", why: "아직 지원하지 않습니다", instead: null };
+    return {
+      ok: false, kind: "unsupported", question: question,
+      table: { id: table.id, label: table.label, kind: table.kind },
+      intent: "unsupported", scopeLabel: "전체", scopeRows: table.rows.length,
+      headline: f.ko + "은(는) 지금 할 수 없습니다 — " + f.why + ".",
+      hints: (f.instead ? ["대신 이런 것은 됩니다 — " + f.instead + "."] : [])
+        .concat(["다른 방식으로 물어보시면 값 자체는 바로 조회해 드립니다."]),
+      unhandled: (unhandled || []).slice(),
+      suggestions: suggestList(table),
+      carry: { spec: emptySpec(), metricKeys: [], groupIds: [], rowIds: [], focus: null }
+    };
+  }
+
   /* ── meta — 데이터셋 자체에 대한 질문 ────────────────────────────────
      값은 전부 데이터에서 셉니다. 목록을 코드에 적어 두면 원본이 바뀔 때
      화면만 옛날 이야기를 하게 됩니다. */
@@ -1098,20 +1219,24 @@ window.AskEngine = (function () {
       return o;
     });
 
-    const ds = rows.map(r => r.date).filter(Boolean).sort();
+    /* 물어본 날짜 열을 그대로 말합니다. 예전에는 종료일(Harvest)을 물어도
+       문구가 "배양 시작일" 로 고정돼 있어, 표에는 종료일이 있는데 문장은
+       시작일을 말하는 어긋남이 있었습니다. */
+    const lead = cols[0] || { key: "date", label: "시작일" };
+    const vs = rows.map(r => r[lead.key]).filter(Boolean).sort();
     const headline = rows.length === 1
       ? rows[0].__label + " 은(는) " + (rows[0].date || "미입력") + " 에 배양을 시작해 " +
         (rows[0].endDate || "미입력") + " 에 종료했습니다." +
         (typeof rows[0].cultureDays === "number" ? " 배양 일수는 " + rows[0].cultureDays + "일입니다." : "")
-      : base.scopeLabel + " 범위 " + rows.length + "건의 배양 시작일은 " +
-        (ds.length ? ds[0] + " ~ " + ds[ds.length - 1] : "모두 미입력") + " 입니다.";
+      : base.scopeLabel + " 범위 " + rows.length + "건의 " + lead.label + "은(는) " +
+        (vs.length ? vs[0] + " ~ " + vs[vs.length - 1] : "모두 미입력") + " 입니다.";
 
     return Object.assign(base, {
       kind: "date", headline: headline,
       facts: rows.length === 1 ? rowMeta(rows[0], table) : [
         { k: "대상", v: rows.length + "건" },
-        { k: "가장 이른 시작", v: ds[0] || "미입력" },
-        { k: "가장 늦은 시작", v: ds[ds.length - 1] || "미입력" }],
+        { k: "가장 이른 " + lead.label, v: vs[0] || "미입력" },
+        { k: "가장 늦은 " + lead.label, v: vs[vs.length - 1] || "미입력" }],
       rows: evRows, evidenceCols: evCols,
       note: "날짜는 원본의 Initial Date · End Date 입니다. 배양 경과일(D10 등)과는 다른 축입니다."
     });
@@ -1613,11 +1738,15 @@ window.AskEngine = (function () {
   function knownMetrics(table) { return suggestList(table || window.AskTables.internal()); }
 
   return {
-    answer, looksExternal, knownMetrics,
+    answer, looksExternal, knownMetrics, unsupportedAnswer,
     /* 검증용 */
     _stats: stats, _detectIntent: detectIntent, _norm: norm, _has: has,
     _detectMetrics: detectMetrics, _fmt: fmt, NOT_RECORDED,
     _parseConditions: parseConditions, _applyConditions: applyConditions,
-    _dateRangeOf: dateRangeOf, _detectScope: detectScope
+    _dateRangeOf: dateRangeOf, _detectScope: detectScope,
+    /* 카탈로그 · 가드가 씁니다 */
+    ALIAS: ALIAS, TEAM_DEFAULT_METRIC: TEAM_DEFAULT_METRIC,
+    _looksDeictic: looksDeictic, _looksFollowUp: looksFollowUp,
+    _suggestList: suggestList
   };
 })();
