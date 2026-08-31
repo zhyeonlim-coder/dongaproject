@@ -215,6 +215,13 @@ window.Ask = (function () {
       ? '<span class="ask-by">문장: Claude ' + esc(shortModel(S.narration.model)) + " · 수치: 브라우저 계산</span>"
       : (S.narrating ? '<span class="ask-by">문장 다듬는 중…</span>'
                      : '<span class="ask-by">수치·문장 모두 브라우저 계산</span>');
+    /* 서술 문장이 검증에 걸려 버려졌으면 그 사실을 밝힙니다 — 조용히
+       다른 문장을 쓰면 사용자는 무슨 일이 있었는지 알 수 없습니다. */
+    const blocked = S.narrationBlocked
+      ? '<p class="ask-warn">⚠ 다듬은 문장에 조회 결과에 없는 수치(' +
+        esc(S.narrationBlocked.nums.concat(S.narrationBlocked.dates).join(", ")) +
+        ')가 있어 사용하지 않았습니다. 아래는 엔진이 계산한 원문입니다.</p>'
+      : "";
 
     return '<div class="ask-answer">' +
       '<span class="ai-tag">' +
@@ -222,7 +229,7 @@ window.Ask = (function () {
         'aria-hidden="true"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>' +
         '실제 데이터 조회 결과</span>' + badge +
 
-      condBlock(r) +
+      condBlock(r) + blocked +
       '<p class="ask-head" id="ask-headline">' + esc(headText) + "</p>" +
       choiceBlock(r) +
       hintBlock(r) +
@@ -504,6 +511,7 @@ window.Ask = (function () {
     const useLit = S.mode === "lit" || (S.mode === "auto" && window.AskEngine.looksExternal(q));
     const my = ++seq;
     S.busy = true; S.result = null; S.lit = null;
+    S.narration = null; S.narrationBlocked = null;
     repaint();
 
     if (useLit) {
@@ -663,7 +671,26 @@ window.Ask = (function () {
         if (my !== seq) return;
         S.narrating = false;
         if (out.status === 200 && out.body && out.body.text) {
-          S.narration = { text: out.body.text, model: out.body.model };
+          /* 서술 문장의 숫자를 조회 결과와 대조합니다. 근거 없는 숫자가
+             하나라도 있으면 그 문장을 버리고 엔진이 만든 결정론적 문장을
+             그대로 씁니다 — 의심스러우면 안 쓰는 쪽입니다. */
+          const v = window.AskVerify.checkNarration(out.body.text, r);
+          if (v.ok) {
+            S.narration = { text: out.body.text, model: out.body.model };
+          } else {
+            S.narration = null;
+            S.narrationBlocked = {
+              nums: v.unknownNums, dates: v.unknownDates, model: out.body.model
+            };
+            if (window.AskLog) {
+              window.AskLog.record({
+                question: r.question, path: "narrate-blocked", kind: r.kind,
+                intent: r.intent, rows: r.scopeRows, confidence: null,
+                rejected: ["서술 문장에 근거 없는 수치: " +
+                  v.unknownNums.concat(v.unknownDates).join(", ")]
+              });
+            }
+          }
         }
         repaint();
       })

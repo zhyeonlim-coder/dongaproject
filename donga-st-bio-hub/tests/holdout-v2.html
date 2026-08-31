@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>홀드아웃 v2 · 실측 하네스 · Bio Knowledge Hub</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  body { margin:0; padding:24px; background:#0A192F; color:#E6ECF5;
+         font:12.5px/1.6 "IBM Plex Mono", ui-monospace, Consolas, monospace; }
+  h1 { font-size:16px; margin:0 0 4px; }
+  .sub { color:#8FA2BB; font-size:12px; margin-bottom:14px; max-width:100ch; }
+  .warn { border:1px solid #B45309; border-left-width:3px; border-radius:6px;
+          padding:10px 13px; margin-bottom:16px; color:#FCD9A0; max-width:100ch; }
+  .ok   { border-color:#0F766E; color:#6EE7B7; }
+  button { font:inherit; padding:7px 14px; border-radius:6px; border:1px solid #1E3A5F;
+           background:#0E2340; color:#E6ECF5; cursor:pointer; margin-right:8px; }
+  pre { white-space:pre; overflow-x:auto; background:#0E2340; border:1px solid #1E3A5F;
+        border-radius:8px; padding:14px; margin-top:14px; }
+</style>
+</head>
+<body>
+<h1>홀드아웃 v2 — 실측 하네스</h1>
+<p class="sub">
+  20건 · 30건(v1) 과 겹치지 않는 새 30문항입니다. <b>이 문항에 맞춰 규칙이나 프롬프트를 고치지 않습니다.</b><br>
+  고정 슬롯(fixture)을 쓰지 않습니다 — <code>/api/extract</code> 를 실제로 호출합니다.
+</p>
+<div id="status" class="warn">준비 중…</div>
+
+<button id="run1">1회 실행 (정확도)</button>
+<button id="run5">5회 반복 (안정성 · LLM 호출 30×5)</button>
+<button id="clearcache">슬롯 캐시 비우기</button>
+
+<pre id="out">버튼을 눌러 실행하십시오.</pre>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/data/labels.js"></script>
+<script src="../assets/js/data/value.js"></script>
+<script src="../assets/js/data/projects.js"></script>
+<script src="../assets/js/data/studies.js"></script>
+<script src="../assets/js/data/batches.js"></script>
+<script src="../assets/js/data/downstream.js"></script>
+<script src="../assets/js/data/samples.js"></script>
+<script src="../assets/js/data/entries.js"></script>
+<script src="../assets/js/data/repo.js"></script>
+<script src="../assets/js/data/lots.js"></script>
+<script src="../assets/js/data/units.js"></script>
+<script src="../assets/js/data/tables.js"></script>
+<script src="../assets/js/ask-engine.js"></script>
+<script src="../assets/js/data/catalog.js"></script>
+<script src="../assets/js/ask-llm.js"></script>
+<script src="../assets/js/ask-guard.js"></script>
+<script src="../assets/js/ask-verify.js"></script>
+<script>
+/* ==========================================================================
+   홀드아웃 v2 실측 하네스
+
+   ANTHROPIC_API_KEY 가 설정되어 /api/extract 가 살아 있을 때만 의미가
+   있습니다. 503(키 미설정)이면 규칙 경로만 측정되며, 화면이 그 사실을
+   먼저 알려 줍니다 — 규칙 점수를 LLM 점수로 착각하지 않도록.
+   ========================================================================== */
+const Q = [
+  "수율 제일 낮은 애 뭐야","B321 쪽은 어떻게 됐어","마지막 배치 결과","젤 처음 한 실험","가장 오래 배양한 배치",
+  "titer 1000 이상 몇 건이야","평균보다 잘 나온 배치들","최대 세포농도 순으로 정렬해줘","11월 이후 데이터만","LMW 제일 낮은 거",
+  "배치별로 titer 편차가 큰가","9월이랑 10월 중에 언제가 나았어","생존율 평균 내주라","Total yield 분포 어때",
+  "과제별 배치 수","스터디별로 몇 건씩이야","DA-1234 배치 몇 개야",
+  "배양이랑 정제 데이터 같이 보여줘","viability랑 titer 같이 보여줘","정제 항목들 뭐뭐 있어",
+  "값 없는 컬럼 알려줘","HCP 데이터 있어?","이 스터디 언제 끝났어","데이터 최신 업데이트 언제야",
+  "앞에서 본 그거 다시",
+  "어떤 배지를 썼어?","pH 얼마로 했어?",
+  "실패한 배치 있어?","이거보다 나은 조건 추천해줘","titer 예측해줘"
+];
+
+const E = window.AskEngine, t = window.AskTables.internal(), cat = window.Catalog.get(t);
+const $ = s => document.querySelector(s);
+
+/* 화면(ask.js)과 같은 순서로 한 문항을 처리합니다 */
+function runOne(q, prev) {
+  const t0 = performance.now();
+  let r = E.answer(q, { table: t, prev: prev });
+  if (!window.AskLLM.ruleMissed(r, r.conditions)) {
+    return Promise.resolve({ r: r, path: "rule", ms: performance.now() - t0, llm: null });
+  }
+  return window.AskLLM.extract(q, cat, []).then(function (ex) {
+    let path = "llm";
+    if (!ex.ok) {
+      r.unhandled = (r.unhandled || []).concat(["AI 해석 실패(" + ex.reason + ") — 규칙 결과"]);
+      path = "rule-fallback";
+    } else {
+      const g = window.AskGuard.check(ex.slots, t, cat);
+      if (g.reason === "unsupported") r = E.unsupportedAnswer(q, t, g.unsupported, g.unhandled);
+      else if (g.clarify) r = E.answer(q, { table: t, prev: prev, plan: g.plan,
+        guardRejected: g.rejected, slotUnhandled: g.unhandled, forceClarify: g.clarify });
+      else if (!g.ok) { path = "llm-rejected";
+        r.unhandled = (r.unhandled || []).concat(["확신 " + g.confidence.toFixed(2), ...g.rejected]); }
+      else r = E.answer(q, { table: t, prev: prev, plan: g.plan,
+        guardRejected: g.rejected, slotUnhandled: g.unhandled });
+    }
+    return { r: r, path: path, ms: performance.now() - t0, llm: ex };
+  });
+}
+
+function runPass() {
+  let prev = null;
+  const out = [];
+  return Q.reduce(function (p, q) {
+    return p.then(function () {
+      return runOne(q, prev).then(function (o) {
+        if (o.r.carry) prev = { carry: o.r.carry, question: q };
+        out.push({ q: q, path: o.path, ms: o.ms, llm: o.llm,
+          slots: o.llm && o.llm.ok ? o.llm.slots : null,
+          kind: o.r.kind, intent: o.r.intent, rows: o.r.scopeRows,
+          applied: (o.r.applied || []).join(" ; ") || "—",
+          unhandled: (o.r.unhandled || []).map(x => x.split(" — ")[0]).join(" ; ") || "—",
+          head: String(o.r.headline || "").replace(/^\[[^\]]*\]\s*/, "") });
+      });
+    });
+  }, Promise.resolve()).then(() => out);
+}
+
+function render(rows, extra) {
+  const L = [];
+  L.push(" # | 경로        | 의도     | kind      | 건수 | ms   | 질문 / 해석 / 미처리 / 응답");
+  L.push("---+-------------+----------+-----------+------+------+" + "-".repeat(60));
+  rows.forEach(function (x, i) {
+    L.push(String(i + 1).padStart(2) + " | " + x.path.padEnd(11) + " | " +
+      String(x.intent).padEnd(8) + " | " + x.kind.padEnd(9) + " | " +
+      String(x.rows).padStart(4) + " | " + String(Math.round(x.ms)).padStart(4) + " | " + x.q);
+    L.push("   |             |          |           |      |      |  해석: " + x.applied.slice(0, 78));
+    L.push("   |             |          |           |      |      |  미처리: " + x.unhandled.slice(0, 78));
+    L.push("   |             |          |           |      |      |  응답: " + x.head.slice(0, 78));
+  });
+  const paths = rows.reduce((m, x) => (m[x.path] = (m[x.path] || 0) + 1, m), {});
+  const llm = rows.filter(x => x.llm && x.llm.ok);
+  const tok = llm.reduce((s, x) => s + ((x.llm.usage && x.llm.usage.input) || 0), 0);
+  const tokOut = llm.reduce((s, x) => s + ((x.llm.usage && x.llm.usage.output) || 0), 0);
+  L.push("");
+  L.push("경로 분포: " + JSON.stringify(paths));
+  L.push("LLM 호출 성공 " + llm.length + "건 · 평균 " +
+    (llm.length ? Math.round(llm.reduce((s, x) => s + x.llm.ms, 0) / llm.length) : 0) + "ms" +
+    " · 입력 토큰 " + tok + " · 출력 토큰 " + tokOut);
+  L.push("규칙 경로 평균 " +
+    (function () { const r = rows.filter(x => x.path === "rule");
+      return r.length ? (r.reduce((s, x) => s + x.ms, 0) / r.length).toFixed(2) : "—"; })() + "ms");
+  if (extra) L.push("", extra);
+  $("#out").textContent = L.join("\n");
+}
+
+/* ── 안정성 — 같은 질문 5회, 슬롯과 최종 수치가 흔들리는가 ────────────
+   캐시를 끄고 매번 새로 호출해야 흔들림이 보입니다. */
+function runStability(n) {
+  const passes = [];
+  const seq = [];
+  for (let i = 0; i < n; i++) {
+    seq.push(function () {
+      window.AskLLM.reset();          /* 캐시를 비워 실제 호출을 강제합니다 */
+      return runPass().then(p => passes.push(p));
+    });
+  }
+  return seq.reduce((p, f) => p.then(f), Promise.resolve()).then(function () {
+    const L = ["", "── 안정성 (" + n + "회 반복) ──",
+      " # | 슬롯 5회 동일 | 수치 5회 동일 | 흔들린 필드 | 질문"];
+    let slotSame = 0, numSame = 0;
+    Q.forEach(function (q, i) {
+      const slots = passes.map(p => p[i].slots ? JSON.stringify(p[i].slots) : "(규칙)");
+      const nums = passes.map(p => p[i].kind + "|" + p[i].rows + "|" + p[i].head);
+      const sOk = new Set(slots).size === 1;
+      const nOk = new Set(nums).size === 1;
+      if (sOk) slotSame++;
+      if (nOk) numSame++;
+      let drift = "—";
+      if (!sOk) {
+        const objs = passes.map(p => p[i].slots).filter(Boolean);
+        const keys = new Set();
+        objs.forEach(function (o) {
+          Object.keys(o).forEach(function (k) {
+            if (JSON.stringify(o[k]) !== JSON.stringify(objs[0][k])) keys.add(k);
+          });
+        });
+        drift = Array.from(keys).join(",") || "(직렬화 차이)";
+      }
+      L.push(String(i + 1).padStart(2) + " | " + (sOk ? "     동일    " : "     불일치  ") +
+        " | " + (nOk ? "     동일    " : "     불일치  ") + " | " + drift.padEnd(11) + " | " + q);
+    });
+    L.push("");
+    L.push("슬롯 일치 " + slotSame + "/" + Q.length + " · 최종 수치 일치 " + numSame + "/" + Q.length);
+    L.push("※ 슬롯이 흔들리는 문항은 규칙 승격 우선순위 상위입니다.");
+    return { passes: passes, text: L.join("\n") };
+  });
+}
+
+/* 시작 전에 엔드포인트가 살아 있는지 먼저 알려 줍니다 */
+fetch("/api/extract", { method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({}) }).then(function (res) {
+  const s = $("#status");
+  if (res.status === 503) {
+    s.textContent = "⚠ /api/extract 가 503(ANTHROPIC_API_KEY 미설정)입니다. " +
+      "지금 실행하면 규칙 경로만 측정됩니다 — 이 점수를 LLM 성능으로 인용하지 마십시오.";
+  } else if (res.status === 404) {
+    s.textContent = "⚠ /api/extract 가 404 입니다. 아직 배포되지 않았습니다 (커밋 push 필요).";
+  } else {
+    s.className = "warn ok";
+    s.textContent = "✅ /api/extract 응답 " + res.status + " — 실제 LLM 경로로 측정합니다.";
+  }
+}).catch(function (e) {
+  $("#status").textContent = "⚠ /api/extract 에 연결하지 못했습니다 (" + e.message + "). 규칙 경로만 측정됩니다.";
+});
+
+$("#run1").addEventListener("click", function () {
+  $("#out").textContent = "실행 중…";
+  runPass().then(rows => render(rows));
+});
+$("#run5").addEventListener("click", function () {
+  $("#out").textContent = "5회 반복 중… (LLM 이 살아 있으면 최대 150회 호출, 몇 분 걸립니다)";
+  runStability(5).then(function (o) { render(o.passes[0], o.text); });
+});
+$("#clearcache").addEventListener("click", function () {
+  window.AskLLM.reset(); $("#out").textContent = "슬롯 캐시를 비웠습니다.";
+});
+</script>
+</body>
+</html>

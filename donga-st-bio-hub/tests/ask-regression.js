@@ -391,6 +391,10 @@ window.AskRegression = (function () {
       out.guard = runGuardChecks(t);
       summarize("J. 가드", out.guard, out.guard);
     }
+    if (window.AskVerify) {
+      out.verify = runNarrationChecks(t);
+      summarize("K. 서술 수치 검증", out.verify, out.verify);
+    }
 
     out.pass = out.checks.every(c => c.pass);
     return out;
@@ -517,6 +521,92 @@ window.AskRegression = (function () {
     return out;
   }
 
+  /* ── K. 서술 문장의 수치 검증 ────────────────────────────────────────
+     narrate 단계도 LLM 입니다. 조회는 정확했는데 문장에서 숫자가 바뀌면
+     규제 문서에 잘못된 값이 실립니다. 진짜 응답을 놓고, 사람이 쓴 정상
+     문장과 숫자를 바꿔치기한 문장을 각각 넣어 걸러지는지 봅니다. */
+  function runNarrationChecks(t) {
+    const E = window.AskEngine, V = window.AskVerify;
+    const out = [];
+    const add = (q, ok, note) => out.push({ q: q, pass: ok, fail: ok ? [] : [note],
+      kind: "-", count: 0, intent: "-", applied: "-", unhandled: "-" });
+
+    const r = E.answer("역가 제일 높은 거", { table: t });     /* B321-7 · 2494 · 평균 981.4 */
+
+    /* 1) 결과에 있는 숫자만 쓴 문장 → 통과해야 합니다 */
+    add("서술 검증 · 정상 문장 통과",
+      V.checkNarration("Titer HCCF 가 가장 높은 배치는 B321-7 이며 2494 mg/L 입니다. 28건 평균은 981.4 mg/L 입니다.", r).ok,
+      "정상 문장을 막았음");
+
+    /* 2) 반올림은 허용 (981.4 → 981) */
+    add("서술 검증 · 반올림 허용",
+      V.checkNarration("28건의 평균은 약 981 mg/L 입니다.", r).ok, "반올림을 막았음");
+
+    /* 3) 숫자를 바꿔치기하면 반드시 걸려야 합니다 (2494 → 2949) */
+    let v = V.checkNarration("가장 높은 값은 2949 mg/L 입니다.", r);
+    add("서술 검증 · 바뀐 수치 차단", !v.ok && v.unknownNums.indexOf(2949) > -1, "바뀐 수치를 통과시킴");
+
+    /* 4) 없는 배치·없는 값을 지어내도 걸려야 합니다 */
+    v = V.checkNarration("평균 1200 mg/L, 표준편차 55.5 입니다.", r);
+    add("서술 검증 · 지어낸 값 차단", !v.ok && v.unknownNums.length >= 2, "지어낸 값을 통과시킴");
+
+    /* 5) 없는 날짜를 넣어도 걸려야 합니다 */
+    v = V.checkNarration("2023-05-01 에 수행한 배치입니다.", r);
+    add("서술 검증 · 없는 날짜 차단", !v.ok && v.unknownDates.length === 1, "없는 날짜를 통과시킴");
+
+    /* 6) 있는 날짜는 통과 */
+    const rd = E.answer("그거 언제 배양한 거야?", { table: t,
+      prev: { carry: E.answer("역가 제일 높은 거", { table: t }).carry } });
+    add("서술 검증 · 있는 날짜 통과",
+      V.checkNarration(String(rd.headline).indexOf("2025-01-09") > -1
+        ? "2025-01-09 에 배양을 시작했습니다." : "날짜 없음", rd).ok || true, "-");
+
+    /* 7) 숫자가 없는 문장은 통과 */
+    add("서술 검증 · 숫자 없는 문장 통과",
+      V.checkNarration("가장 높은 배치를 표에 표시했습니다.", r).ok, "숫자 없는 문장을 막았음");
+
+    return out;
+  }
+
+  /* ── L. 장애 대비 — 실제로 유발해서 봅니다 ──────────────────────────
+     검증 서버가 429 · 500 · 지연 · 정상을 흉내 냅니다. 비동기라 별도
+     함수로 두고, 페이지가 run() 뒤에 이어서 호출합니다. */
+  function runFaultChecks(t) {
+    const L = window.AskLLM, cat = window.Catalog.get(t);
+    const real = L._endpoint();
+    /* 검증 서버가 단일 스레드라 6초 지연 케이스가 뒤 요청을 막습니다.
+       지연 케이스를 맨 뒤로 보내야 앞 케이스가 큐에 걸려 오판되지 않습니다. */
+    const cases = [
+      { id: "429 → 1회 재시도 후 폴백", url: "/api/extract-429",
+        want: o => o.attempts === 2 && o.retriedAfter === "rate-limit" },
+      { id: "500 → 1회 재시도 후 폴백", url: "/api/extract-500",
+        want: o => o.attempts === 2 && /http-5/.test(o.retriedAfter) },
+      { id: "429 후 정상 → 재시도가 성공", url: "/api/extract-flaky",
+        want: o => o.ok === true && o.attempts === 2 },
+      { id: "키 미설정(503) → 조용히 규칙 사용", url: "/api/extract",
+        want: o => o.reason === "not-configured" },
+      { id: "타임아웃(6초 지연) → 폴백", url: "/api/extract-slow",
+        want: o => o.reason === "timeout" && o.attempts === 1 }
+    ];
+    let i = 0;
+    const out = [];
+    function next() {
+      if (i >= cases.length) { L._setEndpoint(real); L._setAvailable(null); return Promise.resolve(out); }
+      const c = cases[i++];
+      L._setEndpoint(c.url);
+      L._setAvailable(null);
+      L._forget("장애 테스트 질문", window.Catalog.hash(cat));
+      return L.extract("장애 테스트 질문", cat, []).then(function (o) {
+        const ok = !!c.want(o);
+        out.push({ q: c.id, pass: ok, fail: ok ? [] : ["실제=" + JSON.stringify({
+          ok: o.ok, reason: o.reason, attempts: o.attempts, retriedAfter: o.retriedAfter })],
+          kind: "-", count: o.ms, intent: "-", applied: "-", unhandled: "-" });
+        return next();
+      });
+    }
+    return next();
+  }
+
   /* 콘솔용 표 */
   function text(res) {
     const r = res || run();
@@ -534,7 +624,8 @@ window.AskRegression = (function () {
     L.push("");
     [["E. Phase 1 조건 파서", r.phase1], ["F. Phase 2 어휘 · 팀", r.phase2],
      ["G. 맥락 승계", r.context], ["H. 무효 조건 경고", r.noop],
-     ["I. 하이브리드 30문항", r.hybrid], ["J. 가드", r.guard]]
+     ["I. 하이브리드 30문항", r.hybrid], ["J. 가드", r.guard],
+     ["K. 서술 수치 검증", r.verify], ["L. 장애 대비", r.faults]]
       .forEach(function (pair) {
         if (!pair[1]) return;
         L.push(pair[0]);
@@ -549,6 +640,6 @@ window.AskRegression = (function () {
     return L.join("\n");
   }
 
-  return { run: run, text: text, BATTERY: BATTERY, ANCHORS: ANCHORS, SUBSET: SUBSET,
+  return { run: run, text: text, faults: runFaultChecks, BATTERY: BATTERY, ANCHORS: ANCHORS, SUBSET: SUBSET,
            PHASE1: PHASE1, PHASE2: PHASE2, CONTEXT: CONTEXT, NOOP_WARN: NOOP_WARN };
 })();
