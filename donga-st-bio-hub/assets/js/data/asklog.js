@@ -27,8 +27,15 @@ window.AskLog = (function () {
     try {
       const raw = localStorage.getItem(KEY);
       const p = raw ? JSON.parse(raw) : null;
-      return p && Array.isArray(p.list) ? p : { list: [], approved: [] };
-    } catch (e) { return { list: [], approved: [] }; }
+      if (p && Array.isArray(p.list)) { p.counts = p.counts || blank(); return p; }
+    } catch (e) { /* 손상된 값은 새로 시작합니다 */ }
+    return { list: [], approved: [], counts: blank() };
+  }
+  /* 지표는 문제 사례와 따로 셉니다 — 잘 처리된 조회도 세야 비율이 나옵니다 */
+  function blank() {
+    return { total: 0, rule: 0, llm: 0, fallback: 0, rejected: 0,
+             clarify: 0, unsupported: 0, zero: 0, bothFailed: 0,
+             narrateBlocked: 0, requery: 0, choicePicked: 0, totalMs: 0, llmMs: 0, llmCalls: 0 };
   }
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* 저장 실패는 조회를 막지 않습니다 */ }
@@ -36,8 +43,88 @@ window.AskLog = (function () {
   }
   function on(f) { subs.push(f); return () => { const i = subs.indexOf(f); if (i > -1) subs.splice(i, 1); }; }
 
-  /* 한 번의 조회를 기록합니다. 기록할 이유가 없으면 아무것도 하지 않습니다. */
+  /* 한 번의 조회를 기록합니다.
+
+     두 갈래로 나눠 둡니다.
+       · counts — 모든 조회를 셉니다. 규칙 경로 비율을 보려면 성공한 조회도
+                  세어야 합니다. 예전에는 문제 사례만 기록해서 "루프가 도는지"
+                  자체를 측정할 수 없었습니다.
+       · list   — 문제 사례만. 승격 후보를 여기서 찾습니다. */
+  function tally(entry) {
+    const c = state.counts;
+    c.total += 1;
+    if (typeof entry.ms === "number") c.totalMs += entry.ms;
+    if (typeof entry.llmMs === "number" && entry.llmMs > 0) { c.llmMs += entry.llmMs; c.llmCalls += 1; }
+
+    if (entry.path === "rule") c.rule += 1;
+    else if (entry.path === "llm") c.llm += 1;
+    else if (entry.path === "rule-fallback") { c.fallback += 1; c.bothFailed += 1; }
+    else if (entry.path === "llm-rejected") c.rejected += 1;
+    else if (entry.path === "narrate-blocked") c.narrateBlocked += 1;
+
+    if (entry.kind === "clarify") c.clarify += 1;
+    if (entry.kind === "unsupported") c.unsupported += 1;
+    if (entry.rows === 0) c.zero += 1;
+    if (entry.repeatedAfterClarify) c.requery += 1;
+    if (entry.choicePicked) c.choicePicked += 1;
+  }
+
+  /* 상시 표시용 지표 */
+  function metrics() {
+    const c = state.counts;
+    const n = c.total || 0;
+    return {
+      total: n,
+      rule: c.rule, llm: c.llm, fallback: c.fallback, rejected: c.rejected,
+      rulePct: n ? Math.round(c.rule / n * 1000) / 10 : null,
+      llmPct: n ? Math.round((c.llm + c.fallback + c.rejected) / n * 1000) / 10 : null,
+      llmCalls: c.llmCalls,
+      avgMs: n ? Math.round(c.totalMs / n * 100) / 100 : null,
+      avgLlmMs: c.llmCalls ? Math.round(c.llmMs / c.llmCalls) : null,
+      clarify: c.clarify, unsupported: c.unsupported, zero: c.zero,
+      bothFailed: c.bothFailed, narrateBlocked: c.narrateBlocked,
+      requery: c.requery, choicePicked: c.choicePicked
+    };
+  }
+
+  function resetCounts() { state.counts = blank(); save(); }
+
+  /* 되묻기에서 사용자가 어느 쪽을 골랐는지 */
+  function recordChoice(question, label) {
+    const q = String(question || "").trim();
+    const found = state.list.find(x => x.question === q);
+    if (found) {
+      found.choice = label;
+      found.reasons = Array.from(new Set(found.reasons.concat(["되묻기 선택함"])));
+    }
+    state.counts.choicePicked += 1;
+    save();
+  }
+
+  /* 답을 받고 곧바로 다시 물었다 = 답이 만족스럽지 않았다는 신호 */
+  function recordRequery(prevQuestion, gapMs) {
+    const q = String(prevQuestion || "").trim();
+    const found = state.list.find(x => x.question === q);
+    if (found) {
+      found.requeriedInMs = gapMs;
+      found.reasons = Array.from(new Set(found.reasons.concat(["즉시 재질문"])));
+      save();
+      return;
+    }
+    /* 잘 처리된 것으로 분류돼 목록에 없던 질문이라면 이제 넣습니다 —
+       바로 다시 물었다는 것 자체가 문제 신호입니다. */
+    state.list.unshift({
+      question: q, count: 1, at: new Date().toISOString(),
+      reasons: ["즉시 재질문"], path: "rule", kind: null, intent: null,
+      confidence: null, slots: null, rows: null, rejected: [], requeriedInMs: gapMs
+    });
+    if (state.list.length > MAX) state.list.length = MAX;
+    save();
+  }
+
+  /* 한 번의 조회를 기록합니다. 기록할 이유가 없으면 목록에는 남기지 않습니다. */
   function record(entry) {
+    tally(entry);
     const reasons = [];
     /* 규칙이 놓쳐 LLM 으로 넘어간 것은 성공하든 실패하든 기록합니다.
        폴백(키 없음 · 타임아웃)은 오히려 더 중요한 신호입니다 — 규칙이
@@ -52,7 +139,8 @@ window.AskLog = (function () {
     if (entry.rows === 0) reasons.push("결과 0건");
     if (entry.rejected && entry.rejected.length) reasons.push("가드 거절");
     if (entry.repeatedAfterClarify) reasons.push("되묻기 무시 후 재질문");
-    if (!reasons.length) return null;
+    if (entry.path === "narrate-blocked") reasons.push("서술 수치 차단");
+    if (!reasons.length) { save(); return null; }   /* 지표는 이미 세었으니 저장은 합니다 */
 
     const q = String(entry.question || "").trim();
     const found = state.list.find(x => x.question === q);
@@ -127,10 +215,12 @@ window.AskLog = (function () {
     if (state.approved.indexOf(question) === -1) state.approved.push(question);
     save();
   }
-  function clear() { state = { list: [], approved: [] }; save(); }
+  function clear() { state = { list: [], approved: [], counts: blank() }; save(); }
 
   return {
     record: record, suggestions: suggestions, approve: approve, clear: clear,
+    metrics: metrics, resetCounts: resetCounts,
+    recordChoice: recordChoice, recordRequery: recordRequery,
     on: on, state: () => state, KEY: KEY
   };
 })();

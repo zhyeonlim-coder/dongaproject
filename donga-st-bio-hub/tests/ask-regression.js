@@ -395,6 +395,12 @@ window.AskRegression = (function () {
       out.verify = runNarrationChecks(t);
       summarize("K. 서술 수치 검증", out.verify, out.verify);
     }
+    if (window.Promote && window.RuleLex) {
+      out.core = runCoreSpec(t);
+      summarize("M. 승격 안전 스펙", out.core, out.core);
+      out.loop = runLoopChecks(t);
+      summarize("N. 자가 개선 루프", out.loop, out.loop);
+    }
 
     out.pass = out.checks.every(c => c.pass);
     return out;
@@ -607,6 +613,114 @@ window.AskRegression = (function () {
     return next();
   }
 
+  /* ── M. 승격 안전 스펙 ───────────────────────────────────────────────
+     Promote.CORE_SPEC 를 그대로 돌립니다. 관리자 화면이 승격 전에 돌리는
+     검사와 같은 배열입니다 — 두 곳이 조용히 어긋날 수 없습니다. */
+  function runCoreSpec(t) {
+    const res = window.Promote.safetyCheck(t);
+    const out = [{ q: "핵심 스펙 " + res.total + "개", pass: res.ok,
+      fail: res.fails.slice(0, 6), kind: "-", count: res.total,
+      intent: "-", applied: "-", unhandled: "-" }];
+    return out;
+  }
+
+  /* ── N. 자가 개선 루프가 실제로 도는가 ───────────────────────────────
+     이름만 있는 루프가 아니라는 것을 보이려면, 승격 뒤에 규칙 경로 비율이
+     실제로 올라가야 합니다. 여기서는 그것을 숫자로 확인합니다.
+
+     LLM 없이도 검증할 수 있게, 로그에 슬롯이 있는 항목을 직접 넣어
+     "LLM 이 해석에 성공한 상태" 를 만든 뒤 추출 → 안전 검사 → 승인 →
+     비율 재측정까지 한 바퀴 돌립니다. 끝나면 원상 복구합니다. */
+  function runLoopChecks(t) {
+    const P = window.Promote, X = window.RuleLex, Log = window.AskLog, E = window.AskEngine;
+    const out = [];
+    const add = (q, ok, note) => out.push({ q: q, pass: ok, fail: ok ? [] : [note],
+      kind: "-", count: 0, intent: "-", applied: "-", unhandled: "-" });
+
+    /* 루프 검증용 질문 — 규칙이 못 읽는 구어체입니다.
+       ★ 이 문항에 맞춰 하드코딩 사전을 고치지 않았습니다. 승격으로만 풉니다. */
+    const LOOP_QS = ["타이터 젤 높은 게 얼마였지", "수율 젤 높은 게 뭐야", "titer 젤 높은 거"];
+
+    /* 시작 상태 보존 */
+    const lexBefore = JSON.parse(JSON.stringify(X.state()));
+    const logBefore = JSON.parse(JSON.stringify(Log.state()));
+
+    try {
+      /* 0) 사전에 아무것도 없는 상태에서 규칙이 못 읽는지 확인 */
+      X.clear();
+      const before = P.ruleRatio(LOOP_QS, t);
+      add("루프 · 승격 전에는 규칙이 못 읽음", before.rule === 0,
+        "규칙이 이미 " + before.rule + "건을 읽음 (검증 문항으로 부적합)");
+
+      /* 1) LLM 이 max 로 해석했다고 기록 — 추출의 입력을 만듭니다 */
+      Log.clear();
+      LOOP_QS.forEach(function (q) {
+        Log.record({ question: q, path: "llm", kind: "list", intent: "list", rows: 28,
+          slots: { intent: "max", target: { type: "metric", keys: ["titerHCCF"] },
+                   confidence: 0.9, unhandled: [] },
+          confidence: 0.9, rejected: [] });
+      });
+
+      /* 2) 추출 — 규칙이 놓친 어휘를 실행으로 찾아냈는가 */
+      const sug = P.suggestions(t);
+      const hit = sug.find(s => s.intent === "max" && /젤/.test(s.phrase));
+      add("루프 · 어휘 추출", !!hit,
+        "제안 " + sug.length + "건: " + sug.map(s => s.phrase).join(", "));
+
+      if (hit) {
+        /* 3) 안전 검사가 함께 계산되는가 */
+        add("루프 · 승격 전 안전 검사", hit.safe === true,
+          "안전 검사 실패: " + (hit.breaks || []).join(" / "));
+
+        /* 4) 승인하면 사전에 반영되는가 */
+        const res = P.approve(hit, "테스트");
+        add("루프 · 승인 반영", res.ok === true, "승인이 막힘: " + (res.fails || []).join(" / "));
+
+        /* 5) ★ 핵심 — 규칙 경로 비율이 실제로 올라갔는가 */
+        const after = P.ruleRatio(LOOP_QS, t);
+        add("루프 · 규칙 경로 비율 상승 (" + before.rulePct + "% → " + after.rulePct + "%)",
+          after.rule > before.rule, "비율이 움직이지 않음 — 루프가 이름뿐");
+
+        /* 6) 되돌리면 원래대로 */
+        P.revert(res.entry.id, "테스트");
+        const reverted = P.ruleRatio(LOOP_QS, t);
+        add("루프 · 되돌리기", reverted.rule === before.rule,
+          "되돌린 뒤에도 " + reverted.rule + "건이 규칙으로 처리됨");
+      }
+
+      /* 7) 위험한 어휘는 막아야 합니다.
+         오버레이는 기본값(list)으로 떨어진 질문에만 관여하므로 위험 범위도
+         거기입니다. "이상" 은 "Titer 1000 이상인 배치"(list) 에 들어 있고,
+         이걸 count 로 승격하면 의도가 바뀌어 스펙이 깨져야 합니다. */
+      const danger = P.dryRun({ kind: "intent", intent: "count", phrase: "이상" }, t);
+      add("루프 · 위험한 승격 차단", danger.ok === false,
+        "\"이상\"을 count 로 승격했는데 스펙이 안 깨짐 (안전장치가 헐거움)");
+
+      /* 7-b) 안전한 승격은 막히지 않아야 합니다 (거짓 차단 방지) */
+      const safe = P.dryRun({ kind: "intent", intent: "max", phrase: "젤 높" }, t);
+      add("루프 · 안전한 승격은 통과", safe.ok === true,
+        "안전한 어휘를 막음: " + safe.fails.join(" / "));
+
+      /* 8) 승격은 기존 해석을 바꾸지 않아야 합니다 (오버레이는 마지막에만) */
+      const t1 = X.add({ kind: "intent", intent: "count", phrase: "가장 높", temp: true });
+      const still = E._detectIntent(E._norm("수율이 가장 높은 Batch는?"));
+      X.revert(t1.id, "테스트");
+      add("루프 · 하드코딩 규칙이 우선", still === "max",
+        "오버레이가 하드코딩 규칙을 덮어씀 (intent=" + still + ")");
+
+    } finally {
+      /* 원상 복구 — 테스트가 사용자 데이터를 남기지 않습니다 */
+      X.clear();
+      (lexBefore.entries || []).forEach(e => X.add(e));
+      Log.clear();
+      (logBefore.list || []).slice().reverse().forEach(function (e) {
+        Log.record({ question: e.question, path: e.path, kind: e.kind, intent: e.intent,
+          rows: e.rows, slots: e.slots, confidence: e.confidence, rejected: e.rejected });
+      });
+    }
+    return out;
+  }
+
   /* 콘솔용 표 */
   function text(res) {
     const r = res || run();
@@ -625,7 +739,8 @@ window.AskRegression = (function () {
     [["E. Phase 1 조건 파서", r.phase1], ["F. Phase 2 어휘 · 팀", r.phase2],
      ["G. 맥락 승계", r.context], ["H. 무효 조건 경고", r.noop],
      ["I. 하이브리드 30문항", r.hybrid], ["J. 가드", r.guard],
-     ["K. 서술 수치 검증", r.verify], ["L. 장애 대비", r.faults]]
+     ["K. 서술 수치 검증", r.verify], ["L. 장애 대비", r.faults],
+     ["M. 승격 안전 스펙", r.core], ["N. 자가 개선 루프", r.loop]]
       .forEach(function (pair) {
         if (!pair[1]) return;
         L.push(pair[0]);

@@ -114,12 +114,18 @@ window.AskEngine = (function () {
   function detectMetrics(text, table) {
     if (table.kind === "upload") return detectUploadColumns(text, table);
     const hits = [];
-    Object.keys(ALIAS).forEach(function (key) {
+    /* 승격된 별칭을 하드코딩 사전에 얹습니다 (덮어쓰지 않고 더합니다) */
+    const extra = window.RuleLex ? window.RuleLex.metricAliases() : {};
+    const keys = Object.keys(ALIAS);
+    Object.keys(extra).forEach(k => { if (keys.indexOf(k) === -1) keys.push(k); });
+
+    keys.forEach(function (key) {
       const col = table.columns.find(c => c.key === key);
       if (!col) return;
+      const list = (ALIAS[key] || []).concat(extra[key] || []);
       /* 가장 긴 별칭이 걸린 것을 그 항목의 점수로 씁니다 */
       let best = 0;
-      ALIAS[key].forEach(a => { if (has(text, a) && a.length > best) best = a.length; });
+      list.forEach(a => { if (has(text, a) && a.length > best) best = a.length; });
       if (best) hits.push({ col, score: best });
     });
     hits.sort((a, b) => b.score - a.score);
@@ -153,6 +159,14 @@ window.AskEngine = (function () {
     if (["제일 좋", "가장 좋", "젤 좋", "잘 나온", "잘나온", "우수"].some(t => has(text, t))) return "max";
     if (["평균", "average", "mean", "표준편차", "편차", "분포", "범위"].some(t => has(text, t))) return "stat";
     if (["몇 건", "몇건", "몇 개", "몇개", "개수", "건수", "how many", "count"].some(t => has(text, t))) return "count";
+
+    /* 승격된 어휘는 마지막에만 봅니다. 하드코딩 규칙이 먼저 판정하고,
+       기본값(list)으로 떨어졌을 때만 오버레이를 참조합니다 — 그래야
+       승격이 기존 질문의 해석을 바꾸지 않습니다. */
+    if (window.RuleLex) {
+      const promoted = window.RuleLex.intentOf(text);
+      if (promoted) return promoted;
+    }
     return "list";
   }
 

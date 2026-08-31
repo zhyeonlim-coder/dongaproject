@@ -55,44 +55,141 @@
      해석한 표현은 규칙 사전에 넣을 후보로 제안합니다. 사전에 들어가면 다음
      부터는 LLM 없이 즉시 답하므로, 시간이 갈수록 호출이 줄고 빨라집니다.
      ══════════════════════════════════════════════════════════════════════ */
+  /* ══════════════════════════════════════════════════════════════════════
+     미응답 · 저신뢰 질의 — 자가 개선 루프 관리 화면
+
+     세 부분입니다.
+       1) 지표      — 규칙 경로 비율이 실제로 움직였는가 (상시 표시)
+       2) 승격 제안 — 규칙이 놓친 어휘. 승인 전에 안전 검사 결과를 함께 보여 줍니다
+       3) 이력      — 무엇을 언제 승격했고, 되돌릴 수 있는가
+     ══════════════════════════════════════════════════════════════════════ */
+  function metricCards() {
+    const m = window.AskLog ? window.AskLog.metrics() : null;
+    const eff = window.Promote ? window.Promote.effect() : null;
+    if (!m || !m.total) {
+      return '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
+        '<h2 class="card-title">지표</h2>' +
+        '<div class="empty"><div class="empty-body">아직 조회 기록이 없습니다. ' +
+        'AI 검색을 몇 번 쓰면 규칙 · LLM 경로 비율이 여기에 쌓입니다.</div></div></div></section>';
+    }
+    const d = eff && eff.delta ? eff.delta : null;
+    const arrow = (v, good) => v == null ? "" :
+      '<span style="font-size:11px;color:' + (v === 0 ? "var(--c-text-mute)" :
+        ((v > 0) === good ? "#0F766E" : "#B45309")) + '">  ' +
+        (v > 0 ? "▲" : v < 0 ? "▼" : "—") + " " + Math.abs(Math.round(v * 10) / 10) + "</span>";
+
+    const cell = (k, v, extra) =>
+      '<div class="kpi"><div class="kpi-k">' + esc(k) + "</div>" +
+      '<div class="kpi-v">' + esc(v) + (extra || "") + "</div></div>";
+
+    return '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
+      '<h2 class="card-title">지표 · 자가 개선 효과</h2>' +
+      '<div class="grid-kpi">' +
+        cell("규칙 경로", (m.rulePct == null ? "—" : m.rulePct + "%"), d ? arrow(d.rulePct, true) : "") +
+        cell("LLM 경로", (m.llmPct == null ? "—" : m.llmPct + "%")) +
+        cell("LLM 호출", m.llmCalls + "회", d ? arrow(d.llmCalls, false) : "") +
+        cell("평균 응답", (m.avgMs == null ? "—" : m.avgMs + "ms"), d ? arrow(d.avgMs, false) : "") +
+        cell("전체 조회", m.total + "건") +
+      "</div>" +
+      '<div class="grid-kpi" style="margin-top:var(--s-3)">' +
+        cell("둘 다 실패", m.bothFailed + "건") +
+        cell("되묻기", m.clarify + "건") +
+        cell("되묻기 선택", m.choicePicked + "건") +
+        cell("즉시 재질문", m.requery + "건") +
+        cell("서술 차단", m.narrateBlocked + "건") +
+      "</div>" +
+      (eff && eff.base
+        ? '<p class="ask-note">기준: ' + esc(String(eff.baseAt).slice(0, 16).replace("T", " ")) +
+          " (" + esc(eff.baseLabel || "스냅샷") + ") · 규칙 " + eff.base.rulePct + "% → " +
+          m.rulePct + "%</p>"
+        : '<p class="ask-note">아직 승격 이력이 없어 비교 기준이 없습니다. 첫 승격 시점의 지표가 기준으로 잡힙니다.</p>') +
+      '<div style="margin-top:var(--s-3)"><button class="btn btn-sm" id="qlog-resetm">지표 초기화</button></div>' +
+      "</div></section>";
+  }
+
   function qlogView() {
-    const L = window.AskLog;
-    if (!L) return '<div class="empty"><div class="empty-title">질의 로그 모듈이 로드되지 않았습니다</div></div>';
+    const L = window.AskLog, P = window.Promote, X = window.RuleLex;
+    if (!L || !P || !X) {
+      return '<div class="empty"><div class="empty-title">자가 개선 모듈이 로드되지 않았습니다</div></div>';
+    }
     const st = L.state();
     const list = st.list.slice().sort((a, b) => b.count - a.count || (a.at < b.at ? 1 : -1));
-    const sug = L.suggestions();
+    let sug = [];
+    try { sug = P.suggestions(); } catch (e) { sug = []; }
+    const lex = X.state().entries;
 
     const REASON_COLOR = { "규칙 미스": "#6D28D9", "낮은 확신": "#B45309", "되묻기": "#0F766E",
       "미지원": "#9F1239", "결과 0건": "#B45309", "가드 거절": "#9F1239",
-      "LLM 폴백": "#B45309", "되묻기 무시 후 재질문": "#6D28D9" };
+      "LLM 폴백": "#B45309", "되묻기 무시 후 재질문": "#6D28D9",
+      "즉시 재질문": "#9F1239", "되묻기 선택함": "#0F766E", "서술 수치 차단": "#9F1239" };
 
-    return '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
-      '<h2 class="card-title">규칙 사전 추가 후보</h2>' +
-      '<p class="ask-note">LLM 이 해석에 성공했지만 규칙 사전에는 없는 표현입니다. ' +
-      '승인하면 다음부터 규칙으로 처리하도록 사전에 넣을 대상으로 표시됩니다 ' +
-      '(코드는 사람이 반영합니다 — 사전을 자동으로 고치지 않습니다).</p>' +
+    return metricCards() +
+
+      /* ── 승격 제안 ───────────────────────────────────────────────── */
+      '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
+      '<h2 class="card-title">승격 제안 ' + sug.length + "건</h2>" +
+      '<p class="ask-note">LLM 이 해석에 성공했지만 규칙이 못 읽은 질문에서 뽑은 어휘입니다. ' +
+      '넣었을 때 실제로 의도가 바뀌는지 돌려 보고 고른 것이며, 승인 전에 핵심 스펙 ' +
+      (P.CORE_SPEC.length) + '개를 자동 검사합니다. 깨지는 항목이 있으면 승인 버튼이 막힙니다.</p>' +
       (sug.length
         ? '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
-          '<th scope="col">표현</th><th scope="col">넣을 곳</th><th scope="col">빈도</th>' +
+          '<th scope="col">어휘</th><th scope="col">대상 의도</th><th scope="col">빈도</th>' +
+          '<th scope="col">함께 해결</th><th scope="col">안전 검사</th>' +
           '<th scope="col">원 질문</th><th scope="col"></th></tr></thead><tbody>' +
-          sug.map(s => "<tr><td class=\"mono\" style=\"font-weight:600\">" + esc(s.phrase) + "</td>" +
+          sug.map((s, i) => "<tr>" +
+            '<td class="mono" style="font-weight:600">' + esc(s.phrase) + "</td>" +
             "<td>" + esc(s.target) + "</td>" +
             '<td class="mono">' + s.count + "회</td>" +
+            '<td class="mono">' + (s.alsoSolves.length ? "+" + s.alsoSolves.length + "건" : "—") + "</td>" +
+            "<td>" + (s.safe
+              ? '<span class="pill" style="border-color:#0F766E">통과</span>'
+              : '<span class="pill" style="border-color:#9F1239" title="' +
+                esc(s.breaks.join(" / ")) + '">' + s.breaks.length + "건 깨짐</span>") + "</td>" +
             "<td>" + esc(s.question) + "</td>" +
-            '<td><button class="btn btn-sm" data-approve="' + esc(s.question) + '">승인</button></td></tr>').join("") +
+            "<td>" + (s.safe
+              ? '<button class="btn btn-sm" data-promote="' + i + '">승인</button>'
+              : '<button class="btn btn-sm" disabled title="안전 검사 실패">승인 불가</button>') +
+            "</td></tr>").join("") +
           "</tbody></table></div>"
-        : '<div class="empty"><div class="empty-body">아직 제안할 표현이 없습니다.</div></div>') +
+        : '<div class="empty"><div class="empty-body">제안할 어휘가 없습니다. ' +
+          'LLM 이 해석에 성공한 기록이 쌓이면 여기에 나타납니다.</div></div>') +
       "</div></section>" +
 
+      /* ── 승격 이력 ───────────────────────────────────────────────── */
+      '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
+      '<h2 class="card-title">승격된 어휘 ' + lex.filter(e => e.active !== false).length + "건</h2>" +
+      '<p class="ask-note">규칙 사전 위에 얹혀 동작합니다. 하드코딩 규칙이 먼저 판정하고, ' +
+      '기본값으로 떨어졌을 때만 참조하므로 기존 해석을 바꾸지 않습니다. 되돌리면 즉시 원래대로 돌아갑니다.</p>' +
+      (lex.length
+        ? '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
+          '<th scope="col">어휘</th><th scope="col">의도</th><th scope="col">출처 질문</th>' +
+          '<th scope="col">승인</th><th scope="col">상태</th><th scope="col"></th></tr></thead><tbody>' +
+          lex.map(e => "<tr>" +
+            '<td class="mono" style="font-weight:600">' + esc(e.phrase) + "</td>" +
+            "<td>" + esc(P.INTENT_KO[e.intent] || e.intent || "—") + "</td>" +
+            "<td>" + esc(e.source || "—") + "</td>" +
+            '<td class="mono">' + esc(String(e.at).slice(0, 16).replace("T", " ")) + "</td>" +
+            "<td>" + (e.active === false
+              ? '<span class="pill" style="border-color:var(--c-line)">되돌림</span>'
+              : '<span class="pill" style="border-color:#0F766E">적용 중</span>') + "</td>" +
+            "<td>" + (e.active === false
+              ? '<button class="btn btn-sm" data-restore="' + esc(e.id) + '">다시 적용</button>'
+              : '<button class="btn btn-sm" data-revert="' + esc(e.id) + '">되돌리기</button>') +
+            "</td></tr>").join("") +
+          "</tbody></table></div>"
+        : '<div class="empty"><div class="empty-body">아직 승격된 어휘가 없습니다.</div></div>') +
+      "</div></section>" +
+
+      /* ── 기록된 질의 ─────────────────────────────────────────────── */
       '<section class="card"><div class="card-body">' +
       '<h2 class="card-title">기록된 질의 ' + list.length + "건</h2>" +
       '<p class="ask-note">규칙이 놓쳤거나 · 확신이 낮았거나 · 되묻기가 났거나 · 0건이었거나 · ' +
-      '미지원이었던 질문만 남습니다. 잘 처리된 질문은 기록하지 않습니다.</p>' +
+      '미지원이었거나 · 답을 받고 곧바로 다시 물은 질문입니다.</p>' +
       (list.length
         ? '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
           '<th scope="col">질문</th><th scope="col">사유</th><th scope="col">경로</th>' +
           '<th scope="col">결과</th><th scope="col">건수</th><th scope="col">확신</th>' +
-          '<th scope="col">빈도</th></tr></thead><tbody>' +
+          '<th scope="col">선택</th><th scope="col">빈도</th></tr></thead><tbody>' +
           list.map(e => "<tr><td>" + esc(e.question) + "</td>" +
             "<td>" + e.reasons.map(r => '<span class="pill" style="border-color:' +
               (REASON_COLOR[r] || "var(--c-line)") + '">' + esc(r) + "</span>").join(" ") + "</td>" +
@@ -100,23 +197,40 @@
             '<td class="mono">' + esc(e.kind || "—") + "</td>" +
             '<td class="mono">' + (e.rows == null ? "—" : e.rows) + "</td>" +
             '<td class="mono">' + (typeof e.confidence === "number" ? e.confidence.toFixed(2) : "—") + "</td>" +
+            "<td>" + esc(e.choice || "—") + "</td>" +
             '<td class="mono">' + e.count + "회</td></tr>").join("") +
           "</tbody></table></div>" +
           '<div style="margin-top:var(--s-4)"><button class="btn btn-sm" id="qlog-clear">기록 비우기</button></div>'
-        : '<div class="empty"><div class="empty-body">아직 기록된 질의가 없습니다. ' +
-          'AI 검색에서 규칙이 못 읽는 질문을 하면 여기에 쌓입니다.</div></div>') +
+        : '<div class="empty"><div class="empty-body">아직 기록된 질의가 없습니다.</div></div>') +
       "</div></section>";
   }
 
   function wireQlog() {
-    $$("[data-approve]").forEach(b => b.addEventListener("click", function () {
-      window.AskLog.approve(b.dataset.approve);
+    let sug = [];
+    try { sug = window.Promote.suggestions(); } catch (e) { sug = []; }
+
+    $$("[data-promote]").forEach(b => b.addEventListener("click", function () {
+      const s = sug[Number(b.dataset.promote)];
+      if (!s) return;
+      const res = window.Promote.approve(s, (window.Auth.current() || {}).name);
+      if (!res.ok) {
+        window.alert("승격을 막았습니다 — 다음 항목이 깨집니다:\n\n" + res.fails.join("\n"));
+        return;
+      }
+      paint();
+    }));
+    $$("[data-revert]").forEach(b => b.addEventListener("click", function () {
+      window.Promote.revert(b.dataset.revert, "관리자 되돌림");
+      paint();
+    }));
+    $$("[data-restore]").forEach(b => b.addEventListener("click", function () {
+      window.RuleLex.restore(b.dataset.restore);
       paint();
     }));
     const c = $("#qlog-clear");
-    if (c) c.addEventListener("click", function () {
-      window.AskLog.clear(); paint();
-    });
+    if (c) c.addEventListener("click", function () { window.AskLog.clear(); paint(); });
+    const m = $("#qlog-resetm");
+    if (m) m.addEventListener("click", function () { window.AskLog.resetCounts(); paint(); });
   }
 
   /* ── Sub-menu ───────────────────────────────────────────────────────── */

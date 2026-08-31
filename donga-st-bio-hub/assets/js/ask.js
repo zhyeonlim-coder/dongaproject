@@ -37,8 +37,13 @@ window.Ask = (function () {
     prev: null,           // 직전 질의의 범위·항목 (후속 질문이 이어받습니다)
     turns: [],            // 최근 3턴 (LLM 에는 2턴만 요약으로 전달)
     debug: null,          // 경로·슬롯·소요 시간 (개발 모드에서만 표시)
-    lastWasClarify: false // 되묻기에 답하지 않고 새 문장을 던졌는지 판정용
+    lastWasClarify: false,// 되묻기에 답하지 않고 새 문장을 던졌는지 판정용
+    lastAnswerAt: null,   // 직전 답변 시각 (즉시 재질문 감지)
+    lastQuestion: null
   };
+
+  /* 이 시간 안에 다른 질문을 던지면 "답이 만족스럽지 않았다"로 봅니다 */
+  const REQUERY_MS = 20000;
 
   /* 개발 모드 — ?dev=1 또는 localStorage 로 켭니다. 배포 화면에는 안 뜹니다. */
   const DEV = (function () {
@@ -430,6 +435,9 @@ window.Ask = (function () {
       const r = S.result;
       const c = r && r.choices ? r.choices[Number(b.dataset.choice)] : null;
       if (!c) return;
+      /* 되묻기에 사용자가 무엇을 골랐는지 남깁니다 — 어느 해석이 실제로
+         의도였는지 알아야 다음에 되묻지 않을 수 있습니다. */
+      if (window.AskLog) window.AskLog.recordChoice(r.question, c.label);
       S.q = c.question;
       const i = $("#ask-q"); if (i) i.value = S.q;
       run();
@@ -633,13 +641,21 @@ window.Ask = (function () {
     if (S.turns.length > 3) S.turns.shift();
 
     if (window.AskLog) {
+      /* 답을 받고 곧바로 다시 물었다면 앞 답이 만족스럽지 않았다는 신호입니다 */
+      if (S.lastAnswerAt && S.lastQuestion && S.lastQuestion !== r.question) {
+        const gap = Date.now() - S.lastAnswerAt;
+        if (gap < REQUERY_MS) window.AskLog.recordRequery(S.lastQuestion, gap);
+      }
       window.AskLog.record({
         question: r.question, path: path, kind: r.kind, intent: r.intent,
         rows: r.scopeRows, slots: S.debug.slots,
+        ms: S.debug.ms, llmMs: S.debug.llmMs,
         confidence: guard ? guard.confidence : null,
         rejected: guard ? guard.rejected : [],
         repeatedAfterClarify: !!S.lastWasClarify
       });
+      S.lastAnswerAt = Date.now();
+      S.lastQuestion = r.question;
     }
     S.lastWasClarify = (r.kind === "clarify");
     repaint();
