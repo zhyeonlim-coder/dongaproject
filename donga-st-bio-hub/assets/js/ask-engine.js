@@ -148,7 +148,15 @@ window.AskEngine = (function () {
     return NOT_RECORDED.filter(e => e.terms.some(t => has(text, t))).map(e => e.ko);
   }
 
+  /* 규격 판정 질의 — "실패한 배치 있어?" · "스펙 벗어난 항목" · "규격 내에 있어?" */
+  const SPEC_WORDS = ["규격", "스펙", "spec", "합격", "불합격", "적합", "부적합",
+    "pass/fail", "pass fail", "일탈", "oos", "실패한 배치", "실패 배치", "벗어난", "벗어나"];
+  function detectSpecAsk(text) { return SPEC_WORDS.some(w => has(text, w)); }
+
   function detectIntent(text) {
+    /* 규격 판정이 먼저입니다 — "스펙 벗어난 항목" 의 "항목" 이 다른 의도로
+       읽히면 판정 대신 목록이 나갑니다 */
+    if (detectSpecAsk(text)) return "spec";
     if (["추이", "추세", "변화", "trend", "일자별", "날짜별", "경시"].some(t => has(text, t))) return "trend";
     if (["미입력", "결측", "빠진", "누락", "missing", "비어"].some(t => has(text, t))) return "missing";
     if (["비교", "대비", "차이", "versus", " vs ", "compare"].some(t => has(text, t))) return "compare";
@@ -491,7 +499,8 @@ window.AskEngine = (function () {
   /* 조건처럼 보이지만 지금 구조로는 처리할 수 없는 것들 — 반드시 밝힙니다 */
   const CANT_YET = [
     { terms: ["왜", "원인", "이유", "때문"], ko: "원인 분석(\"왜\")", why: "값 조회만 가능하고 원인 추론은 아직 지원하지 않습니다" },
-    { terms: ["스펙", "규격", "spec", "합격", "불합격", "pass", "fail", "일탈", "ooS", "oos"], ko: "규격 판정", why: "규격 한계값 테이블이 아직 도입되지 않아 Pass/Fail 을 판정할 수 없습니다" }
+    /* 규격 판정은 이제 지원합니다. 다만 등록된 규격이 하나도 없으면
+       판정할 수 없으므로, 그때만 이 안내를 붙입니다 (specAnswer 가 처리). */
     /* "그거 · 그럼" 같은 후속 표현은 이제 직전 질의에서 이어받습니다
        (answer() 의 맥락 승계). 이어받을 것이 없을 때만 안내를 붙입니다. */
   ];
@@ -644,7 +653,15 @@ window.AskEngine = (function () {
       }
     });
 
-    /* ── 4. 제외 ───────────────────────────────────────────────────── */
+    /* ── 4. 제외 ─────────────────────────────────────────────────────
+       판정 결과로 거르는 것("Fail 제외")은 규격이 있어도 아직 못 합니다.
+       판정은 하지만 그 결과를 필터 조건으로 쓰지는 못합니다 — 밝힙니다. */
+    if (/(fail|불합격|부적합|실패|일탈)[^.]{0,6}(빼고|제외|except)/i.test(text)) {
+      c.unhandled.push("\"Fail 제외\" — 규격 판정 결과로 행을 거르는 조건은 아직 지원하지 않습니다. " +
+        (window.Specs && window.Specs.count()
+          ? "판정 자체는 \"규격 벗어난 배치\" 로 물으면 됩니다"
+          : "규격이 등록되면 판정은 가능합니다"));
+    }
     if (/(미입력|결측|빈\s*값|null)[^.]{0,6}(빼고|제외|except|없는 것만 빼)/.test(text)) {
       if (primary) {
         c.excludeMissing = true;
@@ -1041,6 +1058,11 @@ window.AskEngine = (function () {
 
     base.carry.rowIds = rows.map(r => r.__id);
 
+    /* ── 규격 판정 — 항목을 지목하지 않아도 답해야 합니다 ────────────────
+       "실패한 배치 있어?" 에는 조회할 항목 이름이 없습니다. 항목 폴백보다
+       앞에 두지 않으면 판정 대신 목록이 나갑니다. */
+    if (intent === "spec") return decorate(specAnswer(base, table, rows, metrics), cond, table);
+
     /* ── 수치 항목이 아닌 대상들 — 날짜 열 · 지표군 · 행 자체 ──────────
        수치 항목이 함께 잡혔으면 기존 계산 경로를 그대로 씁니다 (회귀 방지). */
     if (!metrics.length) {
@@ -1154,6 +1176,112 @@ window.AskEngine = (function () {
       note: "아직 못 하는 것 — 규격 판정(Pass/Fail: 한계값 테이블 미도입) · " +
         "원인 분석(\"왜 낮았지?\") · 오늘 날짜 기준 상대 기간(\"지난달\"). " +
         "이런 질문에는 답 대신 그 사실을 알려 드립니다.",
+      suggestions: suggestList(table)
+    });
+  }
+
+  /* ── 규격 판정 ───────────────────────────────────────────────────────
+     가장 조심해야 하는 응답입니다. 12개 항목 중 5개만 규격이 등록됐는데
+     "적합" 이라고 답하면 읽는 사람은 12개가 다 통과한 것으로 받아들입니다.
+     그래서 판정 건수와 미등록 건수를 문장 앞쪽에 함께 답니다. */
+  function specAnswer(base, table, rows, metrics) {
+    const S = window.Specs;
+    const numCols = table.columns.filter(c => c.type === "num");
+
+    if (!S || !S.count()) {
+      return Object.assign(base, {
+        ok: false, kind: "spec-none",
+        headline: "등록된 규격이 하나도 없어 Pass/Fail 을 판정할 수 없습니다. " +
+          "값을 지어내 판정하지 않습니다.",
+        hints: [
+          "규격을 등록하면 이 질문에 바로 답할 수 있습니다 — DoE & Intelligence → 규격(Spec) 관리.",
+          "규격 없이도 값 자체는 조회하실 수 있습니다 (예: \"" +
+            (suggestList(table)[0] || "Titer") + " 가장 낮은 배치는?\", \"" +
+            (suggestList(table)[0] || "Titer") + " 분포\")."
+        ],
+        note: "규격 한계값은 규제 문서의 내용이라 시스템이 임의로 채우지 않습니다.",
+        suggestions: suggestList(table)
+      });
+    }
+
+    /* 질문에 항목이 지목됐으면 그 항목만 봅니다 */
+    const only = metrics && metrics.length ? metrics.map(c => c.key) : null;
+    const results = rows.map(r => S.judgeRow(r, table)).map(function (j) {
+      if (!only) return j;
+      const keep = x => only.indexOf(x.key) > -1;
+      const judged = j.judged.filter(keep);
+      return Object.assign({}, j, {
+        judged: judged,
+        unregistered: j.unregistered.filter(keep),
+        noValue: j.noValue.filter(keep),
+        verdict: judged.length ? (judged.some(x => x.verdict === "fail") ? "fail" : "pass") : "unknown",
+        coverage: { judged: judged.length, total: only.length }
+      });
+    });
+
+    const failed = results.filter(x => x.verdict === "fail");
+    const passed = results.filter(x => x.verdict === "pass");
+    const unknown = results.filter(x => x.verdict === "unknown");
+
+    /* 판정 범위 — 이 문장이 빠지면 부분 판정이 전체 판정으로 읽힙니다 */
+    const totalCols = only ? only.length : numCols.length;
+    const judgedKeys = {};
+    results.forEach(x => x.judged.forEach(j => { judgedKeys[j.key] = 1; }));
+    const judgedCount = Object.keys(judgedKeys).length;
+    const coverage = "조회한 " + (only ? "항목 " : "측정 항목 ") + totalCols + "개 중 " +
+      judgedCount + "개에만 규격이 등록되어 있어, 해당 " + judgedCount + "개만 판정했습니다.";
+
+    const headline = judgedCount === 0
+      ? base.scopeLabel + " 범위 " + rows.length + "건에 적용할 규격이 등록되어 있지 않아 판정하지 못했습니다."
+      : base.scopeLabel + " 범위 " + rows.length + "건 중 규격을 벗어난 배치는 " +
+        failed.length + "건입니다" + (passed.length ? " (적합 " + passed.length + "건" +
+        (unknown.length ? ", 판정 불가 " + unknown.length + "건" : "") + ")" : "") + ". " + coverage;
+
+    /* 벗어난 항목을 근거와 함께 나열합니다 */
+    const evRows = [];
+    failed.forEach(function (x) {
+      x.judged.filter(j => j.verdict === "fail").forEach(function (j) {
+        evRows.push({
+          __label: x.row.__label,
+          item: j.label,
+          value: fmt(j.value, { unit: j.spec.unit || "", dp: undefined }),
+          spec: S.rangeText(j.spec),
+          scope: S.scopeText(j.spec),
+          doc: j.spec.doc
+        });
+      });
+    });
+
+    const notes = [];
+    if (judgedCount < totalCols) {
+      notes.push("규격이 등록되지 않은 항목 " + (totalCols - judgedCount) +
+        "개는 판정하지 않았습니다 — 판정하지 않은 것과 적합한 것은 다릅니다.");
+    }
+    if (unknown.length) {
+      notes.push("판정 불가 " + unknown.length + "건은 규격이 있는 항목의 값이 미입력이라 비교할 수 없었습니다.");
+    }
+
+    return Object.assign(base, {
+      kind: "spec",
+      headline: headline,
+      facts: [
+        { k: "부적합", v: failed.length + "건" },
+        { k: "적합", v: passed.length + "건" },
+        { k: "판정 불가", v: unknown.length + "건" },
+        { k: "규격 등록 항목", v: judgedCount + " / " + totalCols + "개" }
+      ],
+      rows: evRows.slice(0, 20),
+      evidenceCols: [
+        { key: "__label", label: "Batch" }, { key: "item", label: "항목" },
+        { key: "value", label: "측정값" }, { key: "spec", label: "규격" },
+        { key: "scope", label: "적용 범위" }, { key: "doc", label: "근거 문서" }
+      ],
+      focusLabels: failed.length === 1 ? [failed[0].row.__label] : null,
+      note: notes.join(" "),
+      hints: judgedCount < totalCols
+        ? ["규격이 없는 항목: " + (results[0] ? results[0].unregistered.slice(0, 6).map(u => u.label).join(", ") : "") +
+           (results[0] && results[0].unregistered.length > 6 ? " 외" : "")]
+        : [],
       suggestions: suggestList(table)
     });
   }

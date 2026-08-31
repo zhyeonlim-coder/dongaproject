@@ -16,9 +16,12 @@ window.Catalog = (function () {
 
   /* 지금 못 하는 것들. 모델이 이걸 알아야 "못 한다"고 정직하게 분류합니다. */
   const UNSUPPORTED = [
+    /* 규격 판정은 이제 지원합니다. 다만 등록된 규격이 없으면 판정할 수
+       없으므로, 그때만 미지원 목록에 넣습니다 (unsupportedFor 참조). */
     { id: "spec-judgement", ko: "규격 판정(Pass/Fail)",
-      why: "항목별 규격 한계값 테이블이 아직 등록되지 않았습니다",
-      instead: "해당 항목의 값 분포(평균 · 범위 · 최고 · 최저)는 보여 드릴 수 있습니다" },
+      why: "항목별 규격 한계값이 아직 등록되지 않았습니다",
+      instead: "해당 항목의 값 분포(평균 · 범위 · 최고 · 최저)는 보여 드릴 수 있습니다",
+      onlyWhenNoSpecs: true },
     { id: "root-cause", ko: "원인 분석(\"왜 낮았지?\")",
       why: "값 조회만 하며 인과를 추론하지 않습니다",
       instead: "해당 배치의 기록된 값 전체와 같은 범위의 다른 배치를 나란히 보여 드릴 수 있습니다" },
@@ -93,8 +96,14 @@ window.Catalog = (function () {
       }),
       batchIds: t.rows.map(r => r.__label),
       teams: (window.DATA_TEAMS || []).map(x => ({ id: x.id, ko: x.ko })),
-      supportedIntents: INTENTS,
-      unsupportedFeatures: UNSUPPORTED
+      specCount: window.Specs ? window.Specs.count() : 0,
+      supportedIntents: INTENTS.concat(
+        (window.Specs && window.Specs.count())
+          ? [{ id: "spec", ko: "규격 판정(Pass/Fail) — 등록된 규격 " + window.Specs.count() + "건" }]
+          : []),
+      /* 규격이 등록되면 "못 한다" 목록에서 빠집니다 */
+      unsupportedFeatures: UNSUPPORTED.filter(u =>
+        !(u.onlyWhenNoSpecs && window.Specs && window.Specs.count() > 0))
     };
   }
 

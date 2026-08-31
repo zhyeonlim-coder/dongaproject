@@ -35,7 +35,21 @@ window.AskLog = (function () {
   function blank() {
     return { total: 0, rule: 0, llm: 0, fallback: 0, rejected: 0,
              clarify: 0, unsupported: 0, zero: 0, bothFailed: 0,
-             narrateBlocked: 0, requery: 0, choicePicked: 0, totalMs: 0, llmMs: 0, llmCalls: 0 };
+             narrateBlocked: 0, resultBlocked: 0, specNone: 0,
+             requery: 0, choicePicked: 0, totalMs: 0, llmMs: 0, llmCalls: 0 };
+  }
+  /* 일별 집계 — 파일럿 대시보드가 추이를 그리려면 날짜별로 나눠야 합니다.
+     개인정보는 담지 않습니다. 질문 원문과 사번 단위 식별자까지만입니다. */
+  function today() {
+    const d = new Date(), p = n => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  }
+  function dayBucket() {
+    const k = today();
+    state.days = state.days || {};
+    if (!state.days[k]) state.days[k] = { total: 0, rule: 0, llm: 0, fallback: 0,
+      clarify: 0, requery: 0, zero: 0, unsupported: 0, blocked: 0, ms: 0 };
+    return state.days[k];
   }
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* 저장 실패는 조회를 막지 않습니다 */ }
@@ -62,11 +76,35 @@ window.AskLog = (function () {
     else if (entry.path === "llm-rejected") c.rejected += 1;
     else if (entry.path === "narrate-blocked") c.narrateBlocked += 1;
 
+    if (entry.path === "result-blocked") c.resultBlocked += 1;
     if (entry.kind === "clarify") c.clarify += 1;
     if (entry.kind === "unsupported") c.unsupported += 1;
+    if (entry.kind === "spec-none") c.specNone += 1;
     if (entry.rows === 0) c.zero += 1;
     if (entry.repeatedAfterClarify) c.requery += 1;
     if (entry.choicePicked) c.choicePicked += 1;
+
+    const d = dayBucket();
+    d.total += 1;
+    if (typeof entry.ms === "number") d.ms += entry.ms;
+    if (entry.path === "rule") d.rule += 1;
+    else if (entry.path === "llm") d.llm += 1;
+    else if (entry.path === "rule-fallback") d.fallback += 1;
+    if (entry.kind === "clarify") d.clarify += 1;
+    if (entry.kind === "unsupported" || entry.kind === "spec-none") d.unsupported += 1;
+    if (entry.rows === 0) d.zero += 1;
+    if (entry.path === "result-blocked" || entry.path === "narrate-blocked") d.blocked += 1;
+  }
+
+  /* 최근 N일 집계 — 파일럿 리포트가 씁니다 */
+  function daily(n) {
+    const days = state.days || {};
+    return Object.keys(days).sort().slice(-(n || 14)).map(function (k) {
+      const d = days[k];
+      return Object.assign({ date: k,
+        rulePct: d.total ? Math.round(d.rule / d.total * 1000) / 10 : null,
+        avgMs: d.total ? Math.round(d.ms / d.total * 100) / 100 : null }, d);
+    });
   }
 
   /* 상시 표시용 지표 */
@@ -88,6 +126,52 @@ window.AskLog = (function () {
   }
 
   function resetCounts() { state.counts = blank(); save(); }
+
+  /* ── 2주 리포트 ──────────────────────────────────────────────────────
+     파일럿이 끝나면 세 가지를 봅니다.
+       1) 실제 질문이 어떤 유형이었나 — 우리가 예상한 분포와 얼마나 다른가
+       2) 규칙 경로 비율이 올라갔나 — 승격 루프가 도는지의 유일한 증거
+       3) 실패 · 재질문이 몰린 질문 — 다음에 무엇을 고쳐야 하는가 */
+  function report(days) {
+    const n = days || 14;
+    const d = daily(n);
+    const first = d.length ? d[0] : null;
+    const last = d.length ? d[d.length - 1] : null;
+
+    /* 질문 유형 분포 — 기록된 의도 기준 */
+    const byIntent = {};
+    state.list.forEach(function (e) {
+      const k = e.intent || e.kind || "(미분류)";
+      byIntent[k] = (byIntent[k] || 0) + (e.count || 1);
+    });
+
+    /* 실패 · 재질문이 몰린 질문 */
+    const trouble = state.list.slice().filter(function (e) {
+      return e.reasons.some(r => /즉시 재질문|LLM 폴백|결과 0건|미지원|가드 거절|차단/.test(r));
+    }).sort((a, b) => (b.count || 1) - (a.count || 1)).slice(0, 20);
+
+    const sum = d.reduce(function (a, x) {
+      a.total += x.total; a.rule += x.rule; a.clarify += x.clarify;
+      a.requery += x.requery; a.zero += x.zero; a.ms += x.ms;
+      return a;
+    }, { total: 0, rule: 0, clarify: 0, requery: 0, zero: 0, ms: 0 });
+
+    return {
+      days: d, from: first ? first.date : null, to: last ? last.date : null,
+      total: sum.total,
+      rulePct: sum.total ? Math.round(sum.rule / sum.total * 1000) / 10 : null,
+      rulePctFirst: first ? first.rulePct : null,
+      rulePctLast: last ? last.rulePct : null,
+      clarifyPct: sum.total ? Math.round(sum.clarify / sum.total * 1000) / 10 : null,
+      requeryPct: sum.total ? Math.round(state.counts.requery / sum.total * 1000) / 10 : null,
+      zeroPct: sum.total ? Math.round(sum.zero / sum.total * 1000) / 10 : null,
+      avgMs: sum.total ? Math.round(sum.ms / sum.total * 100) / 100 : null,
+      byIntent: Object.keys(byIntent).map(k => ({ intent: k, n: byIntent[k] }))
+        .sort((a, b) => b.n - a.n),
+      trouble: trouble,
+      pendingPromotions: (window.Promote ? window.Promote.suggestions().length : 0)
+    };
+  }
 
   /* 되묻기에서 사용자가 어느 쪽을 골랐는지 */
   function recordChoice(question, label) {
@@ -219,7 +303,7 @@ window.AskLog = (function () {
 
   return {
     record: record, suggestions: suggestions, approve: approve, clear: clear,
-    metrics: metrics, resetCounts: resetCounts,
+    metrics: metrics, resetCounts: resetCounts, daily: daily, report: report,
     recordChoice: recordChoice, recordRequery: recordRequery,
     on: on, state: () => state, KEY: KEY
   };

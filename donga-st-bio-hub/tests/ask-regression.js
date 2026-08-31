@@ -45,7 +45,8 @@ window.AskRegression = (function () {
     /* 실측 18~2494 mg/L 에서 "3" 은 단위가 안 맞습니다 — 되물어야 합니다 */
     { q: "Titer 3 이상인 배치",            kind: "clarify" },
     { q: "Titer 상위 5개",                applied: /상위 5/ },
-    { q: "스펙 벗어난 항목 있어?",           unhandled: /규격/ },
+    /* 규격 판정을 지원합니다. 등록된 규격이 없으면 그 사실을 답합니다. */
+    { q: "스펙 벗어난 항목 있어?",           headline: /규격/ },
     { q: "생존율 평균이랑 편차",             intent: "stat",    kind: "stat" },
     { q: "과제별 Total Yield 비교",         intent: "compare", kind: "compare" },
     { q: "일자별 Titer 추이",              intent: "trend",   kind: "trend" },
@@ -205,6 +206,7 @@ window.AskRegression = (function () {
       if (c.scope && r.scopeLabel !== c.scope) fail.push("scope=" + r.scopeLabel + " 기대=" + c.scope);
       if (typeof c.rows === "number" && r.scopeRows !== c.rows) fail.push("rows=" + r.scopeRows + " 기대=" + c.rows);
       if (c.minRows && r.scopeRows < c.minRows) fail.push("rows=" + r.scopeRows + " < " + c.minRows);
+      if (c.headline && !c.headline.test(String(r.headline || ""))) fail.push("응답 문장에 " + c.headline + " 없음");
       if (c.applied && !c.applied.test((r.applied || []).join(" "))) fail.push("해석 조건에 " + c.applied + " 없음");
       if (c.unhandled && !c.unhandled.test((r.unhandled || []).join(" "))) fail.push("무시 조건에 " + c.unhandled + " 없음");
       if (c.warn === true && !(r.warnings && r.warnings.length)) fail.push("좁혀지지 않았는데 경고가 없음");
@@ -398,6 +400,10 @@ window.AskRegression = (function () {
     if (window.AskVerify && window.AskVerify.checkResult) {
       out.coverage = runCoverageChecks(t);
       summarize("O. 수치 검증 적용 범위", out.coverage, out.coverage);
+    }
+    if (window.Specs) {
+      out.spec = runSpecChecks(t);
+      summarize("P. 규격 판정", out.spec, out.spec);
     }
     if (window.Promote && window.RuleLex) {
       out.core = runCoreSpec(t);
@@ -617,6 +623,86 @@ window.AskRegression = (function () {
     return next();
   }
 
+  /* ── P. 규격 판정 ────────────────────────────────────────────────────
+     가장 조심해야 하는 응답입니다. 부분 등록 상태에서 전체를 판정한 것처럼
+     답하면 규제 문서에 잘못된 결론이 실립니다.
+     검사 뒤에는 반드시 원래 상태로 되돌립니다. */
+  function runSpecChecks(t) {
+    const S2 = window.Specs, E = window.AskEngine;
+    const before = JSON.parse(JSON.stringify(S2.state()));
+    const out = [];
+    const add = (q, ok, note) => out.push({ q: q, pass: ok, fail: ok ? [] : [note],
+      kind: "-", count: 0, intent: "-", applied: "-", unhandled: "-" });
+
+    try {
+      /* 1) 규격이 없으면 판정하지 않고 그 사실을 밝힌다 */
+      S2.clear();
+      let r = E.answer("실패한 배치 있어?", { table: t });
+      add("규격 0건 · 판정하지 않고 사유 명시",
+        r.kind === "spec-none" && /판정할 수 없/.test(r.headline) && (r.hints || []).length,
+        "kind=" + r.kind);
+
+      /* 2) 근거 문서 없이는 등록할 수 없다 */
+      add("근거 문서 없이 등록 거부", S2.add({ columnKey: "titerHCCF", lo: 100, doc: "" }).ok === false,
+        "근거 없는 규격이 등록됨");
+      /* 3) 하한 > 상한 거부 */
+      add("하한 > 상한 거부",
+        S2.add({ columnKey: "titerHCCF", lo: 200, hi: 100, doc: "x" }).ok === false, "역전된 범위가 등록됨");
+
+      /* 4) 부분 등록 — "몇 개 중 몇 개" 를 반드시 말한다 */
+      const via = t.columns.find(c => /Final Viability/i.test(c.label));
+      const hcp = t.columns.find(c => /^HCP$/i.test(c.label));
+      S2.add({ columnKey: via.key, lo: 70, hi: null, unit: via.unit, scope: { type: "all" }, doc: "SOP-QC-014" });
+      S2.add({ columnKey: hcp.key, lo: null, hi: 100, unit: hcp.unit, scope: { type: "all" }, doc: "제품표준서 3.2" });
+      r = E.answer("실패한 배치 있어?", { table: t });
+      add("부분 등록 · 판정 범위를 문장에 명시",
+        r.kind === "spec" && /중 2개에만 규격이 등록/.test(r.headline), "문장: " + String(r.headline).slice(0, 80));
+      add("부분 등록 · 미판정 항목을 적합으로 세지 않음",
+        /판정하지 않은 것과 적합한 것은 다릅니다/.test(String(r.note || "")), "note 에 경고 없음");
+
+      /* 5) 근거 규격과 문서를 함께 표시 */
+      const cols = (r.evidenceCols || []).map(c => c.key);
+      add("판정 근거(규격 · 적용 범위 · 문서) 표시",
+        cols.indexOf("spec") > -1 && cols.indexOf("doc") > -1 && cols.indexOf("scope") > -1,
+        "근거 컬럼 없음: " + cols.join(","));
+
+      /* 6) 값이 없으면 판정 불가로 분류 (적합도 부적합도 아님) */
+      r = E.answer("생존율 규격 벗어난 거", { table: t });
+      const f = (r.facts || []).find(x => x.k === "판정 불가");
+      add("값 미입력은 판정 불가로 분류", !!f && f.v === "1건", "판정 불가=" + (f && f.v));
+
+      /* 7) 범위를 지정하면 그 범위만 판정 */
+      r = E.answer("B123-2 규격 내에 있어?", { table: t });
+      add("배치 지정 시 그 배치만 판정", r.scopeRows === 1, "rows=" + r.scopeRows);
+
+      /* 8) Audit Trail — 덮어쓰지 않고 이력으로 쌓는다 */
+      const s = S2.state().list[0];
+      const prevHi = s.hi;
+      add("사유 없는 수정 거부", S2.update(s.id, { hi: 120 }).ok === false, "사유 없이 수정됨");
+      const up = S2.update(s.id, { hi: 120 }, "QC 개정");
+      const after = S2.state().list.find(x => x.id === s.id);
+      add("수정 시 이전 값 보존",
+        up.ok && after.history.length === 1 && after.history[0].hi === prevHi,
+        "이력=" + (after && after.history.length));
+      add("변경 일시가 초 단위", /\d{2}:\d{2}:\d{2}$/.test(after.at), "at=" + after.at);
+      add("변경 사유 기록", after.history[0].reason === "QC 개정", "사유 없음");
+
+      /* 9) 비활성화는 삭제가 아니다 */
+      const n0 = S2.state().list.length;
+      S2.deactivate(s.id, "테스트");
+      add("비활성화는 삭제하지 않음",
+        S2.state().list.length === n0 && S2.state().list.find(x => x.id === s.id).active === false,
+        "기록이 사라짐");
+    } finally {
+      S2.clear();
+      (before.list || []).slice().reverse().forEach(function (e) {
+        S2.add({ columnKey: e.columnKey, lo: e.lo, hi: e.hi, unit: e.unit,
+                 scope: e.scope, doc: e.doc, demo: e.demo, by: e.by });
+      });
+    }
+    return out;
+  }
+
   /* ── O. 수치 검증 적용 범위 ──────────────────────────────────────────
      응답 경로마다 대표 질문을 하나씩 놓고, 그 경로의 응답이 검증을 지나는지
      본다. 경로가 새로 생겼는데 검증을 안 지나면 여기서 걸립니다.
@@ -822,7 +908,7 @@ window.AskRegression = (function () {
      ["I. 하이브리드 30문항", r.hybrid], ["J. 가드", r.guard],
      ["K. 서술 수치 검증", r.verify], ["L. 장애 대비", r.faults],
      ["M. 승격 안전 스펙", r.core], ["N. 자가 개선 루프", r.loop],
-     ["O. 수치 검증 적용 범위", r.coverage]]
+     ["O. 수치 검증 적용 범위", r.coverage], ["P. 규격 판정", r.spec]]
       .forEach(function (pair) {
         if (!pair[1]) return;
         L.push(pair[0]);

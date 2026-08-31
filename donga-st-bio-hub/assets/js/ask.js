@@ -42,8 +42,8 @@ window.Ask = (function () {
     lastQuestion: null
   };
 
-  /* 이 시간 안에 다른 질문을 던지면 "답이 만족스럽지 않았다"로 봅니다 */
-  const REQUERY_MS = 20000;
+  /* 답을 받고 이 시간 안에 다른 질문을 던지면 "답이 만족스럽지 않았다"로 봅니다 */
+  const REQUERY_MS = 30000;
 
   /* 개발 모드 — ?dev=1 또는 localStorage 로 켭니다. 배포 화면에는 안 뜹니다. */
   const DEV = (function () {
@@ -54,15 +54,32 @@ window.Ask = (function () {
     } catch (e) { return false; }
   })();
 
-  const CHIPS = [
-    "DA-1234 과제의 최고 Titer 값과 해당 배양 조건 알려줘",
-    "수율이 가장 높은 Batch는?",
-    "DA-4321 생존율 평균과 편차",
-    "과제별 Total Yield 비교",
-    "일자별 Titer 추이",
-    "미입력이 가장 많은 항목은?",
-    "CHO 유가배양 역가 향상 최신 논문"
-  ];
+  /* ── 온보딩 예시 ──────────────────────────────────────────────────────
+     처음 쓰는 연구원은 무엇을 물을 수 있는지 모릅니다. 지원하는 의도 6가지를
+     하나씩, 실제로 동작하는 문장으로 놓습니다.
+
+     문항을 코드에 박지 않고 데이터에서 만듭니다 — 원본이 바뀌면 예시도
+     같이 바뀌어야 "눌렀는데 0건" 이 나오지 않습니다. */
+  function onboardingChips() {
+    const t = window.AskTables.internal();
+    const names = window.AskEngine.knownMetrics(t);
+    const pick = (re, fb) => names.find(n => re.test(n)) || fb || names[0] || "Titer HCCF";
+    const titer = pick(/titer/i);
+    const yieldCol = pick(/total yield|수율/i, titer);
+    const via = pick(/viability/i, titer);
+    const ds = t.rows.map(r => r.date).filter(Boolean).sort();
+    const last = ds.length ? ds[ds.length - 1] : null;
+    const month = last ? last.slice(0, 4) + "년 " + Number(last.slice(5, 7)) + "월" : "";
+
+    return [
+      { ko: "최고 · 최저", q: titer + " 가장 높은 배치는?" },
+      { ko: "평균 · 편차", q: via + " 평균이랑 편차" },
+      { ko: "추이",       q: "일자별 Titer 추이" },
+      { ko: "비교",       q: "과제별 " + yieldCol + " 비교" },
+      { ko: "결측",       q: "미입력이 가장 많은 항목은?" },
+      { ko: "목록 · 조건", q: month ? month + " 배치 보여줘" : yieldCol + " 상위 5개" }
+    ];
+  }
 
   /* ══════════════════════════════════════════════════════════════════════
      화면
@@ -92,9 +109,12 @@ window.Ask = (function () {
           (S.busy ? " disabled" : "") + ">" + (S.busy ? "검색 중…" : "검색") + "</button>" +
       "</div>" +
 
-      '<div class="ai-suggest">' +
-        CHIPS.map(c => '<button class="ai-chip" data-q="' + esc(c) + '">' + esc(c) + "</button>").join("") +
-      "</div>" +
+      '<div class="ask-onboard"><span class="ask-onboard-k">이런 걸 물어보실 수 있습니다</span>' +
+        '<div class="ai-suggest">' +
+          onboardingChips().map(c =>
+            '<button class="ai-chip" data-q="' + esc(c.q) + '">' +
+              '<span class="ai-chip-k">' + esc(c.ko) + "</span>" + esc(c.q) + "</button>").join("") +
+        "</div></div>" +
 
       (tables.length > 1
         ? '<div class="ask-tablepick"><label for="ask-table">조회 대상 표</label>' +

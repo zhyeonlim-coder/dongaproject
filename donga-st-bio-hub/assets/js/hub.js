@@ -34,7 +34,7 @@
   let tab = (location.hash || "").replace("#", "") || "doe";
   /* 예전 #lit 링크(K-Ron)는 AI 검색으로 보냅니다 — 북마크가 죽지 않도록 */
   if (tab === "lit") tab = "ai";
-  if (["doe", "ai", "wiki", "qlog"].indexOf(tab) === -1) tab = "doe";
+  if (["doe", "ai", "wiki", "spec", "qlog"].indexOf(tab) === -1) tab = "doe";
 
   /* Troubleshooting 위키 상태 — 작성 중인지 / 어느 기록을 수정 중인지 */
   let wikiWriting = false, wikiEdit = null;
@@ -107,6 +107,198 @@
       "</div></section>";
   }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     규격(Spec) 관리
+
+     빈 상태로 시작합니다. 규격 한계값은 규제 문서의 내용이라 시스템이
+     임의로 채우지 않습니다. 수정해도 덮어쓰지 않고 이력으로 쌓습니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function specView() {
+    const S2 = window.Specs;
+    if (!S2) return '<div class="empty"><div class="empty-title">규격 모듈이 로드되지 않았습니다</div></div>';
+    const t = window.AskTables.internal();
+    const list = S2.state().list;
+    const cols = t.columns.filter(c => c.type === "num");
+    const projects = (window.DATA_PROJECTS || []).map(p => p.code);
+    const studies = (window.DATA_STUDIES || []).map(s => s.name);
+
+    return '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
+      '<h2 class="card-title">규격 등록</h2>' +
+      '<p class="ask-note">등록된 규격이 있는 항목만 Pass/Fail 을 판정합니다. ' +
+      '규격이 없는 항목은 판정하지 않고 그 사실을 답변에 적습니다 — ' +
+      '판정하지 않은 것과 적합한 것은 다릅니다.<br>' +
+      '근거 문서는 필수입니다. 근거 없는 규격은 판정에 쓸 수 없습니다.</p>' +
+
+      '<div class="form-grid">' +
+        '<label class="fld"><span>항목</span><select class="ebr-input" id="sp-col">' +
+          cols.map(c => '<option value="' + esc(c.key) + '">' + esc(c.label) +
+            (c.unit ? " (" + esc(c.unit) + ")" : "") + "</option>").join("") +
+        "</select></label>" +
+        '<label class="fld"><span>하한</span><input class="ebr-input" id="sp-lo" type="number" step="any" placeholder="없으면 비움"></label>' +
+        '<label class="fld"><span>상한</span><input class="ebr-input" id="sp-hi" type="number" step="any" placeholder="없으면 비움"></label>' +
+        '<label class="fld"><span>적용 범위</span><select class="ebr-input" id="sp-scope">' +
+          '<option value="all">전체</option>' +
+          projects.map(p => '<option value="project:' + esc(p) + '">과제 ' + esc(p) + "</option>").join("") +
+          studies.map(s => '<option value="study:' + esc(s) + '">Study ' + esc(s) + "</option>").join("") +
+        "</select></label>" +
+        '<label class="fld" style="grid-column:1/-1"><span>근거 문서</span>' +
+          '<input class="ebr-input" id="sp-doc" placeholder="예: SOP-QC-014 Rev.3 · 제품표준서 3.2절"></label>' +
+      "</div>" +
+      '<div style="margin-top:var(--s-3);display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="btn btn-accent" id="sp-add">등록</button>' +
+        '<button class="btn btn-sm" id="sp-demo">예시 규격 넣기 (실제 규격 아님)</button>' +
+      "</div>" +
+      '<p id="sp-msg" class="ask-note"></p>' +
+      "</div></section>" +
+
+      '<section class="card"><div class="card-body">' +
+      '<h2 class="card-title">등록된 규격 ' + list.filter(s => s.active !== false).length + "건</h2>" +
+      (list.length
+        ? '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
+          '<th scope="col">항목</th><th scope="col">규격</th><th scope="col">적용 범위</th>' +
+          '<th scope="col">근거 문서</th><th scope="col">등록자</th><th scope="col">등록일시</th>' +
+          '<th scope="col">이력</th><th scope="col">상태</th><th scope="col"></th>' +
+          "</tr></thead><tbody>" +
+          list.map(function (s) {
+            const col = t.columns.find(c => c.key === s.columnKey);
+            return "<tr>" +
+              "<td>" + esc(col ? col.label : s.columnKey) + (s.demo ? ' <span class="pill" style="border-color:#B45309">예시</span>' : "") + "</td>" +
+              '<td class="mono">' + esc(S2.rangeText(s)) + "</td>" +
+              "<td>" + esc(S2.scopeText(s)) + "</td>" +
+              "<td>" + esc(s.doc) + "</td>" +
+              "<td>" + esc(s.by) + "</td>" +
+              '<td class="mono">' + esc(s.at) + "</td>" +
+              '<td class="mono">' + (s.history.length ? s.history.length + "회" : "—") + "</td>" +
+              "<td>" + (s.active === false
+                ? '<span class="pill" style="border-color:var(--c-line)">비활성</span>'
+                : '<span class="pill" style="border-color:#0F766E">적용 중</span>') + "</td>" +
+              "<td>" + (s.active === false
+                ? '<button class="btn btn-sm" data-spec-on="' + esc(s.id) + '">다시 적용</button>'
+                : '<button class="btn btn-sm" data-spec-off="' + esc(s.id) + '">비활성화</button>') +
+              "</td></tr>" +
+              (s.history.length
+                ? '<tr><td colspan="9" style="padding-top:0"><details class="disclose"><summary>변경 이력 ' +
+                  s.history.length + '회</summary><div style="padding:0 var(--s-4) var(--s-4);font-size:12px;line-height:1.8">' +
+                  s.history.map(h => "· " + esc(h.replacedAt) + " " + esc(h.replacedBy) + " — 이전 " +
+                    esc((h.lo === null ? "" : h.lo) + " ~ " + (h.hi === null ? "" : h.hi)) +
+                    " · 사유: " + esc(h.reason)).join("<br>") +
+                  "</div></details></td></tr>"
+                : "");
+          }).join("") +
+          "</tbody></table></div>"
+        : '<div class="empty"><div class="empty-body">등록된 규격이 없습니다. ' +
+          '이 상태에서는 "실패한 배치 있어?" 같은 질문에 "판정할 수 없다" 고 답합니다.</div></div>') +
+      "</div></section>";
+  }
+
+  function wireSpec() {
+    const S2 = window.Specs, msg = $("#sp-msg");
+    const say = (t, bad) => { if (msg) { msg.textContent = t; msg.style.color = bad ? "var(--c-warn, #B45309)" : ""; } };
+    const add = $("#sp-add");
+    if (add) add.addEventListener("click", function () {
+      const scopeRaw = $("#sp-scope").value;
+      const i = scopeRaw.indexOf(":");
+      const scope = i === -1 ? { type: "all" }
+        : { type: scopeRaw.slice(0, i), value: scopeRaw.slice(i + 1) };
+      const col = window.AskTables.internal().columns.find(c => c.key === $("#sp-col").value);
+      const res = S2.add({ columnKey: $("#sp-col").value, lo: $("#sp-lo").value,
+        hi: $("#sp-hi").value, unit: col ? col.unit : null, scope: scope, doc: $("#sp-doc").value });
+      if (!res.ok) { say(res.why, true); return; }
+      paint();
+    });
+    const demo = $("#sp-demo");
+    if (demo) demo.addEventListener("click", function () {
+      /* ⚠ 실제 규격이 아닙니다. 기능을 시험해 보기 위한 값이며 근거 문서에도
+         그렇게 적습니다 — 화면에 "예시" 배지가 붙습니다. */
+      const t = window.AskTables.internal();
+      const pick = re => (t.columns.find(c => re.test(c.label)) || {}).key;
+      [[pick(/Final Viability/i), 70, null], [pick(/^Total Yield/i), 70, null],
+       [pick(/^HCP$/i), null, 100]].forEach(function (a) {
+        if (!a[0]) return;
+        const col = t.columns.find(c => c.key === a[0]);
+        S2.add({ columnKey: a[0], lo: a[1], hi: a[2], unit: col ? col.unit : null,
+          scope: { type: "all" }, doc: "(예시 — 실제 규격 아님. 기능 시험용)", demo: true });
+      });
+      paint();
+    });
+    $$("[data-spec-off]").forEach(b => b.addEventListener("click", function () {
+      const why = window.prompt("비활성화 사유를 적어 주세요 (기록에 남습니다)");
+      if (!why) return;
+      S2.deactivate(b.dataset.specOff, why); paint();
+    }));
+    $$("[data-spec-on]").forEach(b => b.addEventListener("click", function () {
+      S2.reactivate(b.dataset.specOn); paint();
+    }));
+  }
+
+  /* ── 파일럿 대시보드 — 일별 추이 · 되묻기율 · 재질문률 ────────────── */
+  function pilotCards() {
+    const L = window.AskLog;
+    if (!L || !L.daily) return "";
+    const rep = L.report(14);
+    if (!rep.total) {
+      return '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
+        '<h2 class="card-title">파일럿 현황</h2>' +
+        '<div class="empty"><div class="empty-body">아직 질의 기록이 없습니다. ' +
+        '연구원이 AI 검색을 쓰기 시작하면 일별 추이가 여기에 쌓입니다.</div></div></div></section>';
+    }
+    const dRule = (rep.rulePctLast != null && rep.rulePctFirst != null)
+      ? Math.round((rep.rulePctLast - rep.rulePctFirst) * 10) / 10 : null;
+
+    return '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
+      '<h2 class="card-title">파일럿 현황 · 최근 ' + rep.days.length + "일</h2>" +
+      '<p class="ask-note">기간 ' + esc(rep.from || "—") + " ~ " + esc(rep.to || "—") +
+      " · 총 " + rep.total + "건. 개인정보는 기록하지 않습니다 — 질문 원문과 사번 단위 식별자까지입니다.</p>" +
+      '<div class="grid-kpi">' +
+        '<div class="kpi"><div class="kpi-k">규칙 경로</div><div class="kpi-v">' +
+          (rep.rulePct == null ? "—" : rep.rulePct + "%") +
+          (dRule == null ? "" : '<span style="font-size:11px;color:' +
+            (dRule > 0 ? "#0F766E" : dRule < 0 ? "#B45309" : "var(--c-text-mute)") + '">  ' +
+            (dRule > 0 ? "▲" : dRule < 0 ? "▼" : "—") + " " + Math.abs(dRule) + "</span>") +
+          "</div></div>" +
+        '<div class="kpi"><div class="kpi-k">되묻기율</div><div class="kpi-v">' +
+          (rep.clarifyPct == null ? "—" : rep.clarifyPct + "%") + "</div></div>" +
+        '<div class="kpi"><div class="kpi-k">재질문률(30초)</div><div class="kpi-v">' +
+          (rep.requeryPct == null ? "—" : rep.requeryPct + "%") + "</div></div>" +
+        '<div class="kpi"><div class="kpi-k">0건 비율</div><div class="kpi-v">' +
+          (rep.zeroPct == null ? "—" : rep.zeroPct + "%") + "</div></div>" +
+        '<div class="kpi"><div class="kpi-k">평균 응답</div><div class="kpi-v">' +
+          (rep.avgMs == null ? "—" : rep.avgMs + "ms") + "</div></div>" +
+        '<div class="kpi"><div class="kpi-k">승격 대기</div><div class="kpi-v">' +
+          rep.pendingPromotions + "건</div></div>" +
+      "</div>" +
+
+      '<div class="ask-sub">일별</div>' +
+      '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
+      '<th scope="col">날짜</th><th scope="col">질의</th><th scope="col">규칙</th>' +
+      '<th scope="col">LLM</th><th scope="col">폴백</th><th scope="col">규칙 비율</th>' +
+      '<th scope="col">되묻기</th><th scope="col">0건</th><th scope="col">평균 ms</th>' +
+      "</tr></thead><tbody>" +
+      rep.days.map(d => "<tr><td class=\"mono\">" + esc(d.date) + "</td>" +
+        '<td class="mono">' + d.total + "</td><td class=\"mono\">" + d.rule + "</td>" +
+        '<td class="mono">' + d.llm + "</td><td class=\"mono\">" + d.fallback + "</td>" +
+        '<td class="mono" style="font-weight:600">' + (d.rulePct == null ? "—" : d.rulePct + "%") + "</td>" +
+        '<td class="mono">' + d.clarify + "</td><td class=\"mono\">" + d.zero + "</td>" +
+        '<td class="mono">' + (d.avgMs == null ? "—" : d.avgMs) + "</td></tr>").join("") +
+      "</tbody></table></div>" +
+
+      '<div class="ask-sub">실제 질문 유형 분포</div>' +
+      '<p class="ask-note">기록에 남은 질문(문제 사례) 기준입니다. 예상과 다르면 규칙 · 프롬프트를 그쪽으로 옮겨야 합니다.</p>' +
+      '<dl class="ask-facts">' + rep.byIntent.slice(0, 10).map(x =>
+        "<dt>" + esc(x.intent) + "</dt><dd>" + x.n + "건</dd>").join("") + "</dl>" +
+
+      (rep.trouble.length
+        ? '<div class="ask-sub">실패 · 재질문이 몰린 질문 상위 ' + rep.trouble.length + "개</div>" +
+          '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
+          '<th scope="col">질문</th><th scope="col">사유</th><th scope="col">빈도</th>' +
+          "</tr></thead><tbody>" +
+          rep.trouble.map(e => "<tr><td>" + esc(e.question) + "</td><td>" +
+            esc(e.reasons.join(" · ")) + '</td><td class="mono">' + e.count + "회</td></tr>").join("") +
+          "</tbody></table></div>"
+        : "") +
+      "</div></section>";
+  }
+
   function qlogView() {
     const L = window.AskLog, P = window.Promote, X = window.RuleLex;
     if (!L || !P || !X) {
@@ -123,7 +315,7 @@
       "LLM 폴백": "#B45309", "되묻기 무시 후 재질문": "#6D28D9",
       "즉시 재질문": "#9F1239", "되묻기 선택함": "#0F766E", "서술 수치 차단": "#9F1239" };
 
-    return metricCards() +
+    return pilotCards() + metricCards() +
 
       /* ── 승격 제안 ───────────────────────────────────────────────── */
       '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
@@ -239,7 +431,8 @@
       { label: "Intelligence Hub", items: [
         { key: "doe", ko: "DoE 조건 설계 & 분석", active: tab === "doe", color: "var(--c-accent-mid)" },
         { key: "ai",  ko: "AI 검색 (데이터 · 문헌)", active: tab === "ai",  color: "#6D28D9" },
-        { key: "wiki", ko: "Troubleshooting & Wiki", active: tab === "wiki", color: "#B45309" }
+        { key: "wiki", ko: "Troubleshooting & Wiki", active: tab === "wiki", color: "#B45309" },
+        { key: "spec", ko: "규격(Spec) 관리", active: tab === "spec", color: "#0F766E" }
       ].concat(devMode()
         /* 질의 로그는 관리자용입니다 — 개발 모드(?dev=1)에서만 메뉴에 뜹니다 */
         ? [{ key: "qlog", ko: "미응답 · 저신뢰 질의", active: tab === "qlog", color: "#0F766E" }]
@@ -700,10 +893,11 @@
     const titles = { doe: "DoE 조건 설계 & 분석",
                      ai: "AI 자연어 검색 · 사내 데이터 & 학술 문헌",
                      wiki: "Troubleshooting & Lesson Learned",
+                     spec: "규격(Spec) 관리 · Pass/Fail 판정 기준",
                      qlog: "미응답 · 저신뢰 질의 (관리자)" };
     $("#page-title").textContent = titles[tab];
     $("#hub-tabs").innerHTML = [["doe", "DoE 설계 & 분석"], ["ai", "AI 검색"],
-                                ["wiki", "Troubleshooting & Wiki"]]
+                                ["wiki", "Troubleshooting & Wiki"], ["spec", "규격(Spec) 관리"]]
       .concat(devMode() ? [["qlog", "미응답 · 저신뢰 질의"]] : [])
       .map(([k, ko]) => '<button class="track-tab" data-tab="' + k + '" aria-selected="' + (tab === k) + '" ' +
         'style="min-height:38px;padding:0 var(--s-5)">' + esc(ko) + '</button>').join("");
@@ -712,6 +906,7 @@
     const host = $("#hub-body");
     if (tab === "wiki") { host.innerHTML = wikiView(); wireWiki(); return; }
     if (tab === "ai") { paintAsk(); return; }
+    if (tab === "spec") { host.innerHTML = specView(); wireSpec(); return; }
     if (tab === "qlog") { host.innerHTML = qlogView(); wireQlog(); return; }
     host.innerHTML = doeView();
     wireDoe();
