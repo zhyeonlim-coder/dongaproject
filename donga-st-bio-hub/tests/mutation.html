@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI 검색 회귀 테스트 · Bio Knowledge Hub</title>
+<title>변이 검사 · Bio Knowledge Hub</title>
 <meta name="robots" content="noindex, nofollow">
 <style>
   :root { color-scheme: light dark; }
   body { margin: 0; padding: 24px; background: #0A192F; color: #E6ECF5;
          font: 13px/1.6 "IBM Plex Mono", ui-monospace, Consolas, monospace; }
   h1 { font-size: 16px; margin: 0 0 4px; }
-  .sub { color: #8FA2BB; font-size: 12px; margin-bottom: 18px; }
+  .sub { color: #8FA2BB; font-size: 12px; margin-bottom: 18px; max-width: 74ch; }
   .verdict { display: inline-block; padding: 4px 12px; border-radius: 999px;
              font-weight: 700; margin-bottom: 16px; }
   .ok { background: #123A2A; color: #6EE7B7; }
@@ -23,23 +23,24 @@
 </head>
 <body>
 
-<h1>AI 검색 회귀 테스트</h1>
+<h1>변이 검사</h1>
 <p class="sub">
-  ask-engine.js 를 고칠 때마다 이 페이지를 열어 전부 통과하는지 확인합니다.
-  로그인 · 화면(shell) 은 싣지 않습니다 — 엔진과 데이터 계층만 봅니다.
+  회귀 테스트가 전부 통과한다는 사실만으로는 아무것도 증명되지 않습니다.
+  검사가 느슨하면 코드를 망가뜨려도 여전히 전부 통과합니다.
+  여기서는 코드를 한 군데씩 일부러 망가뜨리고, 회귀 스위트가 그것을 잡는지 봅니다.
+  <strong>잡지 못한 변이가 하나라도 있으면 그 지점에는 검사가 없는 것입니다.</strong>
 </p>
 
 <div id="verdict"></div>
 <pre id="out">실행 중…</pre>
 
 <p class="hint">
-  콘솔에서 직접: <code>AskRegression.run()</code> (결과 객체) ·
-  <code>AskRegression.text()</code> (표) ·
-  <code>copy(AskRegression.text())</code> (클립보드로 복사)<br>
-  질문을 추가하려면 <code>tests/ask-regression.js</code> 의 <code>BATTERY</code> 에 한 줄 넣으면 됩니다.
+  콘솔에서 직접: <code>AskMutation.run()</code> ·
+  <code>copy(AskMutation.text(AskMutation.run()))</code><br>
+  변이를 추가하려면 <code>tests/mutation.js</code> 의 <code>MUTANTS</code> 에 한 항목 넣으면 됩니다.
 </p>
 
-<!-- 데이터 계층 (hub.html 과 같은 순서 · UI 는 뺐습니다) -->
+<!-- 데이터 계층 (ask-regression.html 과 같은 순서) -->
 <script src="../assets/js/data.js"></script>
 <script src="../assets/js/data/provenance.js"></script>
 <script src="../assets/js/data/labels.js"></script>
@@ -53,7 +54,6 @@
 <script src="../assets/js/data/repo.js"></script>
 <script src="../assets/js/data/lots.js"></script>
 
-<!-- 검사 대상 -->
 <script src="../assets/js/data/units.js"></script>
 <script src="../assets/js/data/specs.js"></script>
 <script src="../assets/js/data/asklog.js"></script>
@@ -68,33 +68,26 @@
 <script src="../assets/js/ask-engine.js"></script>
 
 <script src="ask-regression.js"></script>
+<script src="mutation.js"></script>
 <script>
   (function () {
     const out = document.getElementById("out");
     const v = document.getElementById("verdict");
-    try {
-      const res = window.AskRegression.run();
-      out.textContent = window.AskRegression.text(res);
-      v.className = "verdict " + (res.pass ? "ok" : "no");
-      v.textContent = res.pass ? "전체 통과" : "실패 있음 — 아래 표에서 [실패] 를 확인하세요";
-      window.__lastRegression = res;
-      /* 장애 대비는 비동기라 따로 돌립니다 */
-      window.AskRegression.faults(window.AskTables.internal()).then(function (fa) {
-        res.faults = fa;
-        const bad = fa.filter(x => !x.pass);
-        res.checks.push({ id: "L. 장애 대비", pass: !bad.length,
-          detail: (fa.length - bad.length) + "/" + fa.length + " 통과" +
-            (bad.length ? " · 실패: " + bad.map(b => b.q + "(" + b.fail.join(",") + ")").join(" ; ") : "") });
-        res.pass = res.checks.every(c => c.pass);
-        out.textContent = window.AskRegression.text(res);
-        v.className = "verdict " + (res.pass ? "ok" : "no");
-        v.textContent = res.pass ? "전체 통과" : "실패 있음 — 아래 표에서 [실패] 를 확인하세요";
-      });
-    } catch (e) {
+    /* 소스 텍스트를 먼저 받아 둡니다 — 엔진 내부는 이 텍스트를 고쳐
+       다시 평가하는 방식으로만 망가뜨릴 수 있습니다 */
+    window.AskMutation.load(window.AskMutation.SOURCES).then(function () {
+      const res = window.AskMutation.run();
+      window.__lastMutation = res;
+      out.textContent = window.AskMutation.text(res);
+      v.className = "verdict " + (res.ok ? "ok" : "no");
+      v.textContent = res.ok
+        ? "모든 변이 검출 — 스위트가 실제로 지키고 있습니다"
+        : "놓친 변이 있음 — 해당 지점에 검사가 없습니다";
+    }).catch(function (e) {
       v.className = "verdict no";
       v.textContent = "실행 실패";
       out.textContent = (e && e.stack) || String(e);
-    }
+    });
   })();
 </script>
 </body>

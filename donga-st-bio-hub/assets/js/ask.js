@@ -281,6 +281,8 @@ window.Ask = (function () {
       (r.note ? '<p class="ask-note">⚠ ' + esc(r.note) + "</p>" : "") +
 
       debugBlock() +
+      (r.source ? '<p class="ask-src">' + esc(r.source) + "</p>" : "") +
+
       '<p class="ask-basis">근거: ' + esc(r.table.label) + " · 조회 범위 " + esc(r.scopeLabel) +
         " · 대상 " + r.scopeRows + "행" +
         (r.table.kind === "upload" ? " · 업로드한 파일 (브라우저 안에서만 처리)" : "") + "</p>" +
@@ -296,16 +298,34 @@ window.Ask = (function () {
       "<dt>" + esc(f.k) + "</dt><dd>" + esc(f.v) + "</dd>").join("") + "</dl>";
   }
 
+  /* 생성값 컬럼인지 — 표 머리글과 값 옆에 표식을 답니다.
+     문구 한 줄로는 표의 숫자를 보는 사람에게 닿지 않습니다. */
+  function genKeys() {
+    const t = window.AskTables.get(S.tableId) || window.AskTables.internal();
+    const m = {};
+    (t.columns || []).forEach(c => { if (c.generated) m[c.key] = true; });
+    return m;
+  }
+
   function evidenceTable(r) {
     const cols = r.evidenceCols || [];
+    const gen = genKeys();
     return '<div class="ask-sub">근거 데이터 (상위 ' + r.rows.length + "행)</div>" +
       '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
-      cols.map(c => '<th scope="col">' + esc(c.label) + "</th>").join("") +
+      cols.map(c => '<th scope="col">' + esc(c.label) +
+        (gen[c.key] ? ' <span class="gen-tag" title="실측이 아니라 생성된 값입니다">생성</span>' : "") +
+        "</th>").join("") +
       "</tr></thead><tbody>" +
-      r.rows.map(row => "<tr>" + cols.map(c =>
-        '<td' + (c.key === "__label" ? ' class="mono" style="font-weight:600"' :
-                 (typeof row[c.key] === "string" && /[\d]/.test(row[c.key]) ? ' class="mono"' : "")) + ">" +
-        esc(row[c.key] == null ? "—" : row[c.key]) + "</td>").join("") + "</tr>").join("") +
+      r.rows.map(row => "<tr>" + cols.map(function (c) {
+        const isGen = !!gen[c.key];
+        const cls = c.key === "__label" ? ' class="mono" style="font-weight:600"'
+          : (isGen ? ' class="mono is-generated"'
+            : (typeof row[c.key] === "string" && /[\d]/.test(row[c.key]) ? ' class="mono"' : ""));
+        return "<td" + cls + (isGen ? ' title="실측이 아니라 생성된 값입니다"' : "") + ">" +
+          esc(row[c.key] == null ? "—" : row[c.key]) +
+          (isGen && row[c.key] != null ? '<span class="gen-mark" aria-label="생성값">◇</span>' : "") +
+          "</td>";
+      }).join("") + "</tr>").join("") +
       "</tbody></table></div>";
   }
 

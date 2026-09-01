@@ -61,7 +61,10 @@ window.AskTables = (function () {
       columns.push({
         key: R ? R.fieldKey(g.id, it.key) : (g.id + "_" + it.key),
         label: it.label, unit: it.unit || "", dp: it.dp,
-        type: "num", group: g.id, groupLabel: g.label, team: g.team
+        type: "num", group: g.id, groupLabel: g.label, team: g.team,
+        /* 실측이 아니라 생성된 값인지 — 표시 · 통계 · 규격 판정이 이 표시를
+           보고 갈립니다. 문구 한 줄이 아니라 데이터에 붙은 표식입니다. */
+        generated: !!(window.Provenance && window.Provenance.isGeneratedColumn({ group: g.id }))
       });
     }));
 
@@ -88,11 +91,17 @@ window.AskTables = (function () {
       return row;
     });
 
+    /* 여러 배치가 여러 항목에서 동시에 같은 값을 가지면 "검증 필요"로
+       표시합니다. 지우지 않고, 통계에서만 빼며, 몇 건을 뺐는지 밝힙니다.
+       (원본이 스캔 전사본이라 행 복제 가능성을 배제할 수 없습니다) */
+    const unverified = window.Provenance
+      ? window.Provenance.detectUnverified(rows, columns) : [];
+
     return {
       id: batchList ? "scoped" : "internal", kind: "internal",
       label: label || "사내 실험 데이터 (Batch)",
       note: note || "배양·분석 항목은 Batch_Data_example.xlsx 원본입니다. 정제 항목은 원본에 컬럼이 없어 생성한 값입니다.",
-      columns, rows
+      columns, rows, unverified: unverified
     };
   }
 

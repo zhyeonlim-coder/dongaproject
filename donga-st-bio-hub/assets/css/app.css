@@ -2470,3 +2470,20 @@ tr:hover .mm-pinb, .mm-cell:focus-within .mm-pinb,
   .disclose > summary::before { display: none; }
   details.disclose:not([open]) > *:not(summary) { display: revert; }
 }
+
+/* 생성값 표식 — 문구 한 줄이 아니라 값 옆에 붙는 표식입니다.
+   실측이 아닌 수치가 실측과 같은 모양으로 표에 앉아 있으면 안 됩니다. */
+.gen-tag {
+  display: inline-block; padding: 0 5px; border-radius: 4px;
+  border: 1px solid var(--c-warn, #B45309); color: var(--c-warn, #B45309);
+  font-size: 9.5px; font-weight: 700; letter-spacing: .02em; vertical-align: middle;
+}
+td.is-generated { background: color-mix(in srgb, var(--c-warn, #B45309) 7%, transparent); }
+.gen-mark { margin-left: 3px; color: var(--c-warn, #B45309); font-size: 10px; }
+
+/* 출처 · 전사 경고 — 수치가 든 응답에 예외 없이 붙습니다 */
+.ask-src {
+  margin: var(--s-4) 0 0; padding: 7px 10px; border-radius: 6px;
+  background: var(--c-surface-2); border: 1px dashed var(--c-line);
+  font-size: 11px; color: var(--c-text-mute); line-height: 1.65;
+}

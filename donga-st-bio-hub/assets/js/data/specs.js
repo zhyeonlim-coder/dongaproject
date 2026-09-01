@@ -165,10 +165,18 @@ window.Specs = (function () {
     const cols = table.columns.filter(c => c.type === "num");
     const specs = forRow(row);
     const judged = [], unregistered = [], noValue = [];
+    const generatedSkipped = [], unverifiedSkipped = [];
 
     cols.forEach(function (c) {
       const s = specs[c.key];
       const v = row[c.key];
+      /* 생성값은 판정하지 않습니다. 실측이 아닌 수치로 Pass/Fail 을 내면
+         그 판정이 규제 문서에 실립니다 — 가장 하면 안 되는 일입니다. */
+      if (c.generated) { generatedSkipped.push({ key: c.key, label: c.label }); return; }
+      /* 검증 필요로 표시된 값도 판정하지 않습니다 */
+      if (row.__unverified && row.__unverified[c.key]) {
+        unverifiedSkipped.push({ key: c.key, label: c.label }); return;
+      }
       if (!s) { unregistered.push({ key: c.key, label: c.label }); return; }
       if (typeof v !== "number" || !isFinite(v)) { noValue.push({ key: c.key, label: c.label }); return; }
       const okLo = s.lo === null || v >= s.lo;
@@ -179,8 +187,11 @@ window.Specs = (function () {
 
     return {
       row: row, judged: judged, unregistered: unregistered, noValue: noValue,
+      generatedSkipped: generatedSkipped, unverifiedSkipped: unverifiedSkipped,
       verdict: judged.length ? (judged.some(j => j.verdict === "fail") ? "fail" : "pass") : "unknown",
-      coverage: { judged: judged.length, total: cols.length }
+      /* 분모에서 생성값을 뺍니다 — 판정 대상이 아닌 것을 "판정 못 한 항목"
+         으로 세면 규격 등록률이 실제보다 나빠 보입니다 */
+      coverage: { judged: judged.length, total: cols.length - generatedSkipped.length }
     };
   }
 

@@ -336,6 +336,9 @@ window.AskEngine = (function () {
   /* 데이터 요약을 묻는 것과 사용법을 묻는 것은 다른 질문입니다 */
   const META_DATA = ["무슨 데이터", "어떤 데이터", "데이터 목록", "데이터 범위",
     "언제부터 언제까지", "기간이 어떻게", "어디까지 있", "얼마나 있", "데이터 요약"];
+  /* 출처를 직접 묻는 질문 — 전사본이라는 사실과 원본 비고를 전부 보여 줍니다 */
+  const META_SOURCE = ["출처", "어디서 온", "어디서 가져", "원본이 뭐", "원본 파일",
+    "데이터 출처", "언제 적재", "어떻게 만들", "전사", "스캔"];
   const META_HELP = ["뭘 물어", "뭐 물어", "무엇을 물어", "물어볼 수 있", "어떻게 물어",
     "조회 가능", "무슨 항목", "어떤 항목", "항목 목록", "도움말", "가능한 질문", "사용법", "help"];
 
@@ -349,8 +352,37 @@ window.AskEngine = (function () {
     "어디 거", "어디 것", "소속", "정보 보여", "정보 알려", "상세", "전체 항목"];
 
   function detectMeta(text) {
+    if (META_SOURCE.some(h => has(text, h))) return "source";
     if (META_HELP.some(h => has(text, h))) return "help";
     return META_DATA.some(h => has(text, h)) ? "data" : false;
+  }
+
+  /* ── 출처 · 데이터 품질 ────────────────────────────────────────────── */
+  function sourceAnswer(base, table) {
+    const P = window.Provenance;
+    const gen = table.columns.filter(c => c.generated);
+    const unv = table.unverified || [];
+    return Object.assign(base, {
+      kind: "source",
+      headline: P.SOURCE.file + " / \"" + P.SOURCE.sheet + "\" 시트 " + P.SOURCE.rows +
+        "행에서 왔습니다. " + P.SOURCE.origin + " 를 전사한 것이라 " +
+        "원본 비고에 판독 오차 가능성이 명시되어 있습니다.",
+      facts: [
+        { k: "파일", v: P.SOURCE.file },
+        { k: "시트 · 행", v: P.SOURCE.sheet + " · " + P.SOURCE.rows + "행" },
+        { k: "원본 형태", v: P.SOURCE.origin },
+        { k: "적재 방식", v: P.SOURCE.method },
+        { k: "생성값 항목", v: gen.length + "개 — " + (gen.map(c => c.label).join(", ") || "없음") },
+        { k: "검증 필요 블록", v: unv.length
+            ? unv.map(u => u.rows.length + "개 배치 × " + u.keys.length + "개 항목").join(" · ")
+            : "없음" }
+      ],
+      hints: P.NOTES.map(n => n.k + " — " + n.v),
+      note: gen.length
+        ? "생성값 " + gen.length + "개 항목은 실측이 아닙니다. " + P.GENERATED_WHY
+        : "",
+      suggestions: suggestList(table)
+    });
   }
 
   /* ── 정성어("제일 좋았어") → 지표 ────────────────────────────────────
@@ -554,15 +586,48 @@ window.AskEngine = (function () {
         : { from: shiftMonths(rg.max, -n), to: rg.max, anchored: rg.max };
       return false;
     });
+    /* 1-3a. 연도가 양쪽에 다 있는 경우 — "2024년 11월부터 2025년 1월까지"
+
+       이것이 없을 때 앞의 "2024년 11월"만 잡혀 한 달로 잘렸습니다. 조건
+       표시는 "기간 2024-11-01 ~ 2024-11-30" 이라 정직해 보이는데 실제로는
+       요청 범위의 19%만 답하고 나머지를 조용히 버렸습니다. 이 시스템이
+       없애려던 바로 그 오답이라 가장 먼저 봅니다. */
+    /* 달은 1~12 만 받습니다. 검증 없이 통과시키면 "13월" 이 2024-13-01 이라는
+       존재하지 않는 기간으로 조용히 들어가 0건이 나옵니다 — 사용자는 그 달에
+       데이터가 없는 줄 압니다. */
+    const badMonth = (v) => {
+      c.unhandled.push("\"" + v + "월\" 은 없는 달입니다 — 기간 조건으로 쓰지 않았습니다");
+      return false;
+    };
+    if (!c.period) eat(/(20\d{2}|\d{2})\s*년\s*(\d{1,2})\s*월\s*(?:~|-|—|부터|에서)\s*(20\d{2}|\d{2})\s*년\s*(\d{1,2})\s*월/g, function (m) {
+      const y1 = m[1].length === 2 ? 2000 + +m[1] : +m[1];
+      const y2 = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+      const a = +m[2], b = +m[4];
+      if (a < 1 || a > 12) return badMonth(a);
+      if (b < 1 || b > 12) return badMonth(b);
+      c.period = { from: iso(y1, a, 1), to: iso(y2, b, lastDay(y2, b)) };
+      return false;
+    });
+    /* 1-3b. 구분자 변형 — "2024-12" · "2024/12" · "2024.12" (연-월) */
+    if (!c.period) eat(/(20\d{2})[-\/.](\d{1,2})(?![-\/.\d])/g, function (m) {
+      const y = +m[1], a = +m[2];
+      if (a < 1 || a > 12) return badMonth(a);
+      c.period = { from: iso(y, a, 1), to: iso(y, a, lastDay(y, a)) };
+      return false;
+    });
+
     /* 1-3. "2024년 1월부터 7월까지" · "2024년 9월" · "2024년 상반기/3분기" · "2024년" */
     if (!c.period) eat(/(20\d{2}|\d{2})\s*년\s*(\d{1,2})\s*월\s*(?:~|-|—|부터|에서)\s*(\d{1,2})\s*월/g, function (m) {
       const y = m[1].length === 2 ? 2000 + +m[1] : +m[1];
       const a = +m[2], b = +m[3], endY = b >= a ? y : y + 1;
+      if (a < 1 || a > 12) return badMonth(a);
+      if (b < 1 || b > 12) return badMonth(b);
       c.period = { from: iso(y, a, 1), to: iso(endY, b, lastDay(endY, b)) };
       return false;
     });
     if (!c.period) eat(/(20\d{2}|\d{2})\s*년\s*(\d{1,2})\s*월/g, function (m) {
       const y = m[1].length === 2 ? 2000 + +m[1] : +m[1], a = +m[2];
+      if (a < 1 || a > 12) return badMonth(a);
       c.period = { from: iso(y, a, 1), to: iso(y, a, lastDay(y, a)) };
       return false;
     });
@@ -616,7 +681,13 @@ window.AskEngine = (function () {
        회의 모드 봇도 같은 모듈을 씁니다. 두 화면이 같은 질문에 다르게
        동작하지 않게 하려면 숫자를 조건으로 바꾸는 자리가 하나여야 합니다. */
     const U = window.Units;
-    (U ? U.parseThresholds(t) : []).forEach(function (th) {
+    const thList = U ? U.parseThresholds(t) : [];
+    /* 소비한 임계값 텍스트를 지웁니다. 안 지우면 "Titer 1000 이상" 의 1000 이
+       "못 읽은 토큰" 으로 남아, 제대로 답한 질문에 거짓 경고가 붙습니다. */
+    thList.forEach(function (th) {
+      if (th.raw) t = t.split(th.raw).join(" ".repeat(th.raw.length));
+    });
+    thList.forEach(function (th) {
       if (!primary) {
         c.unhandled.push("\"" + th.raw + "\" — 어느 항목에 적용할지 알 수 없습니다. \"Titer 1000 이상\"처럼 항목 이름과 함께 물어봐 주세요");
         return;
@@ -677,8 +748,30 @@ window.AskEngine = (function () {
       if (e.terms.some(x => has(text, x))) c.unhandled.push(e.ko + " — " + e.why);
     });
 
-    /* 남은 낱말 중 숫자가 붙은 토큰 = 못 읽은 조건일 가능성 (디버그용) */
-    c.ignoredTokens = (t.match(/\S*\d+\S*/g) || []).filter(x => x.length < 20);
+    /* 남은 낱말 중 숫자가 붙은 토큰 = 못 읽은 조건.
+
+       예전에는 디버그 로그에만 넣고 화면에는 띄우지 않았습니다. 그래서
+       "2024년 11월부터 2025년 1월까지" 에서 "2025년" · "1월까지" 가 통째로
+       버려졌는데도 사용자는 알 수 없었습니다. 이제 반드시 표시합니다. */
+    c.ignoredTokens = (t.match(/\S*\d+\S*/g) || [])
+      .map(x => x.replace(/[?!.,·]+$/, ""))
+      .filter(x => x.length > 0 && x.length < 20)
+      /* 배치 · 과제 이름은 범위로 이미 처리됐으므로 뺍니다 */
+      .filter(x => !(table.rows || []).some(r => String(r.__label || "").toLowerCase() === x))
+      .filter(x => !(window.DATA_PROJECTS || []).some(p => String(p.code || "").toLowerCase() === x))
+      /* 항목 이름에 숫자가 든 것(G0F · G1F · 2H1L · LC+HC …)은 이미 읽은
+         것입니다. 이걸 "못 읽었다"고 하면 제대로 답한 질문에 거짓 경고가
+         붙습니다 — 조용한 오답을 막으려다 반대쪽으로 넘어가는 셈입니다. */
+      .filter(function (x) {
+        const known = table.columns.some(col =>
+          String(col.label || "").toLowerCase().indexOf(x) > -1);
+        if (known) return false;
+        return !Object.keys(ALIAS).some(k =>
+          ALIAS[k].some(a => String(a).toLowerCase().indexOf(x) > -1));
+      });
+    if (c.ignoredTokens.length) {
+      c.unhandled.push("\"" + c.ignoredTokens.join(" ") + "\" — 조건으로 읽지 못해 조회에 반영하지 않았습니다");
+    }
     return c;
   }
 
@@ -705,8 +798,33 @@ window.AskEngine = (function () {
   /* ══════════════════════════════════════════════════════════════════════
      3. 통계
      ══════════════════════════════════════════════════════════════════════ */
+  /* 통계에 넣을 값만 골라냅니다.
+
+     검증 필요로 표시된 값(여러 배치에서 한꺼번에 같은 값 — 전사 복제 의심)은
+     제외합니다. 지우지는 않고 통계에서만 빼며, 몇 건을 뺐는지 호출한 쪽이
+     반드시 문장에 적습니다. */
   function values(rows, key) {
-    return rows.map(r => r[key]).filter(v => typeof v === "number" && isFinite(v));
+    return rows.filter(r => !(r.__unverified && r.__unverified[key]))
+      .map(r => r[key]).filter(v => typeof v === "number" && isFinite(v));
+  }
+  /* 제외한 건수 — 답변에 밝히기 위해 */
+  function excludedCount(rows, key) {
+    return rows.filter(r => r.__unverified && r.__unverified[key] &&
+      typeof r[key] === "number" && isFinite(r[key])).length;
+  }
+  /* 이 항목이 실측인지 생성값인지 · 검증 필요 건수는 몇인지 — 한 줄로 */
+  function qualityNote(col, rows) {
+    const bits = [];
+    if (col && col.generated) {
+      bits.push("⚠ " + col.label + " 은(는) 실측이 아니라 생성된 값입니다 — " +
+        (window.Provenance ? window.Provenance.GENERATED_WHY : "원본에 컬럼이 없습니다."));
+    }
+    if (col) {
+      const ex = excludedCount(rows, col.key);
+      if (ex) bits.push("검증 필요 " + ex + "건을 통계에서 제외했습니다 " +
+        "(여러 배치가 여러 항목에서 동시에 같은 값이라 원본 스캔과 대조가 필요합니다).");
+    }
+    return bits.join(" ");
   }
   function stats(vals) {
     const n = vals.length;
@@ -786,6 +904,14 @@ window.AskEngine = (function () {
     if (r.unhandled.length) {
       r.note = (r.note ? r.note + " " : "") +
         "이번 조회에 반영하지 못한 조건이 있습니다 — " + r.unhandled.join(" · ") + ".";
+    }
+    /* 출처 한 줄 — 수치가 들어간 응답에는 예외 없이 붙입니다.
+       이 데이터는 스캔 이미지 전사본이고, 원본 비고가 판독 오차 가능성을
+       명시하고 있습니다. 규제 문서에 인용하기 전에 알아야 하는 정보입니다. */
+    if (window.Provenance && table && table.kind === "internal") {
+      const hasNum = !!(r.facts && r.facts.length) || !!(r.rows && r.rows.length) ||
+        !!r.stats || /\d/.test(String(r.headline || ""));
+      if (hasNum) r.source = window.Provenance.LINE;
     }
     if (window.console && console.debug) {
       console.debug("[AskEngine]", r.question, {
@@ -998,6 +1124,7 @@ window.AskEngine = (function () {
 
     /* ── 데이터셋 자체를 물었을 때 ────────────────────────────────────
        "무슨 데이터 있어"(요약) 와 "뭘 물어볼 수 있어"(사용법)는 다른 질문입니다. */
+    if (isMeta === "source") return decorate(sourceAnswer(base, table), cond, table);
     if (isMeta === "help") return decorate(helpAnswer(base, table), cond, table);
     if (isMeta) return decorate(metaAnswer(base, table), cond, table);
 
@@ -1423,7 +1550,16 @@ window.AskEngine = (function () {
     const notes = [];
     if (empty.length) notes.push("이 범위에서 값이 없는 항목 " + empty.length + "개는 표에서 뺐습니다 — " +
       empty.slice(0, 5).map(c => c.label).join(", ") + (empty.length > 5 ? " 외" : "") + ".");
-    if (cols.some(c => c.group === "downstream")) notes.push("정제 항목은 원본에 컬럼이 없어 생성한 값입니다.");
+    const genCols = cols.filter(c => c.generated);
+    if (genCols.length) {
+      notes.push("⚠ 이 표의 " + genCols.length + "개 항목(" +
+        genCols.map(c => c.label).join(", ") + ")은 실측이 아니라 생성된 값입니다 — " +
+        (window.Provenance ? window.Provenance.GENERATED_WHY : ""));
+    }
+    cols.forEach(function (c) {
+      const ex = excludedCount(rows, c.key);
+      if (ex) notes.push(c.label + ": 검증 필요 " + ex + "건을 평균에서 제외했습니다.");
+    });
     if (cols.length < g.columns.length - empty.length) notes.push("항목이 많아 앞 " + cols.length + "개만 표시했습니다.");
 
     return Object.assign(base, {
@@ -1452,11 +1588,17 @@ window.AskEngine = (function () {
     const r = rows[0];
     const meta = rowMeta(r, table);
     const vals = [];
+    let genN = 0, unvN = 0;
     table.columns.forEach(function (col) {
       if (col.group === "base") return;
       const v = r[col.key];
       if (v === null || v === undefined) return;
-      vals.push({ k: col.label, v: fmt(v, col) });
+      /* 값 옆에 표식을 답니다 — 이 화면은 한 배치의 모든 값을 펼치므로
+         실측과 생성값이 나란히 놓입니다. 구분이 없으면 섞여 읽힙니다. */
+      let mark = "";
+      if (col.generated) { mark = " ◇생성값"; genN++; }
+      else if (r.__unverified && r.__unverified[col.key]) { mark = " ⚠검증 필요"; unvN++; }
+      vals.push({ k: col.label, v: fmt(v, col) + mark });
     });
     /* "어느 과제 거야?" 는 소속을 먼저 답합니다 */
     const head = askedEntity && (r.project || r.study)
@@ -1469,6 +1611,9 @@ window.AskEngine = (function () {
       facts: meta.concat(vals),
       focusLabels: [r.__label],
       note: (r.__unnamed ? r.__label + " 은(는) 원본에 배치번호(Exp. No.)가 비어 있어 가져올 때 부여한 임시 이름입니다. " : "") +
+        (genN ? "◇ 표시된 " + genN + "개 항목은 실측이 아니라 생성된 값입니다 — " +
+          (window.Provenance ? window.Provenance.GENERATED_WHY : "") + " " : "") +
+        (unvN ? "⚠ 표시된 " + unvN + "개 항목은 여러 배치가 동시에 같은 값이라 원본 스캔과 대조가 필요합니다. " : "") +
         (missingAsked.length
           ? missingAsked.join(" · ") + "은(는) 원본에 컬럼이 없어 표시할 수 없습니다. " : "") +
         "특정 항목만 보시려면 항목 이름을 넣어 다시 물어봐 주세요.",
@@ -1606,7 +1751,7 @@ window.AskEngine = (function () {
       const miss = missingAsked.length ? missingAsked : ["pH", "DO(용존산소)", "온도", "Feed rate"];
       notes.push(miss.join(" · ") + "은(는) 원본 데이터에 컬럼이 없어 답할 수 없습니다. 대신 같은 배치에 기록된 값을 함께 표시합니다.");
     }
-    if (metric.group === "downstream") notes.push("정제 항목은 원본에 컬럼이 없어 생성한 값입니다.");
+    { const qn = qualityNote(metric, rows); if (qn) notes.push(qn); }
     if (alt.length) notes.push("비슷한 항목도 함께 인식했습니다 — " + alt.join(", ") + ". 다른 항목을 원하시면 이름을 그대로 넣어 다시 물어보세요.");
     if (scope.recent) notes.push("\"최근\"은 기간을 임의로 자르지 않고 최신순 정렬로만 반영했습니다.");
 
@@ -1645,7 +1790,7 @@ window.AskEngine = (function () {
       ", 범위 " + fmt(s.min, metric) + "~" + fmt(s.max, metric) + "입니다.";
     const notes = [];
     if (rows.length > s.n) notes.push(rows.length - s.n + "건은 값이 미입력이라 계산에서 제외했습니다.");
-    if (metric.group === "downstream") notes.push("정제 항목은 원본에 컬럼이 없어 생성한 값입니다.");
+    { const qn = qualityNote(metric, rows); if (qn) notes.push(qn); }
     if (alt.length) notes.push("함께 인식된 항목 — " + alt.join(", ") + ".");
 
     return Object.assign(base, {
@@ -1681,7 +1826,7 @@ window.AskEngine = (function () {
       (s ? " 평균 " + fmt(s.mean, metric) + ", 최고 " + fmt(s.max, metric) +
            " (" + (withVal.slice().sort((a, b) => b[metric.key] - a[metric.key])[0].__label) + ")." : "");
     const notes = [];
-    if (metric.group === "downstream") notes.push("정제 항목은 원본에 컬럼이 없어 생성한 값입니다.");
+    { const qn = qualityNote(metric, rows); if (qn) notes.push(qn); }
     if (alt.length) notes.push("함께 인식된 항목 — " + alt.join(", ") + ".");
 
     return Object.assign(base, {
@@ -1770,7 +1915,7 @@ window.AskEngine = (function () {
         group: x.group, n: x.n,
         mean: fmt(x.mean, metric), min: fmt(x.min, metric), max: fmt(x.max, metric)
       })),
-      note: metric.group === "downstream" ? "정제 항목은 원본에 컬럼이 없어 생성한 값입니다." : ""
+      note: qualityNote(metric, rows)
     });
   }
 

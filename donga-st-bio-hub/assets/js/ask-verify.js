@@ -180,10 +180,22 @@ window.AskVerify = (function () {
       if (typeof x.cultureDays === "number") push(x.cultureDays);
     });
 
-    /* 2) 범위별 · 전체 통계 (모든 수치 컬럼) */
+    /* 2) 범위별 · 전체 통계 (모든 수치 컬럼)
+
+       ★ "검증 필요" 표시된 값을 뺀 통계도 함께 허용해야 합니다. 엔진이
+         그 값들을 제외하고 평균을 내는데 허용집합이 전체 기준이면, 맞는
+         답이 차단됩니다 — 조용한 오답을 막으려다 정답을 막는 셈입니다. */
+    const ok = (x, k) => typeof x[k] === "number" && isFinite(x[k]);
     numKeys.forEach(function (k) {
-      pushAll(statsOf(scoped.map(x => x[k]).filter(v => typeof v === "number" && isFinite(v))));
-      pushAll(statsOf(allRows.map(x => x[k]).filter(v => typeof v === "number" && isFinite(v))));
+      const sc = scoped.filter(x => ok(x, k)), al = allRows.filter(x => ok(x, k));
+      const scV = sc.filter(x => !(x.__unverified && x.__unverified[k]));
+      const alV = al.filter(x => !(x.__unverified && x.__unverified[k]));
+      pushAll(statsOf(sc.map(x => x[k])));
+      pushAll(statsOf(al.map(x => x[k])));
+      pushAll(statsOf(scV.map(x => x[k])));
+      pushAll(statsOf(alV.map(x => x[k])));
+      push(scV.length); push(alV.length);
+      push(sc.length - scV.length); push(al.length - alV.length);
       /* 기록 건수 · 미입력 건수 */
       const f = scoped.filter(x => typeof x[k] === "number").length;
       push(f); push(scoped.length - f);

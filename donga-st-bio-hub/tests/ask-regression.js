@@ -401,6 +401,10 @@ window.AskRegression = (function () {
       out.coverage = runCoverageChecks(t);
       summarize("O. 수치 검증 적용 범위", out.coverage, out.coverage);
     }
+    if (window.Provenance) {
+      out.quality = runQualityChecks(t);
+      summarize("Q. 기간 · 출처 · 데이터 품질", out.quality, out.quality);
+    }
     if (window.Specs) {
       out.spec = runSpecChecks(t);
       summarize("P. 규격 판정", out.spec, out.spec);
@@ -623,6 +627,147 @@ window.AskRegression = (function () {
     return next();
   }
 
+  /* ── Q. 기간 표현 전수 · 출처 고지 · 데이터 품질 ──────────────────────
+     감사에서 나온 F1(연도 두 번) · F4(전사 출처) · F5(생성값) · F7(구분자) ·
+     F10(중복 블록)을 고정합니다. 건수는 원본 Excel 에서 손으로 센 값입니다
+     (2024-08:1 · 11:5 · 12:11 · 2025-01:10 · 날짜 없음 1). */
+  const PERIOD_ALL = [
+    /* 단일 연도 */
+    { q: "2024년 12월 Titer 평균", rows: 11 },
+    { q: "2024년 8월 Titer", rows: 1 },
+    { q: "2025년 1월 Titer", rows: 10 },
+    { q: "2024년 Titer 평균", rows: 17 },
+    /* 같은 연도 반복 — F1 */
+    { q: "2024년 8월부터 2024년 12월까지 Titer", rows: 17 },
+    { q: "2024년 11월부터 2024년 12월까지 Titer", rows: 16 },
+    /* 연도 걸침 — F1 (이것이 5건으로 잘렸던 항목) */
+    { q: "2024년 11월부터 2025년 1월까지 Titer 평균", rows: 26 },
+    { q: "2024년 12월부터 2025년 1월까지 배치", rows: 21 },
+    /* 연도 없는 걸침 */
+    { q: "11월부터 1월까지 Titer", rows: 26 },
+    { q: "12월부터 1월까지 Titer", rows: 21 },
+    /* 구분자 변형 — F7 */
+    { q: "2024-12 배치", rows: 11 },
+    { q: "2024/12 배치", rows: 11 },
+    { q: "2024.12 데이터", rows: 11 },
+    { q: "2024-12-10에 시작한 배치 Titer", rows: 11 },
+    /* 경계 · 범위 밖 */
+    { q: "2024년 1월부터 7월까지 배치", rows: 0 },
+    { q: "24년 하반기 Titer 평균", rows: 17 },
+    { q: "2024년 3분기 Titer", rows: 1 },
+    { q: "최근 3개월 Titer 평균", rows: 26 }
+  ];
+
+  function runQualityChecks(t) {
+    const E = window.AskEngine, P = window.Provenance;
+    const out = [];
+    const add = (q, ok, note) => out.push({ q: q, pass: ok, fail: ok ? [] : [note],
+      kind: "-", count: 0, intent: "-", applied: "-", unhandled: "-" });
+
+    /* 1) 기간 표현 전수 */
+    PERIOD_ALL.forEach(function (c) {
+      const r = E.answer(c.q, { table: t });
+      add("기간 · " + c.q, r.scopeRows === c.rows,
+        "rows=" + r.scopeRows + " 기대=" + c.rows);
+    });
+    /* F1 의 수치까지 확인 — 건수만 맞고 값이 틀리면 의미가 없습니다 */
+    const f1 = E.answer("2024년 11월부터 2025년 1월까지 Titer 평균", { table: t });
+    add("기간 · F1 평균값", !!f1.stats && Math.abs(f1.stats.mean - 999.1) < 0.1,
+      "평균=" + (f1.stats ? f1.stats.mean : "?") + " 기대≈999.1");
+
+    /* 2) 못 읽은 토큰은 반드시 화면에 표시 */
+    const ig = E.answer("Titer 평균 2회차", { table: t });
+    add("못 읽은 토큰을 표시", (ig.unhandled || []).some(x => /읽지 못해/.test(x)),
+      "미처리: " + (ig.unhandled || []).join(" / "));
+    /* 없는 달은 기간 파싱 분기마다 따로 막아야 합니다. 한 분기만 검사하면
+       나머지 분기에서 "13월" 이 조용히 기간이 되어 0건이 나오고, 사용자는
+       그 달에 데이터가 없는 줄 압니다. 분기별로 전부 봅니다. */
+    [["단일 연-월", "2024년 13월 Titer"],
+     ["연도 반복(시작)", "2024년 13월부터 2025년 1월까지 Titer"],
+     ["연도 반복(종료)", "2024년 11월부터 2025년 13월까지 Titer"],
+     ["연도 한 번(시작)", "2024년 13월부터 7월까지 Titer"],
+     ["연도 한 번(종료)", "2024년 1월부터 13월까지 Titer"],
+     ["구분자 변형", "2024-13 Titer"]].forEach(function (p) {
+      const r = E.answer(p[1], { table: t });
+      const said = (r.unhandled || []).some(x => /없는 달|읽지 못해/.test(x));
+      /* 경고만 하고 실제로는 기간을 걸었다면 그게 더 나쁩니다 */
+      const notUsed = r.scopeRows === t.rows.length || !/기간/.test((r.applied || []).join(" "));
+      add("없는 달 거부 · " + p[0], said && notUsed,
+        "미처리=" + (r.unhandled || []).join(" / ") + " · 조건=" + (r.applied || []).join(" / "));
+    });
+    /* 정상 질의에 거짓 경고가 붙지 않아야 합니다 */
+    const clean = E.answer("Titer 1000 이상인 배치", { table: t });
+    add("정상 질의에 거짓 '못 읽음' 경고 없음",
+      !(clean.unhandled || []).some(x => /읽지 못해/.test(x)),
+      "미처리: " + (clean.unhandled || []).join(" / "));
+
+    /* 3) 출처 고지 — 수치가 든 응답에는 예외 없이 */
+    ["역가 제일 높은 거", "생존율 평균이랑 편차", "과제별 Total Yield 비교",
+     "정제팀 데이터 보여줘", "전체 배치 목록"].forEach(function (q) {
+      const r = E.answer(q, { table: t });
+      add("출처 고지 · " + q, !!r.source && /전사본/.test(r.source), "source 없음");
+    });
+    const src = E.answer("이 데이터 출처가 어디야", { table: t });
+    add("출처 질의", src.kind === "source" && (src.hints || []).length >= 10,
+      "kind=" + src.kind + " notes=" + (src.hints || []).length);
+
+    /* 4) 생성값 — 데이터에 표식이 있고, 표시되는 경로마다 고지 */
+    const gen = t.columns.filter(c => c.generated);
+    add("생성값 컬럼 표식", gen.length === 7, "generated=" + gen.length + "개 (기대 7)");
+    [["extreme", "수율이 가장 높은 배치"], ["stat", "Total Yield 평균"],
+     ["list", "Total Yield 80 넘는 거"], ["compare", "과제별 Total Yield 비교"],
+     ["group", "정제팀 데이터 보여줘"], ["entity", "B045-2가 어느 과제 거야?"]].forEach(function (p) {
+      const r = E.answer(p[1], { table: t });
+      const txt = String(r.note || "") + (r.hints || []).join(" ");
+      /* "생성된 값" 이라고 말하는 것만으로는 부족합니다 — 왜 생성했는지가
+         없으면 읽는 사람은 그 값을 어떻게 취급해야 할지 모릅니다.
+         문자열을 여기 적지 않고 Provenance 에서 가져옵니다: 문구가 바뀌면
+         검사도 같이 따라가야지, 검사가 옛 문구를 통과시키면 안 됩니다. */
+      add("생성값 고지 · " + p[0], /생성된 값|생성한 값/.test(txt), "고지 없음");
+      add("생성값 사유 · " + p[0],
+        !!P.GENERATED_WHY && txt.indexOf(P.GENERATED_WHY) > -1, "왜 생성했는지가 없음");
+    });
+    const ent = E.answer("B045-2가 어느 과제 거야?", { table: t });
+    add("생성값 · 값 옆 표식", (ent.facts || []).filter(f => /◇/.test(f.v)).length === 7,
+      "◇ " + (ent.facts || []).filter(f => /◇/.test(f.v)).length + "개");
+
+    /* 5) 검증 필요 블록 — 탐지 · 통계 제외 · 고지 */
+    const blocks = t.unverified || [];
+    add("검증 필요 블록 탐지", blocks.length >= 3 && blocks[0].count === 7,
+      "블록 " + blocks.length + "개");
+    const g0 = E.answer("G0F 평균", { table: t });
+    const kept = t.rows.filter(r => !(r.__unverified && r.__unverified.nGlycan_g0f))
+      .map(r => r.nGlycan_g0f).filter(v => typeof v === "number");
+    add("검증 필요 · 통계에서 제외",
+      !!g0.stats && g0.stats.n === kept.length && g0.stats.n === 15,
+      "n=" + (g0.stats ? g0.stats.n : "?") + " 기대=15");
+    add("검증 필요 · 제외 건수 고지", /검증 필요 7건/.test(String(g0.note || "")),
+      "note: " + String(g0.note || "").slice(0, 60));
+    /* 실측 컬럼은 영향을 받지 않아야 합니다 */
+    const ti = E.answer("Titer 평균", { table: t });
+    add("실측 컬럼은 제외 안 함", !!ti.stats && ti.stats.n === 28, "n=" + (ti.stats ? ti.stats.n : "?"));
+
+    /* 6) 규격 판정이 생성값을 판정하지 않아야 합니다 */
+    const S2 = window.Specs;
+    if (S2) {
+      const before = JSON.parse(JSON.stringify(S2.state()));
+      try {
+        S2.clear();
+        const ty = t.columns.find(c => c.key === "downstream_totalYield");
+        S2.add({ columnKey: ty.key, lo: 75, hi: null, unit: ty.unit, scope: { type: "all" }, doc: "테스트" });
+        const sp = E.answer("실패한 배치 있어?", { table: t });
+        add("규격 · 생성값은 판정하지 않음", /등록되어 있지 않아 판정하지 못했습니다/.test(sp.headline),
+          "판정함: " + String(sp.headline).slice(0, 70));
+      } finally {
+        S2.clear();
+        (before.list || []).slice().reverse().forEach(e => S2.add({
+          columnKey: e.columnKey, lo: e.lo, hi: e.hi, unit: e.unit,
+          scope: e.scope, doc: e.doc, demo: e.demo, by: e.by }));
+      }
+    }
+    return out;
+  }
+
   /* ── P. 규격 판정 ────────────────────────────────────────────────────
      가장 조심해야 하는 응답입니다. 부분 등록 상태에서 전체를 판정한 것처럼
      답하면 규제 문서에 잘못된 결론이 실립니다.
@@ -651,9 +796,10 @@ window.AskRegression = (function () {
 
       /* 4) 부분 등록 — "몇 개 중 몇 개" 를 반드시 말한다 */
       const via = t.columns.find(c => /Final Viability/i.test(c.label));
-      const hcp = t.columns.find(c => /^HCP$/i.test(c.label));
+      /* HCP 는 생성값이라 판정 대상이 아닙니다 — 실측 컬럼으로 바꿉니다 */
+      const hcp = t.columns.find(c => /Max VCD/i.test(c.label));
       S2.add({ columnKey: via.key, lo: 70, hi: null, unit: via.unit, scope: { type: "all" }, doc: "SOP-QC-014" });
-      S2.add({ columnKey: hcp.key, lo: null, hi: 100, unit: hcp.unit, scope: { type: "all" }, doc: "제품표준서 3.2" });
+      S2.add({ columnKey: hcp.key, lo: null, hi: 15, unit: hcp.unit, scope: { type: "all" }, doc: "제품표준서 3.2" });
       r = E.answer("실패한 배치 있어?", { table: t });
       add("부분 등록 · 판정 범위를 문장에 명시",
         r.kind === "spec" && /중 2개에만 규격이 등록/.test(r.headline), "문장: " + String(r.headline).slice(0, 80));
@@ -712,6 +858,9 @@ window.AskRegression = (function () {
   const PATHS = [
     { id: "extreme(최고·최저)", q: "역가 제일 높은 거" },
     { id: "stat(통계)",        q: "생존율 평균이랑 편차" },
+    /* 검증 필요 행이 있는 컬럼 — 엔진이 제외하고 계산하므로 검증기도
+       그 통계를 알아야 합니다. 몰랐을 때 맞는 답이 차단됐습니다. */
+    { id: "stat(검증필요 제외)", q: "G0F 평균" },
     { id: "list(목록)",        q: "Titer 1000 이상인 배치" },
     { id: "compare(비교)",     q: "과제별 Total Yield 비교" },
     { id: "trend(추이)",       q: "일자별 Titer 추이" },
@@ -834,14 +983,25 @@ window.AskRegression = (function () {
       add("루프 · 어휘 추출", !!hit,
         "제안 " + sug.length + "건: " + sug.map(s => s.phrase).join(", "));
 
+      let approved = null;
       if (hit) {
         /* 3) 안전 검사가 함께 계산되는가 */
         add("루프 · 승격 전 안전 검사", hit.safe === true,
           "안전 검사 실패: " + (hit.breaks || []).join(" / "));
 
         /* 4) 승인하면 사전에 반영되는가 */
-        const res = P.approve(hit, "테스트");
-        add("루프 · 승인 반영", res.ok === true, "승인이 막힘: " + (res.fails || []).join(" / "));
+        approved = P.approve(hit, "테스트");
+        add("루프 · 승인 반영", approved.ok === true,
+          "승인이 막힘: " + (approved.fails || []).join(" / "));
+      }
+      /* 승인이 실패했으면 이후 검사는 "실패" 로 보고하고 멈춥니다.
+         그냥 진행하면 res.entry 가 없어 예외가 나고, 예외는 이 그룹 전체를
+         날려 버립니다 — 다른 검사 결과까지 함께 사라지는 쪽이 더 나쁩니다. */
+      if (hit && !(approved && approved.ok === true && approved.entry)) {
+        add("루프 · 승인 이후 검사", false,
+          "승인이 반영되지 않아 비율 상승·되돌리기를 확인하지 못했습니다");
+      } else if (hit) {
+        const res = approved;
 
         /* 5) ★ 핵심 — 규칙 경로 비율이 실제로 올라갔는가 */
         const after = P.ruleRatio(LOOP_QS, t);
@@ -908,7 +1068,8 @@ window.AskRegression = (function () {
      ["I. 하이브리드 30문항", r.hybrid], ["J. 가드", r.guard],
      ["K. 서술 수치 검증", r.verify], ["L. 장애 대비", r.faults],
      ["M. 승격 안전 스펙", r.core], ["N. 자가 개선 루프", r.loop],
-     ["O. 수치 검증 적용 범위", r.coverage], ["P. 규격 판정", r.spec]]
+     ["O. 수치 검증 적용 범위", r.coverage], ["P. 규격 판정", r.spec],
+     ["Q. 기간 · 출처 · 데이터 품질", r.quality]]
       .forEach(function (pair) {
         if (!pair[1]) return;
         L.push(pair[0]);
