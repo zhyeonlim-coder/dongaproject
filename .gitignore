@@ -28,3 +28,6 @@ build/
 # Excel 임시 잠금 파일 (원본 .xlsx 는 추적합니다)
 ~$*.xlsx
 ~$*.xls
+
+# 화면에서 내보낸 백업 파일 — 사용자 로컬 기록이라 저장소에 넣지 않습니다
+bio-hub-backup_*.json
