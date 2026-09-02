@@ -21,6 +21,12 @@ window.AskGuard = (function () {
 
   function norm(s) { return String(s == null ? "" : s).toLowerCase().trim(); }
 
+  /* api/extract.js 의 intent enum 과 같아야 합니다. 여기서 한 번 더 보는
+     이유는, 스키마를 통과했다는 것이 우리가 실행할 수 있다는 뜻은
+     아니기 때문입니다 — 스키마는 서버 쪽이고 이건 실행 직전입니다. */
+  const KNOWN_INTENTS = ["max", "min", "stat", "trend", "compare", "count",
+    "missing", "list", "meta", "help", "unsupported", "ambiguous"];
+
   /* 카탈로그에 있는 것만 남깁니다. 없는 이름은 버리고 이유를 적습니다. */
   function keepKnown(list, known, kind, rejected) {
     const out = [];
@@ -37,15 +43,34 @@ window.AskGuard = (function () {
   function check(slots, table, catalog) {
     const cat = catalog || window.Catalog.get(table);
     const rejected = [];
+    /* confidence 는 모델이 스스로 매긴 값입니다. 스키마가 범위를 강제하지
+       않으므로 0~1 밖의 값이 올 수 있고, 그대로 두면 confidence 99 짜리
+       슬롯이 낮은 확신 검사를 그냥 통과합니다 — 모델이 자신에 대한 검사를
+       스스로 끄는 셈입니다. 범위 밖은 신뢰하지 않고 0 으로 봅니다. */
+    const rawConf = slots && typeof slots.confidence === "number" ? slots.confidence : 0;
+    const confOk = isFinite(rawConf) && rawConf >= 0 && rawConf <= 1;
+    if (!confOk && slots && typeof slots === "object") {
+      rejected.push("confidence 값(" + rawConf + ")이 0~1 밖이라 신뢰하지 않았습니다");
+    }
+
     const out = {
       ok: false, plan: null, clarify: null,
       rejected: rejected,
       unhandled: Array.isArray(slots && slots.unhandled) ? slots.unhandled.slice() : [],
-      confidence: slots && typeof slots.confidence === "number" ? slots.confidence : 0
+      confidence: confOk ? rawConf : 0
     };
 
     if (!slots || typeof slots !== "object") {
       out.reason = "슬롯이 비어 있습니다";
+      return out;
+    }
+
+    /* 엔진이 아는 의도만 실행합니다. 모르는 의도를 그냥 넘기면 엔진이
+       기본값(list)으로 떨어뜨리고, 화면에는 목록이 나옵니다 — 사용자는
+       자기 질문이 그렇게 해석된 줄 압니다. 조용한 오답입니다. */
+    if (slots.intent && KNOWN_INTENTS.indexOf(slots.intent) === -1) {
+      out.reason = "unknown-intent";
+      rejected.push("의도 \"" + slots.intent + "\" 는 이 시스템이 실행할 수 있는 것이 아닙니다");
       return out;
     }
 

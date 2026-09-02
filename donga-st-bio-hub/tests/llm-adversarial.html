@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM 경로 적대적 측정 · Bio Knowledge Hub</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 24px; background: #0A192F; color: #E6ECF5;
+         font: 13px/1.6 "IBM Plex Mono", ui-monospace, Consolas, monospace; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .sub { color: #8FA2BB; font-size: 12px; margin-bottom: 18px; max-width: 76ch; }
+  .verdict { display: inline-block; padding: 4px 12px; border-radius: 999px;
+             font-weight: 700; margin-bottom: 16px; }
+  .ok { background: #123A2A; color: #6EE7B7; }
+  .no { background: #3A1218; color: #FCA5A5; }
+  .warn { background: #3A2A12; color: #FCD34D; }
+  pre { white-space: pre; overflow-x: auto; background: #0E2340; border: 1px solid #1E3A5F;
+        border-radius: 8px; padding: 14px; }
+  .hint { color: #8FA2BB; font-size: 12px; margin-top: 14px; line-height: 1.8; }
+  code { background: #0E2340; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>LLM 경로 적대적 측정</h1>
+<p class="sub">
+  "모델에게 나쁜 말을 걸었더니 안 넘어갔다" 는 측정이 아닙니다 — 같은 모델이
+  다음에는 넘어갈 수 있고, 그때 무엇이 막는지가 진짜 질문입니다.
+  그래서 여기서는 <strong>모델이 이미 넘어간 상태를 직접 만들어</strong> 가드에 먹입니다.
+  적대적 입력이 유도하려는 슬롯을 손으로 써서 넣고, 가드 · 엔진 · 검증기 세 겹이
+  실제로 막는지 봅니다. 모델의 협조가 필요 없으므로 API 없이도 돌고,
+  API 가 붙어도 결과가 달라지지 않습니다.
+</p>
+
+<div id="verdict"></div>
+<pre id="out">실행 중…</pre>
+
+<p class="hint">
+  콘솔에서 직접: <code>LLMAdversarial.run()</code> ·
+  <code>LLMAdversarial.faults()</code> · <code>LLMAdversarial.liveProbe()</code>
+</p>
+
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/auth.js"></script>
+<script src="../assets/js/data/provenance.js"></script>
+<script src="../assets/js/data/labels.js"></script>
+<script src="../assets/js/data/value.js"></script>
+<script src="../assets/js/data/projects.js"></script>
+<script src="../assets/js/data/studies.js"></script>
+<script src="../assets/js/data/batches.js"></script>
+<script src="../assets/js/data/downstream.js"></script>
+<script src="../assets/js/data/samples.js"></script>
+<script src="../assets/js/data/entries.js"></script>
+<script src="../assets/js/data/repo.js"></script>
+<script src="../assets/js/data/lots.js"></script>
+
+<script src="../assets/js/data/units.js"></script>
+<script src="../assets/js/data/specs-baseline.js"></script>
+<script src="../assets/js/data/specs.js"></script>
+<script src="../assets/js/data/asklog.js"></script>
+<script src="../assets/js/data/rulelex.js"></script>
+<script src="../assets/js/data/promote.js"></script>
+<script src="../assets/js/data/tables.js"></script>
+<script src="../assets/js/data/catalog.js"></script>
+<script src="../assets/js/ask-llm.js"></script>
+<script src="../assets/js/ask-guard.js"></script>
+<script src="../assets/js/ask-verify.js"></script>
+<script src="../assets/js/ask-engine.js"></script>
+<script src="llm-adversarial.js"></script>
+
+<script>
+  (function () {
+    const out = document.getElementById("out");
+    const v = document.getElementById("verdict");
+    try {
+      const res = window.LLMAdversarial.run();
+      window.__lastAdversarial = res;
+      out.textContent = window.LLMAdversarial.text(res);
+      v.className = "verdict " + (res.ok ? "ok" : "no");
+      v.textContent = res.ok ? "방어선 전부 작동" : "뚫린 곳 있음";
+
+      /* 장애 주입 · 생존 확인은 비동기 */
+      window.LLMAdversarial.faults().then(function (f) {
+        res.faults = f;
+        let s = "\n" + "-".repeat(72) + "\n장애 주입 · 규칙 폴백\n";
+        f.forEach(function (x) {
+          s += (x.pass ? " OK  " : "★NG  ") + x.id + "  →  " + x.reason +
+               " (시도 " + x.attempts + "회 · " + x.ms + "ms) · 규칙 폴백 " +
+               (x.규칙폴백정상 ? "정상" : "★실패") + "\n";
+        });
+        out.textContent += s;
+        const bad = f.filter(x => !x.pass);
+        if (bad.length) { v.className = "verdict no"; v.textContent = "뚫린 곳 있음"; }
+
+        return window.LLMAdversarial.liveProbe();
+      }).then(function (p) {
+        res.live = p;
+        out.textContent += "\n" + "-".repeat(72) + "\n엔드포인트 생존 확인\n" +
+          "  " + p.endpoint + " → " + (p.live ? "살아 있음" : "응답 없음 (" + p.reason + ")") + "\n" +
+          (p.live ? "" :
+           "\n  ★ 살아 있는 엔드포인트가 없어 다음은 측정하지 못했습니다:\n" +
+           "     · 슬롯 5회 반복 동일 여부 (모델이 실제로 뱉는 값이 필요)\n" +
+           "     · 실제 LLM 서술 문장의 검증 통과율\n" +
+           "     · 호출 수 · 지연 · 토큰 사용량\n" +
+           "     추정치를 대신 쓰지 않습니다.\n");
+        if (!p.live) {
+          v.className = "verdict warn";
+          v.textContent = "방어선은 작동 · LLM 실측은 엔드포인트 없음";
+        }
+      });
+    } catch (e) {
+      v.className = "verdict no";
+      v.textContent = "실행 실패";
+      out.textContent = (e && e.stack) || String(e);
+    }
+  })();
+</script>
+</body>
+</html>

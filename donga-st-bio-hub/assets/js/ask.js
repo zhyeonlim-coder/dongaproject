@@ -248,9 +248,15 @@ window.Ask = (function () {
     /* 서술 문장이 검증에 걸려 버려졌으면 그 사실을 밝힙니다 — 조용히
        다른 문장을 쓰면 사용자는 무슨 일이 있었는지 알 수 없습니다. */
     const blocked = S.narrationBlocked
-      ? '<p class="ask-warn">⚠ 다듬은 문장에 조회 결과에 없는 수치(' +
-        esc(S.narrationBlocked.nums.concat(S.narrationBlocked.dates).join(", ")) +
-        ')가 있어 사용하지 않았습니다. 아래는 엔진이 계산한 원문입니다.</p>'
+      ? '<p class="ask-warn">⚠ ' +
+        ((S.narrationBlocked.claims || []).length
+          /* 수치가 전부 진짜여도 주장이 틀릴 수 있습니다 — 그 경우
+             무엇이 문제였는지 수치 대신 주장을 적어야 합니다 */
+          ? esc(S.narrationBlocked.claims.join(" / ")) + ' — 다듬은 문장을 사용하지 않았습니다.'
+          : '다듬은 문장에 조회 결과에 없는 수치(' +
+            esc(S.narrationBlocked.nums.concat(S.narrationBlocked.dates).join(", ")) +
+            ')가 있어 사용하지 않았습니다.') +
+        ' 아래는 엔진이 계산한 원문입니다.</p>'
       : "";
 
     return '<div class="ask-answer">' +
@@ -761,14 +767,17 @@ window.Ask = (function () {
             if (S.debug) S.debug.narration = "blocked";
             S.narration = null;
             S.narrationBlocked = {
-              nums: v.unknownNums, dates: v.unknownDates, model: out.body.model
+              nums: v.unknownNums, dates: v.unknownDates,
+              claims: v.claims || [], model: out.body.model
             };
             if (window.AskLog) {
               window.AskLog.record({
                 question: r.question, path: "narrate-blocked", kind: r.kind,
                 intent: r.intent, rows: r.scopeRows, confidence: null,
-                rejected: ["서술 문장에 근거 없는 수치: " +
-                  v.unknownNums.concat(v.unknownDates).join(", ")]
+                rejected: [(v.claims && v.claims.length)
+                  ? "서술 문장의 주장: " + v.claims.join(" / ")
+                  : "서술 문장에 근거 없는 수치: " +
+                    v.unknownNums.concat(v.unknownDates).join(", ")]
               });
             }
           }

@@ -65,6 +65,7 @@ window.AskMutation = (function () {
   const TBL = "../assets/js/data/tables.js";
   const PRV = "../assets/js/data/provenance.js";
   const SPC = "../assets/js/data/specs.js";
+  const GRD = "../assets/js/ask-guard.js";
 
   /* ── 변이 목록 ────────────────────────────────────────────────────────
      expect: 이 변이를 잡아야 하는 검사 그룹. 다른 그룹이 우연히 잡은 것은
@@ -276,6 +277,29 @@ window.AskMutation = (function () {
          (scoped ≠ allRows), 전체 범위일 때 두 집합은 증명 가능하게 같기
          때문입니다. 동작이 같은 변이는 "검사가 없다" 는 증거가 아니라
          변이가 잘못 만들어진 것이라 목록에 넣지 않았습니다. */
+    /* ── LLM 경로 방어선 ────────────────────────────────────────────── */
+    { id: "M24 가드: confidence 범위 검사 제거",
+      why: "모델이 confidence 99 를 주면 낮은 확신 검사를 스스로 끄게 되는가",
+      expect: "J",
+      run: fn => withMutatedSource(GRD,
+        "const confOk = isFinite(rawConf) && rawConf >= 0 && rawConf <= 1;",
+        "const confOk = true;", fn) },
+
+    { id: "M25 가드: 모르는 의도를 그냥 실행",
+      why: "엔진이 모르는 의도가 조용히 목록으로 떨어지는가",
+      expect: "J",
+      run: fn => withMutatedSource(GRD,
+        "if (slots.intent && KNOWN_INTENTS.indexOf(slots.intent) === -1) {",
+        "if (false) {", fn) },
+
+    { id: "M26 검증기: 주장 검사 제거",
+      why: "수치가 전부 진짜인 거짓 Pass/Fail 문장이 통과하는가 — " +
+           "규제 문서에 실리는 문장 중 가장 위험합니다",
+      expect: "K",
+      run: fn => withMutatedSource(VER,
+        "const claims = claimIssues(text, r);",
+        "const claims = [];", fn) },
+
     { id: "M22 성능: 반올림 허용을 빠뜨림",
       why: "Set 으로 바꾸면서 허용 기준이 좁아졌는가 — 맞는 답이 차단되면 " +
            "속도 개선이 아니라 회귀입니다",
@@ -359,6 +383,6 @@ window.AskMutation = (function () {
   }
 
   return { load: load, run: run, text: text, MUTANTS: MUTANTS,
-           SOURCES: [ENG, PRV, SPC, VER, TBL],
+           SOURCES: [ENG, PRV, SPC, VER, TBL, GRD],
            _withMutatedSource: withMutatedSource, _withPatch: withPatch };
 })();

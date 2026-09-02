@@ -506,6 +506,32 @@ window.AskRegression = (function () {
     let g = window.AskGuard.check(s, t, cat);
     add("가드 · 없는 컬럼 거절", g.rejected.some(x => /madeUpColumn/.test(x)), "거절하지 않음");
 
+    /* 모델이 자기 검사를 스스로 끄지 못하게 — confidence 는 모델이 매기는
+       값이고 스키마가 범위를 강제하지 않습니다. 99 를 그대로 믿으면
+       낮은 확신 검사가 무력화됩니다. */
+    s = clone(base); s.confidence = 99;
+    g = window.AskGuard.check(s, t, cat);
+    add("가드 · confidence 범위 밖은 신뢰 안 함",
+      g.confidence <= 1 && g.rejected.some(x => /confidence/.test(x)),
+      "confidence=" + g.confidence + " 거절=" + g.rejected.join(" / "));
+    s = clone(base); s.confidence = -1;
+    add("가드 · 음수 confidence 도 신뢰 안 함",
+      window.AskGuard.check(s, t, cat).confidence === 0, "음수를 그대로 씀");
+
+    /* 엔진이 모르는 의도는 실행하지 않습니다. 그냥 넘기면 기본값(list)으로
+       떨어져 화면에는 목록이 나오고, 사용자는 자기 질문이 그렇게 해석된
+       줄 압니다 — 조용한 오답입니다. */
+    s = clone(base); s.intent = "exec";
+    g = window.AskGuard.check(s, t, cat);
+    add("가드 · 모르는 의도 거절",
+      g.ok === false && g.reason === "unknown-intent" &&
+      g.rejected.some(x => /exec/.test(x)),
+      "ok=" + g.ok + " reason=" + g.reason);
+    /* 아는 의도는 막히면 안 됩니다 (거짓 차단 방지) */
+    s = clone(base); s.intent = "compare";
+    add("가드 · 아는 의도는 통과",
+      window.AskGuard.check(s, t, cat).reason !== "unknown-intent", "정상 의도를 막음");
+
     /* b) 없는 과제 · 배치도 거절 */
     s = clone(base); s.filters.projectIds = ["DA-9999"]; s.filters.batchIds = ["B999-9"];
     g = window.AskGuard.check(s, t, cat);
@@ -559,6 +585,30 @@ window.AskRegression = (function () {
     add("서술 검증 · 정상 문장 통과",
       V.checkNarration("Titer HCCF 가 가장 높은 배치는 B321-7 이며 2494 mg/L 입니다. 28건 평균은 981.4 mg/L 입니다.", r).ok,
       "정상 문장을 막았음");
+
+    /* 1-b) 숫자가 전부 진짜인데 주장이 거짓인 문장.
+
+       "28건 모두 규격에 적합합니다" 는 28 이라는 진짜 숫자만 씁니다.
+       수치만 보는 검증기는 이걸 통과시킵니다 — 규격이 하나도 등록되지
+       않은 상태에서도요. Pass/Fail 은 규제 문서에 그대로 실리는 문장이라
+       가장 위험합니다. */
+    [["규격 적합 날조", "28건 모두 규격에 적합합니다 (28/28 통과)."],
+     ["규격 부적합 날조", "28건 중 일부가 규격을 벗어났습니다."],
+     ["영문 pass 날조", "All 28 batches passed the specification."]].forEach(function (c) {
+      const v = V.checkNarration(c[1], r);
+      add("서술 검증 · " + c[0] + " 차단",
+        v.ok === false && (v.claims || []).length > 0,
+        "통과시킴 (claims=" + JSON.stringify(v.claims || []) + ")");
+    });
+    /* 판정하지 못했다고 말하는 문장은 주장이 아니므로 막으면 안 됩니다 */
+    add("서술 검증 · \"판정할 수 없다\" 는 통과",
+      V.checkNarration("등록된 규격이 없어 규격 적합 여부를 판정할 수 없습니다.", r).ok,
+      "정상 문장을 막았음");
+    /* 실제 판정 결과에 붙은 판정 문장은 통과해야 합니다 */
+    const sp = E.answer("실패한 배치 있어?", { table: t });
+    add("서술 검증 · 판정 응답의 판정 문장은 통과",
+      (V.checkNarration("규격이 등록되어 있지 않아 적합 여부를 판정하지 못했습니다.", sp).claims || []).length === 0,
+      "판정 응답인데 막았음");
 
     /* 2) 반올림은 허용 (981.4 → 981) */
     add("서술 검증 · 반올림 허용",

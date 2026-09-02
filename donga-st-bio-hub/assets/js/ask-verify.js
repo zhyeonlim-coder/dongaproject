@@ -103,17 +103,50 @@ window.AskVerify = (function () {
     return expandAllowed(known).has(n);
   }
 
-  /* 검증. 반환 { ok, unknownNums[], unknownDates[] } */
+  /* ── 주장 검사 ────────────────────────────────────────────────────────
+     수치만 보면 놓치는 것이 있습니다. "28건 모두 규격에 적합합니다" 는
+     28 이라는 진짜 숫자만 쓰고도 완전히 거짓입니다 — 규격이 하나도
+     등록되지 않은 상태에서도 그 문장은 수치 검증을 통과합니다.
+
+     Pass/Fail 은 이 시스템에서 가장 위험한 문장입니다. 규제 문서에
+     그대로 실리기 때문입니다. 그래서 "판정을 말하는 문장" 은 조회 결과가
+     실제로 판정 결과일 때만 허용합니다. 판정이 아닌 응답에 판정 문장이
+     붙으면, 숫자가 전부 진짜여도 버립니다.
+
+     여기서 보는 것은 문장의 종류이지 문장의 옳고 그름이 아닙니다 —
+     판정 결과일 때 그 내용이 맞는지는 specAnswer 가 이미 봅니다. */
+  const VERDICT_WORDS = /(적합|부적합|합격|불합격|규격을?\s*(벗어|만족|충족)|규격\s*(내|외|이내)|pass\/fail|\bpass(ed)?\b|\bfail(ed)?\b|스펙\s*(내|외)|일탈|oos)/i;
+  /* 판정을 부정하거나 판정할 수 없다고 말하는 문장은 주장이 아닙니다 */
+  const NON_CLAIM = /(판정할 수 없|판정하지 (않|못)|등록되어 있지 않|보류|규격이 (하나도 )?없)/;
+
+  function claimIssues(text, r) {
+    const s = String(text == null ? "" : text);
+    const out = [];
+    if (VERDICT_WORDS.test(s) && !NON_CLAIM.test(s)) {
+      const isVerdict = r && (r.kind === "spec" || r.kind === "spec-none" ||
+                              r.kind === "spec-unavailable" || !!r.judged);
+      if (!isVerdict) {
+        out.push("규격 판정(Pass/Fail)을 말하는 문장인데 이 응답은 판정 결과가 아닙니다");
+      } else if (r.kind !== "spec") {
+        out.push("규격을 판정하지 못한 응답인데 판정한 것처럼 말했습니다");
+      }
+    }
+    return out;
+  }
+
+  /* 검증. 반환 { ok, unknownNums[], unknownDates[], claims[] } */
   function checkNarration(text, r) {
     const said = numbersIn(text);
     const known = knownFrom(r);
     const knownSet = expandAllowed(known.nums);
     const unknownNums = said.nums.filter(n => !knownSet.has(n));
     const unknownDates = said.dates.filter(d => known.dates.indexOf(d) === -1);
+    const claims = claimIssues(text, r);
     return {
-      ok: !unknownNums.length && !unknownDates.length,
+      ok: !unknownNums.length && !unknownDates.length && !claims.length,
       unknownNums: unknownNums,
       unknownDates: unknownDates,
+      claims: claims,
       checked: said.nums.length + said.dates.length
     };
   }
