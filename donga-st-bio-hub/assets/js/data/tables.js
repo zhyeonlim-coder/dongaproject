@@ -68,6 +68,34 @@ window.AskTables = (function () {
       });
     }));
 
+    /* 일자별 Titer (D10~D20).
+
+       예전에는 추이 그래프에서만 쓰고 조회 대상 컬럼이 아니었습니다.
+       그래서 "Titer D14 평균" 을 물으면 D14 를 못 찾고 Titer HCCF 로
+       떨어져, 묻지 않은 컬럼의 값을 답으로 냈습니다 — 화면 어디에도
+       "D14 가 아니라 HCCF 입니다" 라는 말이 없었습니다.
+       조회 대상으로 올려 그 경로 자체를 없앱니다. */
+    const TD = window.DATA_TITER_ITEM || { label: "Titer", unit: "mg/L", dp: 0 };
+    (window.DATA_TITER_DAYS || []).forEach(function (d) {
+      columns.push({
+        key: "titerDay_" + d, label: "Titer " + d, unit: TD.unit || "mg/L", dp: TD.dp,
+        type: "num", group: "titerDay", groupLabel: "일자별 Titer", team: "upstream",
+        day: d, generated: false
+      });
+    });
+
+    /* 라벨이 겹치는 컬럼은 그룹 이름을 붙여 구분합니다.
+       SE-HPLC 와 IE-HPLC 둘 다 항목 이름이 "Main" 이라, 표에 "Main" 이
+       두 번 나오면 어느 쪽 값인지 알 수 없었습니다. */
+    const labelCount = {};
+    columns.forEach(c => { labelCount[c.label] = (labelCount[c.label] || 0) + 1; });
+    columns.forEach(function (c) {
+      if (labelCount[c.label] > 1 && c.groupLabel) {
+        c.shortLabel = c.label;
+        c.label = c.groupLabel + " " + c.label;
+      }
+    });
+
     const rows = batches.map(b => {
       /* studyOf 는 배치 객체를 받습니다 (studyId 가 아니라) */
       const study = R ? R.studyOf(b) : (window.DATA_STUDIES || []).find(s => s.id === b.studyId) || null;
@@ -88,6 +116,11 @@ window.AskTables = (function () {
         const k = R ? R.fieldKey(g.id, it.key) : (g.id + "_" + it.key);
         row[k] = R ? numeric(R.valueOf(b, g.id, it.key)) : null;
       }));
+      /* 일자별 Titer — 원본은 b.upstream.titer.D10 … 에 있습니다 */
+      const td = (b.upstream && b.upstream.titer) || {};
+      (window.DATA_TITER_DAYS || []).forEach(function (d) {
+        row["titerDay_" + d] = numeric(td[d]);
+      });
       return row;
     });
 

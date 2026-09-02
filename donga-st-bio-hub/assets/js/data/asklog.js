@@ -2,9 +2,17 @@
    asklog.js — 질의 로그 · 자가 개선  ·  window.AskLog
 
    무엇을 기록하는가
-     · 규칙이 놓쳐 LLM 으로 넘어간 질문 (원문 + 뽑힌 슬롯)
+     · 규칙이 놓쳐 LLM 으로 넘어간 질문 (마스킹한 문장 + 뽑힌 슬롯)
      · confidence 가 낮았던 질문 · 결과 0건 · unsupported · 되묻기
      · 사용자가 되묻기에 답하지 않고 다시 던진 문장
+
+   무엇을 기록하지 않는가
+     누가 물었는지는 남기지 않습니다 (이름 · 이메일 · 사번 모두).
+     질문은 저장 전에 마스킹합니다 — 이메일 · 휴대폰 · 전화 · 주민번호 ·
+     URL · 긴 숫자 뭉치는 [이메일] 같은 표시로 바뀝니다. 무엇을 지웠는지는
+     removed 에 남으므로, 로그를 읽는 사람이 문장을 오해하지 않습니다.
+     ★ 이 문단은 선언이 아니라 mask() 가 실제로 하는 일입니다. 둘이
+       어긋나면 감사에서 걸리는 것은 문서가 아니라 시스템입니다.
 
    왜 기록하는가
      LLM 이 성공적으로 해석한 표현은 규칙 사전에 넣을 후보입니다.
@@ -23,6 +31,38 @@ window.AskLog = (function () {
   let state = load();
   const subs = [];
 
+  /* ── 저장 전 마스킹 ──────────────────────────────────────────────────
+     예전 주석은 "개인정보는 담지 않습니다" 라고 선언했는데, 실제로는 질문
+     원문을 그대로 저장했습니다. 선언과 구현이 어긋난 상태였습니다.
+     선언을 낮추는 대신 구현을 선언에 맞춥니다 — 지우는 쪽이 안전합니다.
+
+     승격 후보를 찾는 데 필요한 것은 "어떤 표현으로 물었는가" 이지
+     그 안에 섞여 들어온 연락처가 아닙니다. 마스킹해도 목적은 그대로입니다.
+
+     마스킹한 자리에는 무엇을 지웠는지 남깁니다 — 조용히 지우면 나중에
+     로그를 읽는 사람이 원래 문장을 오해합니다. */
+  const MASKS = [
+    { re: /[\w.+-]+@[\w-]+\.[\w.-]+/g,                    as: "[이메일]" },
+    { re: /\b\d{6}\s?-\s?[1-4]\d{6}\b/g,                  as: "[주민번호]" },
+    { re: /\b01[016-9][-\s.]?\d{3,4}[-\s.]?\d{4}\b/g,     as: "[휴대폰]" },
+    { re: /\b0\d{1,2}[-\s.]\d{3,4}[-\s.]\d{4}\b/g,        as: "[전화번호]" },
+    { re: /\bhttps?:\/\/\S+/gi,                           as: "[URL]" },
+    /* 카드번호 · 계좌번호처럼 긴 숫자 뭉치. 측정값은 이 길이로 쓰지
+       않으므로(최대 5자리) 조회에 필요한 숫자는 남습니다. */
+    { re: /\b\d[\d\s-]{10,}\d\b/g,                        as: "[긴 숫자]" }
+  ];
+  function mask(text) {
+    let s = String(text == null ? "" : text);
+    const removed = [];
+    MASKS.forEach(function (m) {
+      s = s.replace(m.re, function () {
+        if (removed.indexOf(m.as) === -1) removed.push(m.as);
+        return m.as;
+      });
+    });
+    return { text: s, removed: removed };
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
@@ -38,8 +78,7 @@ window.AskLog = (function () {
              narrateBlocked: 0, resultBlocked: 0, specNone: 0,
              requery: 0, choicePicked: 0, totalMs: 0, llmMs: 0, llmCalls: 0 };
   }
-  /* 일별 집계 — 파일럿 대시보드가 추이를 그리려면 날짜별로 나눠야 합니다.
-     개인정보는 담지 않습니다. 질문 원문과 사번 단위 식별자까지만입니다. */
+  /* 일별 집계 — 파일럿 대시보드가 추이를 그리려면 날짜별로 나눠야 합니다 */
   function today() {
     const d = new Date(), p = n => String(n).padStart(2, "0");
     return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
@@ -175,7 +214,7 @@ window.AskLog = (function () {
 
   /* 되묻기에서 사용자가 어느 쪽을 골랐는지 */
   function recordChoice(question, label) {
-    const q = String(question || "").trim();
+    const q = mask(question).text.trim();
     const found = state.list.find(x => x.question === q);
     if (found) {
       found.choice = label;
@@ -187,7 +226,7 @@ window.AskLog = (function () {
 
   /* 답을 받고 곧바로 다시 물었다 = 답이 만족스럽지 않았다는 신호 */
   function recordRequery(prevQuestion, gapMs) {
-    const q = String(prevQuestion || "").trim();
+    const q = mask(prevQuestion).text.trim();
     const found = state.list.find(x => x.question === q);
     if (found) {
       found.requeriedInMs = gapMs;
@@ -226,7 +265,8 @@ window.AskLog = (function () {
     if (entry.path === "narrate-blocked") reasons.push("서술 수치 차단");
     if (!reasons.length) { save(); return null; }   /* 지표는 이미 세었으니 저장은 합니다 */
 
-    const q = String(entry.question || "").trim();
+    const mk = mask(entry.question);
+    const q = mk.text.trim();
     const found = state.list.find(x => x.question === q);
     if (found) {
       found.count += 1;
@@ -235,13 +275,18 @@ window.AskLog = (function () {
       if (entry.slots) found.slots = entry.slots;
       if (entry.path) found.path = entry.path;
       if (entry.kind) found.kind = entry.kind;
+      if (mk.removed.length) {
+        found.masked = Array.from(new Set((found.masked || []).concat(mk.removed)));
+      }
     } else {
       state.list.unshift({
         question: q, count: 1, at: new Date().toISOString(),
         reasons: reasons, path: entry.path || "rule", kind: entry.kind || null,
         intent: entry.intent || null, confidence: entry.confidence,
         slots: entry.slots || null, rows: entry.rows,
-        rejected: entry.rejected || []
+        rejected: entry.rejected || [],
+        /* 무엇을 지웠는지 — 빈 배열이면 지운 것이 없다는 뜻입니다 */
+        masked: mk.removed
       });
       if (state.list.length > MAX) state.list.length = MAX;
     }
@@ -305,6 +350,8 @@ window.AskLog = (function () {
     record: record, suggestions: suggestions, approve: approve, clear: clear,
     metrics: metrics, resetCounts: resetCounts, daily: daily, report: report,
     recordChoice: recordChoice, recordRequery: recordRequery,
-    on: on, state: () => state, KEY: KEY
+    on: on, state: () => state, KEY: KEY,
+    /* 검사용 — 선언과 구현이 어긋나지 않는지 회귀 테스트가 직접 봅니다 */
+    _mask: mask
   };
 })();

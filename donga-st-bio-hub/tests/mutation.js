@@ -61,6 +61,8 @@ window.AskMutation = (function () {
   }
 
   const ENG = "../assets/js/ask-engine.js";
+  const VER = "../assets/js/ask-verify.js";
+  const TBL = "../assets/js/data/tables.js";
   const PRV = "../assets/js/data/provenance.js";
   const SPC = "../assets/js/data/specs.js";
 
@@ -179,7 +181,70 @@ window.AskMutation = (function () {
       expect: "Q",
       run: fn => withMutatedSource(SPC,
         "if (c.generated) {",
-        "if (false) {", fn) }
+        "if (false) {", fn) },
+
+    /* ── 파일럿 전 수정분 (저장 위치 · 권한 · 동점 · D-day · 마스킹) ─── */
+    { id: "M15 권한: 저장소 가드를 통과시킴",
+      why: "화면만 막고 저장소는 아무나 쓸 수 있는 상태로 되돌아가는가",
+      expect: "R",
+      run: fn => withMutatedSource(SPC,
+        'if (window.Auth.can("spec:write")) return null;',
+        "if (true) return null;", fn) },
+
+    { id: "M16 규격: 원본 소실을 \"없음\"처럼 답함",
+      why: "규격이 있는데 파일이 빠진 상황을 규격이 없는 것처럼 말하는가",
+      expect: "R",
+      run: fn => withMutatedSource(ENG,
+        "if (S && !src.ok) {",
+        "if (false) {", fn) },
+
+    { id: "M17 규격: 소실 탐지를 무력화",
+      why: "파일이 없어도 정상으로 보고하면 근거 없는 판정이 나갑니다",
+      expect: "R",
+      run: fn => withPatch(window.Specs, "source", () => ({ ok: true, reason: "file", count: 0 }), fn) },
+
+    { id: "M18 동점: 한 건만 지목",
+      why: "F2. 25건이 동점인데 \"가장 높은 것은 B045-1\" 이라고 말하는가",
+      expect: "R",
+      run: fn => withMutatedSource(ENG,
+        "const tied = sorted.filter(r => r[metric.key] === topVal);",
+        "const tied = [top];", fn) },
+
+    { id: "M19 D-day: 조회 대상에서 제외",
+      why: "F3. \"Titer D14\" 가 다시 Titer HCCF 값을 답으로 내는가",
+      expect: "R",
+      run: fn => withMutatedSource(TBL,
+        '(window.DATA_TITER_DAYS || []).forEach(function (d) {\n      columns.push({',
+        '[].forEach(function (d) {\n      columns.push({', fn) },
+
+    { id: "M20 라벨: 겹치는 이름을 구분하지 않음",
+      why: "F8. 표에 \"Main\" 이 두 번 나와 어느 쪽 값인지 알 수 없게 되는가",
+      expect: "R",
+      run: fn => withMutatedSource("../assets/js/data/tables.js",
+        "if (labelCount[c.label] > 1 && c.groupLabel) {",
+        "if (false) {", fn) },
+
+    { id: "M21 로그: 마스킹 무력화",
+      why: "F12. \"개인정보를 담지 않는다\" 는 선언이 다시 거짓이 되는가",
+      expect: "R",
+      run: fn => withPatch(window.AskLog, "_mask", t => ({ text: String(t), removed: [] }), fn) },
+
+    /* 성능 때문에 고친 자리는 "허용 기준이 그대로인가" 로 지킵니다.
+       비교를 Set 조회로 바꾸면서 반올림 허용을 빠뜨리면, 맞는 답이 차단되고
+       사용자는 표만 보게 됩니다 — 빨라진 대신 답을 잃는 회귀입니다.
+
+       ※ 같은 자리에서 sameScope 축약도 시도해 봤지만, 그 변이는 어떤
+         응답의 결과도 바꾸지 않습니다. 좁은 범위일 때는 축약이 걸리지 않고
+         (scoped ≠ allRows), 전체 범위일 때 두 집합은 증명 가능하게 같기
+         때문입니다. 동작이 같은 변이는 "검사가 없다" 는 증거가 아니라
+         변이가 잘못 만들어진 것이라 목록에 넣지 않았습니다. */
+    { id: "M22 성능: 반올림 허용을 빠뜨림",
+      why: "Set 으로 바꾸면서 허용 기준이 좁아졌는가 — 맞는 답이 차단되면 " +
+           "속도 개선이 아니라 회귀입니다",
+      expect: "O",
+      run: fn => withMutatedSource(VER,
+        "      for (let dp = 0; dp <= 3; dp++) set.add(Number(v.toFixed(dp)));\n      set.add(Math.floor(v)); set.add(Math.ceil(v));",
+        "", fn) }
   ];
 
   /* ── 실행 ─────────────────────────────────────────────────────────────
@@ -256,6 +321,6 @@ window.AskMutation = (function () {
   }
 
   return { load: load, run: run, text: text, MUTANTS: MUTANTS,
-           SOURCES: [ENG, PRV, SPC],
+           SOURCES: [ENG, PRV, SPC, VER, TBL],
            _withMutatedSource: withMutatedSource, _withPatch: withPatch };
 })();

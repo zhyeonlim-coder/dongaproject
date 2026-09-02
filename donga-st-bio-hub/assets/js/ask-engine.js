@@ -66,6 +66,22 @@ window.AskEngine = (function () {
     cultureDays: ["배양 일수", "배양일수", "배양 기간", "culture day", "culture days"]
   };
 
+  /* 일자별 Titer 별칭 — 손으로 11개를 적지 않고 데이터에서 만듭니다.
+     별칭 길이로 우선순위가 갈리므로("titer" 5 < "titer d14" 9), "Titer D14"
+     를 물으면 HCCF 가 아니라 D14 가 이깁니다. */
+  (window.DATA_TITER_DAYS || []).forEach(function (d) {
+    const n = d.slice(1);                       /* D14 → 14 */
+    ALIAS["titerDay_" + d] = [
+      "titer " + d.toLowerCase(), "titer" + d.toLowerCase(),
+      d.toLowerCase() + " titer", d.toLowerCase() + " 역가",
+      "역가 " + d.toLowerCase(),
+      n + "일차 titer", n + "일차 역가", n + "일째 titer",
+      "titer " + n + "일차"
+    ];
+  });
+  /* "D14" 만 적어도 알아듣게 하되, 다른 항목 이름과 겹치지 않는지 봅니다 */
+  const DAY_ONLY = /(^|[\s(])d\s?(1[0-9]|20)(?![0-9])/i;
+
   /* 원본에 컬럼 자체가 없는 항목 — 지어내지 않고 없다고 답합니다.
      (공정 설정값은 Excel "Batch Data" 시트에 열이 존재하지 않습니다) */
   const NOT_RECORDED = [
@@ -128,8 +144,32 @@ window.AskEngine = (function () {
       list.forEach(a => { if (has(text, a) && a.length > best) best = a.length; });
       if (best) hits.push({ col, score: best });
     });
+    /* "D14 값" 처럼 일자만 적은 경우 — 별칭에 안 걸렸어도 받아 줍니다 */
+    const dm = String(text).match(DAY_ONLY);
+    if (dm) {
+      const key = "titerDay_D" + dm[2];
+      if (!hits.some(h => h.col.key === key)) {
+        const col = table.columns.find(c => c.key === key);
+        if (col) hits.push({ col: col, score: 3 });
+      }
+    }
     hits.sort((a, b) => b.score - a.score);
     return hits.map(h => h.col);
+  }
+
+  /* 있지도 않은 일자(D25 · D3)를 물었을 때.
+
+     이걸 그냥 두면 "Titer D25 평균" 이 D25 를 못 찾고 Titer HCCF 로
+     떨어져, 묻지 않은 컬럼 값을 답으로 냅니다. 없는 날짜라고 말해야 합니다. */
+  function badDayToken(text, table) {
+    const out = [];
+    const re = /(?:^|[\s(])[dD]\s?(\d{1,2})(?![0-9])/g;
+    let m;
+    while ((m = re.exec(String(text))) !== null) {
+      const key = "titerDay_D" + m[1];
+      if (!table.columns.some(c => c.key === key)) out.push("D" + m[1]);
+    }
+    return Array.from(new Set(out));
   }
 
   /* 업로드 표는 별칭 사전이 없으니 머리글 자체로 맞춥니다 */
@@ -166,7 +206,8 @@ window.AskEngine = (function () {
          "제일 나쁘", "가장 나쁘", "제일 안 좋", "가장 안 좋", "안좋", "부진"].some(t => has(text, t))) return "min";
     if (["제일 좋", "가장 좋", "젤 좋", "잘 나온", "잘나온", "우수"].some(t => has(text, t))) return "max";
     if (["평균", "average", "mean", "표준편차", "편차", "분포", "범위"].some(t => has(text, t))) return "stat";
-    if (["몇 건", "몇건", "몇 개", "몇개", "개수", "건수", "how many", "count"].some(t => has(text, t))) return "count";
+    if (["몇 건", "몇건", "몇 개", "몇개", "개수", "건수", "how many", "count",
+         "배치 수", "배치수", "몇 배치", "batch count", "총 몇"].some(t => has(text, t))) return "count";
 
     /* 승격된 어휘는 마지막에만 봅니다. 하드코딩 규칙이 먼저 판정하고,
        기본값(list)으로 떨어졌을 때만 오버레이를 참조합니다 — 그래야
@@ -759,6 +800,9 @@ window.AskEngine = (function () {
       /* 배치 · 과제 이름은 범위로 이미 처리됐으므로 뺍니다 */
       .filter(x => !(table.rows || []).some(r => String(r.__label || "").toLowerCase() === x))
       .filter(x => !(window.DATA_PROJECTS || []).some(p => String(p.code || "").toLowerCase() === x))
+      /* 일자 토큰(d25)은 따로 더 정확한 문구로 알려 주므로 여기서 빼서
+         같은 말을 두 번 하지 않게 합니다 */
+      .filter(x => !/^d\d{1,2}$/.test(x))
       /* 항목 이름에 숫자가 든 것(G0F · G1F · 2H1L · LC+HC …)은 이미 읽은
          것입니다. 이걸 "못 읽었다"고 하면 제대로 답한 질문에 거짓 경고가
          붙습니다 — 조용한 오답을 막으려다 반대쪽으로 넘어가는 셈입니다. */
@@ -1217,6 +1261,16 @@ window.AskEngine = (function () {
     const metric = metrics[0];
     const alt = metrics.slice(1, 4).map(c => c.label);
 
+    /* 없는 일자를 물었으면 반드시 말합니다. 조용히 Titer HCCF 로 답하면
+       사용자는 D25 값을 받은 줄 압니다. */
+    const badDays = badDayToken(text, table);
+    if (badDays.length) {
+      const days = window.DATA_TITER_DAYS || [];
+      cond.unhandled.push("\"" + badDays.join(" · ") + "\" — 그 일자의 Titer 컬럼이 없습니다 (" +
+        (days.length ? days[0] + "~" + days[days.length - 1] : "없음") +
+        " 만 있습니다). 대신 " + metric.label + " 으로 답했습니다");
+    }
+
     let out;
     if (intent === "trend") out = trendAnswer(base, table, rows, metric, scope);
     else if (intent === "missing") out = missingAnswer(base, table, rows, metrics);
@@ -1314,6 +1368,25 @@ window.AskEngine = (function () {
   function specAnswer(base, table, rows, metrics) {
     const S = window.Specs;
     const numCols = table.columns.filter(c => c.type === "num");
+
+    /* 규격 원본을 못 읽은 것과 규격이 없는 것은 다릅니다.
+       전자를 후자처럼 답하면 "규격이 없다" 는 틀린 사실을 말하게 되고,
+       읽는 사람은 등록하러 갔다가 이미 등록돼 있는 것을 봅니다. */
+    const src = S && S.source ? S.source() : { ok: true };
+    if (S && !src.ok) {
+      return Object.assign(base, {
+        ok: false, kind: "spec-unavailable",
+        headline: "규격 원본을 읽지 못해 Pass/Fail 판정을 보류합니다. " +
+          "규격이 등록되어 있지 않은 것과는 다른 상황입니다.",
+        hints: [
+          src.why,
+          "배포에 assets/js/data/specs-baseline.js 가 빠졌을 가능성이 큽니다 — 담당자에게 알려 주세요.",
+          "규격 없이도 값 자체는 조회하실 수 있습니다."
+        ],
+        note: "이 상태에서 판정 결과를 내면 근거 없는 Pass/Fail 이 됩니다.",
+        suggestions: suggestList(table)
+      });
+    }
 
     if (!S || !S.count()) {
       return Object.assign(base, {
@@ -1733,14 +1806,28 @@ window.AskEngine = (function () {
     const s = stats(values(withVal, metric.key));
     const word = intent === "max" ? "가장 높은" : "가장 낮은";
 
-    const facts = [{ k: metric.label, v: fmt(top[metric.key], metric) }]
-      .concat(rowMeta(top, table));
-    const ctx = table.kind === "internal" ? contextOf(top, table, metric.key) : [];
+    /* 동점 — 같은 값이 여럿이면 하나만 지목하는 것은 틀린 진술입니다.
+       "배양 일수가 가장 높은 배치는 B045-1" 은 25건이 똑같이 13일일 때
+       사실이 아닙니다. 전부 세어 말하고 표에도 전부 올립니다. */
+    const topVal = top[metric.key];
+    const tied = sorted.filter(r => r[metric.key] === topVal);
+    const tieN = tied.length;
+    const names = tied.map(r => r.__label);
+    const nameText = tieN === 1 ? top.__label
+      : tieN <= 4 ? names.join(" · ")
+      : names.slice(0, 3).join(" · ") + " 외 " + (tieN - 3) + "건";
 
-    let headline = base.scopeLabel === "전체"
-      ? metric.label + "이(가) " + word + " 것은 " + top.__label + " — " + fmt(top[metric.key], metric) + "입니다."
-      : base.scopeLabel + " 범위에서 " + metric.label + "이(가) " + word + " 것은 " +
-        top.__label + " — " + fmt(top[metric.key], metric) + "입니다.";
+    const facts = [{ k: metric.label, v: fmt(topVal, metric) }]
+      .concat(tieN > 1 ? [{ k: "공동 " + word.replace("가장 ", "") + " 배치", v: tieN + "건" }] : [])
+      .concat(rowMeta(top, table));
+    const ctx = table.kind === "internal" && tieN === 1 ? contextOf(top, table, metric.key) : [];
+
+    const lead = base.scopeLabel === "전체" ? "" : base.scopeLabel + " 범위에서 ";
+    let headline = tieN > 1
+      ? lead + metric.label + "이(가) " + word + " 값은 " + fmt(topVal, metric) +
+        "이고, 그 값인 배치가 공동 " + tieN + "건입니다 — " + nameText + "."
+      : lead + metric.label + "이(가) " + word + " 것은 " +
+        top.__label + " — " + fmt(topVal, metric) + "입니다.";
     if (s && s.n > 1) {
       headline += " 같은 범위 " + s.n + "건의 평균은 " + fmt(s.mean, metric) +
         ", 범위는 " + fmt(s.min, metric) + "~" + fmt(s.max, metric) + "입니다.";
@@ -1755,6 +1842,11 @@ window.AskEngine = (function () {
     if (alt.length) notes.push("비슷한 항목도 함께 인식했습니다 — " + alt.join(", ") + ". 다른 항목을 원하시면 이름을 그대로 넣어 다시 물어보세요.");
     if (scope.recent) notes.push("\"최근\"은 기간을 임의로 자르지 않고 최신순 정렬로만 반영했습니다.");
 
+    if (tieN > 1) {
+      notes.push("동점이라 한 건을 지목하지 않았습니다 — 표에 공동 " + tieN +
+        "건을 모두 올렸습니다.");
+    }
+
     /* 배치번호가 원본에 없던 행이면 그 사실을 밝힙니다 — 지어낸 이름을
        실제 배치번호처럼 읽게 두면 안 됩니다 (원본 Exp. No. 공란 1건). */
     if (top.__unnamed) {
@@ -1765,9 +1857,12 @@ window.AskEngine = (function () {
     return Object.assign(base, {
       kind: "extreme", headline: headline, facts: facts, context: ctx,
       stats: s, metric: { key: metric.key, label: metric.label, unit: metric.unit },
-      rows: sorted.slice(0, 8).map(r => evidence(r, table, metric)),
+      /* 동점이면 동점자를 다 보여 줘야 합니다 — 8건에서 잘라 버리면
+         "공동 25건" 이라고 써 놓고 표에는 8건만 있는 셈이 됩니다 */
+      rows: sorted.slice(0, Math.max(8, tieN)).map(r => evidence(r, table, metric)),
       evidenceCols: evidenceCols(table, metric),
-      focusLabels: [top.__label],
+      tie: tieN > 1 ? { count: tieN, value: topVal, labels: names } : null,
+      focusLabels: names,
       note: notes.join(" ")
     });
   }

@@ -122,14 +122,67 @@
     const projects = (window.DATA_PROJECTS || []).map(p => p.code);
     const studies = (window.DATA_STUDIES || []).map(s => s.name);
 
-    return '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
+    /* ── 저장 위치 · 권한 상태 ──────────────────────────────────────────
+       규격은 판정의 근거이고 판정은 규제 문서에 실립니다. 그 기준이 지금
+       어디에 있는지 · 사라질 수 있는 상태인지 · 내가 고칠 수 있는지를
+       화면에 계속 띄워 둡니다. 한 번 보고 지나가는 안내로는 부족합니다. */
+    const src = S2.source ? S2.source() : { ok: true };
+    const pend = S2.pending ? S2.pending() : { count: 0, storageOk: true };
+    const canWrite = !window.Auth || !window.Auth.can || window.Auth.can("spec:write");
+    const denyWhy = canWrite ? null : (window.Auth.denial("spec:write") || "권한이 없습니다.");
+
+    let banner = "";
+    if (!src.ok) {
+      banner += '<div class="card" style="margin-bottom:var(--s-4);border-color:#B91C1C">' +
+        '<div class="card-body"><strong>규격 원본을 읽지 못했습니다 — 판정을 보류합니다</strong>' +
+        '<p class="ask-note">' + esc(src.why) + '<br>' +
+        '이 상태에서는 "규격이 없다" 고 답하지 않습니다. 규격이 없는 것과 ' +
+        '기준 파일이 빠진 것은 다른 상황이고, 후자를 전자처럼 말하면 ' +
+        '판정 없이 지나간 항목이 통과한 것처럼 읽힙니다.</p></div></div>';
+    }
+    if (pend.count) {
+      banner += '<div class="card" style="margin-bottom:var(--s-4);border-color:#B45309">' +
+        '<div class="card-body"><strong>저장소 파일에 아직 반영되지 않은 규격 ' + pend.count + '건</strong>' +
+        '<p class="ask-note">이 ' + pend.count + '건은 지금 <b>이 브라우저에만</b> 있습니다. ' +
+        '캐시를 지우거나 다른 PC 에서 열면 없습니다 — 그리고 그때 화면은 ' +
+        '"규격 없음" 으로 보입니다.<br>' +
+        '아래 <b>저장소 파일로 내보내기</b> 를 눌러 나온 내용으로 ' +
+        '<code>assets/js/data/specs-baseline.js</code> 를 교체하고 커밋하면 그때부터 원본이 됩니다.' +
+        (pend.exportedAt ? '<br>마지막 내보내기: ' + esc(pend.exportedAt) : "") +
+        '</p></div></div>';
+    }
+    if (!pend.storageOk) {
+      banner += '<div class="card" style="margin-bottom:var(--s-4);border-color:#B91C1C">' +
+        '<div class="card-body"><strong>브라우저 저장이 되지 않고 있습니다</strong>' +
+        '<p class="ask-note">시크릿 창이거나 저장 공간이 가득 찼을 수 있습니다. ' +
+        '지금 등록한 규격은 새로고침하면 사라집니다 — 바로 내보내기 하세요.</p></div></div>';
+    }
+    if (!canWrite) {
+      banner += '<div class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
+        '<strong>읽기 전용</strong><p class="ask-note">' + esc(denyWhy) +
+        ' 규격은 Pass/Fail 판정의 기준이라 규제업무 권한에서만 바꿉니다. ' +
+        '등록·수정이 필요하면 규제업무 담당자에게 요청해 주세요.<br>' +
+        '<span style="opacity:.75">※ 이것은 화면 통제입니다. 서버가 붙기 전까지는 ' +
+        '실제 접근 통제가 아닙니다 — 감사 대응 시 이 한계를 함께 적어야 합니다.</span>' +
+        '</p></div></div>';
+    }
+
+    const srcLine = src.ok
+      ? "원본: assets/js/data/specs-baseline.js (rev " + (src.revision || 0) + " · " +
+        src.count + "건" + (src.updatedAt ? " · " + esc(src.updatedAt) : "") + ")"
+      : "원본: 읽지 못함";
+
+    return banner +
+      '<section class="card" style="margin-bottom:var(--s-4)"><div class="card-body">' +
       '<h2 class="card-title">규격 등록</h2>' +
       '<p class="ask-note">등록된 규격이 있는 항목만 Pass/Fail 을 판정합니다. ' +
       '규격이 없는 항목은 판정하지 않고 그 사실을 답변에 적습니다 — ' +
       '판정하지 않은 것과 적합한 것은 다릅니다.<br>' +
-      '근거 문서는 필수입니다. 근거 없는 규격은 판정에 쓸 수 없습니다.</p>' +
+      '근거 문서는 필수입니다. 근거 없는 규격은 판정에 쓸 수 없습니다.<br>' +
+      '<span class="mono" style="opacity:.75">' + srcLine + "</span></p>" +
 
-      '<div class="form-grid">' +
+      (canWrite ? "" : '<p class="ask-note">등록 양식은 권한이 있을 때만 열립니다.</p>') +
+      (canWrite ? '<div class="form-grid">' : '<div class="form-grid" hidden>') +
         '<label class="fld"><span>항목</span><select class="ebr-input" id="sp-col">' +
           cols.map(c => '<option value="' + esc(c.key) + '">' + esc(c.label) +
             (c.unit ? " (" + esc(c.unit) + ")" : "") + "</option>").join("") +
@@ -145,10 +198,16 @@
           '<input class="ebr-input" id="sp-doc" placeholder="예: SOP-QC-014 Rev.3 · 제품표준서 3.2절"></label>' +
       "</div>" +
       '<div style="margin-top:var(--s-3);display:flex;gap:8px;flex-wrap:wrap">' +
-        '<button class="btn btn-accent" id="sp-add">등록</button>' +
-        '<button class="btn btn-sm" id="sp-demo">예시 규격 넣기 (실제 규격 아님)</button>' +
+        (canWrite
+          ? '<button class="btn btn-accent" id="sp-add">등록</button>' +
+            '<button class="btn btn-sm" id="sp-demo">예시 규격 넣기 (실제 규격 아님)</button>'
+          : "") +
+        '<button class="btn btn-sm" id="sp-export">저장소 파일로 내보내기</button>' +
+        (canWrite ? '<button class="btn btn-sm" id="sp-import">파일에서 가져오기</button>' : "") +
       "</div>" +
       '<p id="sp-msg" class="ask-note"></p>' +
+      '<textarea id="sp-file" class="ebr-input mono" hidden rows="12" ' +
+        'style="width:100%;margin-top:var(--s-3);font-size:12px" spellcheck="false"></textarea>' +
       "</div></section>" +
 
       '<section class="card"><div class="card-body">' +
@@ -157,7 +216,7 @@
         ? '<div class="tbl-scroll"><table class="tbl"><thead><tr>' +
           '<th scope="col">항목</th><th scope="col">규격</th><th scope="col">적용 범위</th>' +
           '<th scope="col">근거 문서</th><th scope="col">등록자</th><th scope="col">등록일시</th>' +
-          '<th scope="col">이력</th><th scope="col">상태</th><th scope="col"></th>' +
+          '<th scope="col">이력</th><th scope="col">저장</th><th scope="col">상태</th><th scope="col"></th>' +
           "</tr></thead><tbody>" +
           list.map(function (s) {
             const col = t.columns.find(c => c.key === s.columnKey);
@@ -169,19 +228,29 @@
               "<td>" + esc(s.by) + "</td>" +
               '<td class="mono">' + esc(s.at) + "</td>" +
               '<td class="mono">' + (s.history.length ? s.history.length + "회" : "—") + "</td>" +
+              /* 이 한 칸이 "이 규격이 사라질 수 있는가" 를 말합니다 */
+              "<td>" + (s.pending
+                ? '<span class="pill" style="border-color:#B45309">브라우저에만</span>'
+                : '<span class="pill" style="border-color:#0F766E">파일</span>') + "</td>" +
               "<td>" + (s.active === false
                 ? '<span class="pill" style="border-color:var(--c-line)">비활성</span>'
                 : '<span class="pill" style="border-color:#0F766E">적용 중</span>') + "</td>" +
-              "<td>" + (s.active === false
+              "<td>" + (!canWrite ? "" : (s.active === false
                 ? '<button class="btn btn-sm" data-spec-on="' + esc(s.id) + '">다시 적용</button>'
-                : '<button class="btn btn-sm" data-spec-off="' + esc(s.id) + '">비활성화</button>') +
+                : '<button class="btn btn-sm" data-spec-off="' + esc(s.id) + '">비활성화</button>')) +
               "</td></tr>" +
               (s.history.length
-                ? '<tr><td colspan="9" style="padding-top:0"><details class="disclose"><summary>변경 이력 ' +
+                ? '<tr><td colspan="10" style="padding-top:0"><details class="disclose"><summary>변경 이력 ' +
                   s.history.length + '회</summary><div style="padding:0 var(--s-4) var(--s-4);font-size:12px;line-height:1.8">' +
-                  s.history.map(h => "· " + esc(h.replacedAt) + " " + esc(h.replacedBy) + " — 이전 " +
-                    esc((h.lo === null ? "" : h.lo) + " ~ " + (h.hi === null ? "" : h.hi)) +
-                    " · 사유: " + esc(h.reason)).join("<br>") +
+                  /* 이전값 → 이후값을 나란히 씁니다. 이전값만 남기면 무엇으로
+                     바뀌었는지 이력만 보고는 알 수 없습니다. */
+                  s.history.map(function (h, i) {
+                    const nx = s.history[i + 1] || s;
+                    const rng = x => (x.lo === null || x.lo === undefined ? "" : x.lo) + " ~ " +
+                                     (x.hi === null || x.hi === undefined ? "" : x.hi);
+                    return "· " + esc(h.replacedAt) + " " + esc(h.replacedBy) + " — " +
+                      esc(rng(h)) + " → " + esc(rng(nx)) + " · 사유: " + esc(h.reason);
+                  }).join("<br>") +
                   "</div></details></td></tr>"
                 : "");
           }).join("") +
@@ -204,6 +273,7 @@
       const res = S2.add({ columnKey: $("#sp-col").value, lo: $("#sp-lo").value,
         hi: $("#sp-hi").value, unit: col ? col.unit : null, scope: scope, doc: $("#sp-doc").value });
       if (!res.ok) { say(res.why, true); return; }
+      say("등록했습니다. 아직 브라우저에만 있습니다 — 내보내기로 파일에 반영하세요.");
       paint();
     });
     const demo = $("#sp-demo");
@@ -224,11 +294,55 @@
     $$("[data-spec-off]").forEach(b => b.addEventListener("click", function () {
       const why = window.prompt("비활성화 사유를 적어 주세요 (기록에 남습니다)");
       if (!why) return;
-      S2.deactivate(b.dataset.specOff, why); paint();
+      const r = S2.deactivate(b.dataset.specOff, why);
+      if (r && r.ok === false) { say(r.why, true); return; }
+      paint();
     }));
     $$("[data-spec-on]").forEach(b => b.addEventListener("click", function () {
-      S2.reactivate(b.dataset.specOn); paint();
+      const r = S2.reactivate(b.dataset.specOn);
+      if (r && r.ok === false) { say(r.why, true); return; }
+      paint();
     }));
+
+    /* ── 저장소 파일 왕복 ──────────────────────────────────────────────
+       내려받기 링크를 쓰지 않고 화면에 그대로 펼칩니다. 파일을 받아도
+       결국 저장소의 그 파일을 열어 붙여넣어야 하므로, 중간 단계를 하나
+       줄이는 쪽이 실수가 적습니다. */
+    const box = $("#sp-file");
+    const ex = $("#sp-export");
+    if (ex && box) ex.addEventListener("click", function () {
+      box.value = S2.exportFile();
+      box.hidden = false;
+      box.focus(); box.select();
+      say("이 내용으로 assets/js/data/specs-baseline.js 를 통째로 교체하고 커밋하세요. " +
+          "교체·커밋을 마쳤으면 아래 \"반영 완료\" 를 눌러 주세요.");
+      if (!$("#sp-done")) {
+        const b = document.createElement("button");
+        b.className = "btn btn-sm"; b.id = "sp-done"; b.textContent = "반영 완료로 표시";
+        b.style.marginTop = "8px";
+        b.addEventListener("click", function () {
+          const r = S2.markExported();
+          say("반영 시각을 기록했습니다 (" + r.at + "). " +
+              "다음 배포부터 이 규격이 파일에서 읽힙니다.");
+        });
+        box.parentNode.insertBefore(b, box.nextSibling);
+      }
+    });
+    const im = $("#sp-import");
+    if (im && box) im.addEventListener("click", function () {
+      if (box.hidden || !box.value.trim()) {
+        box.hidden = false; box.value = ""; box.focus();
+        say("내보낸 파일 내용을 여기에 붙여넣고 다시 \"파일에서 가져오기\" 를 누르세요.");
+        return;
+      }
+      const why = window.prompt("가져오기 사유를 적어 주세요 (이력에 남습니다)");
+      if (!why) return;
+      const r = S2.importList(box.value, why);
+      if (!r.ok) { say(r.why, true); return; }
+      box.hidden = true; box.value = "";
+      say(r.count + "건을 가져왔습니다. 아직 브라우저에만 있으니 확인 후 내보내기 하세요.");
+      paint();
+    });
   }
 
   /* ── 파일럿 대시보드 — 일별 추이 · 되묻기율 · 재질문률 ────────────── */

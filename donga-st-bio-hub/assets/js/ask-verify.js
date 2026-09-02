@@ -80,26 +80,35 @@ window.AskVerify = (function () {
     return { nums: nums, dates: dates };
   }
 
-  /* 반올림 허용 — 원값의 유효숫자를 줄인 형태만 같은 값으로 봅니다 */
-  function matches(n, known) {
+  /* 반올림 허용 — 원값의 유효숫자를 줄인 형태만 같은 값으로 봅니다.
+
+     예전에는 문장의 숫자 하나마다 허용값 전체를 훑으며 값마다 toFixed 를
+     여섯 번씩 돌렸습니다. 허용값은 행 수에 비례해 늘어나므로, 데이터가
+     커질수록 이 비교가 검증 시간의 대부분을 차지했습니다.
+     허용값 쪽을 한 번만 펼쳐 Set 에 넣고 조회는 O(1) 로 바꿉니다.
+     ★ 허용 기준 자체는 그대로입니다 — 같은 값들을 미리 만들어 둘 뿐입니다. */
+  function expandAllowed(known) {
+    const set = new Set();
     for (let i = 0; i < known.length; i++) {
       const v = known[i];
-      if (n === v) return true;
-      /* 소수 자리를 줄여 쓴 경우: 0~3 자리로 반올림해 비교 */
-      for (let dp = 0; dp <= 3; dp++) {
-        if (Number(v.toFixed(dp)) === n) return true;
-      }
-      /* 정수로 내림·올림한 경우 */
-      if (Math.floor(v) === n || Math.ceil(v) === n) return true;
+      set.add(v);
+      for (let dp = 0; dp <= 3; dp++) set.add(Number(v.toFixed(dp)));
+      set.add(Math.floor(v)); set.add(Math.ceil(v));
     }
-    return false;
+    return set;
+  }
+  function matches(n, known) {
+    /* 이미 펼쳐 둔 Set 을 받으면 그대로 씁니다 */
+    if (known instanceof Set) return known.has(n);
+    return expandAllowed(known).has(n);
   }
 
   /* 검증. 반환 { ok, unknownNums[], unknownDates[] } */
   function checkNarration(text, r) {
     const said = numbersIn(text);
     const known = knownFrom(r);
-    const unknownNums = said.nums.filter(n => !matches(n, known.nums));
+    const knownSet = expandAllowed(known.nums);
+    const unknownNums = said.nums.filter(n => !knownSet.has(n));
     const unknownDates = said.dates.filter(d => known.dates.indexOf(d) === -1);
     return {
       ok: !unknownNums.length && !unknownDates.length,
@@ -185,31 +194,45 @@ window.AskVerify = (function () {
        ★ "검증 필요" 표시된 값을 뺀 통계도 함께 허용해야 합니다. 엔진이
          그 값들을 제외하고 평균을 내는데 허용집합이 전체 기준이면, 맞는
          답이 차단됩니다 — 조용한 오답을 막으려다 정답을 막는 셈입니다. */
+    /* 같은 계산을 두 번 하지 않습니다. 조회 범위가 전체면 sc 와 al 은 같은
+       배열이고, 검증 필요 값이 없는 컬럼이면 scV 도 sc 와 같습니다.
+       예전에는 컬럼마다 통계를 네 번씩 냈고, 통계는 매번 정렬합니다 —
+       컬럼 40개면 정렬 160번입니다. 대부분이 같은 결과였습니다. */
     const ok = (x, k) => typeof x[k] === "number" && isFinite(x[k]);
+    const sameScope = scoped === allRows || scoped.length === allRows.length;
     numKeys.forEach(function (k) {
-      const sc = scoped.filter(x => ok(x, k)), al = allRows.filter(x => ok(x, k));
+      const sc = scoped.filter(x => ok(x, k));
+      const al = sameScope ? sc : allRows.filter(x => ok(x, k));
       const scV = sc.filter(x => !(x.__unverified && x.__unverified[k]));
-      const alV = al.filter(x => !(x.__unverified && x.__unverified[k]));
+      const alV = sameScope ? scV : al.filter(x => !(x.__unverified && x.__unverified[k]));
+
       pushAll(statsOf(sc.map(x => x[k])));
-      pushAll(statsOf(al.map(x => x[k])));
-      pushAll(statsOf(scV.map(x => x[k])));
-      pushAll(statsOf(alV.map(x => x[k])));
+      if (!sameScope) pushAll(statsOf(al.map(x => x[k])));
+      if (scV.length !== sc.length) {
+        pushAll(statsOf(scV.map(x => x[k])));
+        if (!sameScope) pushAll(statsOf(alV.map(x => x[k])));
+      }
       push(scV.length); push(alV.length);
       push(sc.length - scV.length); push(al.length - alV.length);
-      /* 기록 건수 · 미입력 건수 */
+      /* 기록 건수 · 미입력 건수 (숫자가 아닌 값도 "기록됨" 으로 세던 자리라
+         ok() 와 따로 셉니다) */
       const f = scoped.filter(x => typeof x[k] === "number").length;
       push(f); push(scoped.length - f);
-      const fa = allRows.filter(x => typeof x[k] === "number").length;
+      const fa = sameScope ? f : allRows.filter(x => typeof x[k] === "number").length;
       push(fa); push(allRows.length - fa);
     });
 
-    /* 3) 그룹별 평균과 그 차이 — compare 응답이 쓰는 값 */
+    /* 3) 그룹별 평균과 그 차이 — compare 응답이 쓰는 값.
+       축별 그룹핑을 컬럼 루프 밖으로 뺐습니다 — 안에 두면 컬럼 수만큼
+       같은 그룹핑을 반복합니다. */
     ["project", "study", "team"].forEach(function (axis) {
       const g = {};
       scoped.forEach(function (x) { const key = x[axis] || "미지정"; (g[key] = g[key] || []).push(x); });
+      const names = Object.keys(g);
+      if (names.length < 2) return;      /* 그룹이 하나면 비교값이 나올 수 없습니다 */
       numKeys.forEach(function (k) {
         const means = [];
-        Object.keys(g).forEach(function (name) {
+        names.forEach(function (name) {
           const vals = g[name].map(x => x[k]).filter(v => typeof v === "number" && isFinite(v));
           if (!vals.length) return;
           const st = statsOf(vals);
@@ -327,6 +350,8 @@ window.AskVerify = (function () {
     const t = table || (window.AskTables && window.AskTables.internal());
     if (!t || !r) return { ok: true, violations: [], checked: 0 };
     const allow = PARTS.allowedFrom(r, t);
+    const allowSet = expandAllowed(allow.nums);
+    const allowDates = new Set(allow.dates);
     const mask = maskOf(t);
     const violations = [];
     let checked = 0;
@@ -334,10 +359,10 @@ window.AskVerify = (function () {
       const g = PARTS.numbersIn(s, mask);
       checked += g.nums.length + g.dates.length;
       g.nums.forEach(function (n) {
-        if (!matches(n, allow.nums)) violations.push({ value: n, where: s.slice(0, 70) });
+        if (!allowSet.has(n)) violations.push({ value: n, where: s.slice(0, 70) });
       });
       g.dates.forEach(function (d) {
-        if (allow.dates.indexOf(d) === -1) violations.push({ value: d, where: s.slice(0, 70) });
+        if (!allowDates.has(d)) violations.push({ value: d, where: s.slice(0, 70) });
       });
     });
     return { ok: !violations.length, violations: violations, checked: checked };

@@ -409,6 +409,8 @@ window.AskRegression = (function () {
       out.spec = runSpecChecks(t);
       summarize("P. 규격 판정", out.spec, out.spec);
     }
+    out.pilot = runPilotChecks(t);
+    summarize("R. 저장·권한·동점·D-day", out.pilot, out.pilot);
     if (window.Promote && window.RuleLex) {
       out.core = runCoreSpec(t);
       summarize("M. 승격 안전 스펙", out.core, out.core);
@@ -749,7 +751,7 @@ window.AskRegression = (function () {
 
     /* 6) 규격 판정이 생성값을 판정하지 않아야 합니다 */
     const S2 = window.Specs;
-    if (S2) {
+    if (S2) asWriter(function () {
       const before = JSON.parse(JSON.stringify(S2.state()));
       try {
         S2.clear();
@@ -764,6 +766,164 @@ window.AskRegression = (function () {
           columnKey: e.columnKey, lo: e.lo, hi: e.hi, unit: e.unit,
           scope: e.scope, doc: e.doc, demo: e.demo, by: e.by }));
       }
+    });
+    return out;
+  }
+
+  /* ── R. 저장 위치 · 권한 · 동점 · D-day · 마스킹 ──────────────────────
+     파일럿 전에 고친 항목들입니다. 하나씩 다시 깨져도 알 수 있어야 합니다. */
+  function runPilotChecks(t) {
+    const E = window.AskEngine, S2 = window.Specs, A = window.Auth, L = window.AskLog;
+    const out = [];
+    const add = (q, ok, note) => out.push({ q: q, pass: ok, fail: ok ? [] : [note],
+      kind: "-", count: 0, intent: "-", applied: "-", unhandled: "-" });
+
+    /* 1) 규격 원본이 저장소 파일에 있는가 · 없을 때와 못 읽을 때를 구분하는가 */
+    if (S2 && S2.source) {
+      add("규격 원본 = 저장소 파일", S2.source().ok === true && S2.source().reason === "file",
+        "source=" + JSON.stringify(S2.source()));
+
+      /* 파일을 못 읽는 상황을 실제로 만들어 봅니다 */
+      const keep = window.SPECS_BASELINE;
+      try {
+        window.SPECS_BASELINE = undefined;
+        const src = S2.source();
+        add("규격 원본 소실 탐지", src.ok === false && src.reason === "missing", "탐지 못 함");
+        const r = E.answer("실패한 배치 있어?", { table: t });
+        add("소실 ≠ 없음 (응답이 구분)",
+          r.kind === "spec-unavailable" && /읽지 못해/.test(r.headline) &&
+          !/등록된 규격이 하나도 없어/.test(r.headline),
+          "kind=" + r.kind + " · " + String(r.headline).slice(0, 60));
+      } finally { window.SPECS_BASELINE = keep; }
+
+      /* 파일이 정상이고 0건이면 "없음" 이라고 말해야 합니다 */
+      asWriter(function () {
+        const before = JSON.parse(JSON.stringify(S2.state()));
+        try {
+          S2.clear();
+          const r = E.answer("실패한 배치 있어?", { table: t });
+          add("규격 0건 ≠ 소실", r.kind === "spec-none" && /등록된 규격이 하나도 없어/.test(r.headline),
+            "kind=" + r.kind);
+        } finally {
+          S2.clear();
+          (before.list || []).slice().reverse().forEach(e => S2.add({
+            columnKey: e.columnKey, lo: e.lo, hi: e.hi, unit: e.unit,
+            scope: e.scope, doc: e.doc, demo: e.demo, by: e.by }));
+        }
+      });
+
+      /* 내보내기 · 가져오기가 실제로 왕복하는가 */
+      asWriter(function () {
+        const before = JSON.parse(JSON.stringify(S2.state()));
+        try {
+          S2.clear();
+          S2.add({ columnKey: "titerHCCF", lo: 500, hi: null, unit: "mg/L", doc: "왕복 검사" });
+          const file = S2.exportFile();
+          add("내보내기 형식", /window\.SPECS_BASELINE\s*=/.test(file) && /titerHCCF/.test(file),
+            file.slice(0, 60));
+          S2.clear();
+          add("가져오기 전 0건", S2.count() === 0, "count=" + S2.count());
+          const im = S2.importList(file, "왕복 검사");
+          add("가져오기 왕복", im.ok === true && S2.count() === 1 &&
+            S2.active()[0].columnKey === "titerHCCF", JSON.stringify(im));
+          add("가져오기에 사유 필수", S2.importList(file, "").ok === false, "사유 없이 통과함");
+        } finally {
+          S2.clear();
+          (before.list || []).slice().reverse().forEach(e => S2.add({
+            columnKey: e.columnKey, lo: e.lo, hi: e.hi, unit: e.unit,
+            scope: e.scope, doc: e.doc, demo: e.demo, by: e.by }));
+        }
+      });
+    }
+
+    /* 2) 권한 — 규격 쓰기는 규제업무만 */
+    if (A && A.can && S2) {
+      const had = A.current();
+      const pick = role => (window.HUB.USERS || []).find(u => u.role === role);
+      try {
+        A.signIn(pick("research").email, window.HUB.DEMO_PASSWORD);
+        add("연구개발은 규격 쓰기 불가", A.can("spec:write") === false, "쓰기 권한이 있음");
+        const before = S2.count();
+        const res = S2.add({ columnKey: "titerHCCF", lo: 1, doc: "권한 검사" });
+        add("저장소가 직접 거절 (화면만 막는 것이 아님)",
+          res.ok === false && res.denied === true && S2.count() === before,
+          JSON.stringify(res) + " count " + before + "→" + S2.count());
+        add("거절도 기록", (S2.denials() || []).some(d => /등록/.test(d.what)), "거절 기록 없음");
+
+        A.signIn(pick("regulatory").email, window.HUB.DEMO_PASSWORD);
+        add("규제업무는 규격 쓰기 가능", A.can("spec:write") === true, "쓰기 권한이 없음");
+        add("읽기는 전원 가능", A.can("spec:read") === true, "읽기 권한이 없음");
+      } finally {
+        if (had) sessionStorage.setItem("hub.session", JSON.stringify(had));
+        else sessionStorage.removeItem("hub.session");
+      }
+    }
+
+    /* 3) 동점 — 하나만 지목하면 틀린 진술입니다 */
+    const tie = E.answer("배양 일수 가장 높은 배치", { table: t });
+    const days = t.rows.map(r => r.cultureDays).filter(v => typeof v === "number");
+    const maxDay = Math.max.apply(null, days);
+    const tieN = days.filter(v => v === maxDay).length;
+    add("동점 · 공동 N건 명시",
+      tieN < 2 || (tie.headline.indexOf("공동 " + tieN + "건") > -1 &&
+                   !!tie.tie && tie.tie.count === tieN),
+      "headline=" + String(tie.headline).slice(0, 90));
+    add("동점 · 표에 전부 표시", tieN < 2 || (tie.rows || []).length >= tieN,
+      "표 " + (tie.rows || []).length + "행 · 동점 " + tieN + "건");
+    /* decorate 가 focusLabels 를 carry.focus 로 옮깁니다 — 다음 질문의
+       "그거" 가 읽는 자리입니다. 동점이면 거기에도 전부 들어가야 하고,
+       한 건만 들어가면 "그거" 가 임의의 한 배치를 가리키게 됩니다. */
+    const focus = (tie.carry && tie.carry.focus && tie.carry.focus.labels) || [];
+    add("동점 · 한 건만 지목하지 않음", tieN < 2 || focus.length === tieN,
+      "지목 " + focus.length + "건 / 동점 " + tieN + "건");
+    /* 동점이 아닐 때는 예전처럼 한 건을 지목해야 합니다 (과잉 적용 방지) */
+    const one = E.answer("Titer 가장 높은 배치", { table: t });
+    add("동점 아님 · 한 건 지목", !one.tie && /B321-7/.test(one.headline),
+      "headline=" + String(one.headline).slice(0, 80));
+
+    /* 4) D-day 컬럼 — 묻지 않은 컬럼으로 답하지 않는가 */
+    const d14 = E.answer("Titer D14 평균", { table: t });
+    add("D14 는 D14 로 답함", !!d14.metric && d14.metric.key === "titerDay_D14",
+      "metric=" + (d14.metric ? d14.metric.key : "없음"));
+    const hccf = E.answer("Titer 평균", { table: t });
+    add("D-day 승격이 Titer 를 바꾸지 않음", !!hccf.metric && hccf.metric.key === "titerHCCF",
+      "metric=" + (hccf.metric ? hccf.metric.key : "없음"));
+    const d14n = t.rows.filter(r => typeof r.titerDay_D14 === "number").length;
+    add("D14 값이 실제 원본과 같음", !!d14.stats && d14.stats.n === d14n,
+      "n=" + (d14.stats ? d14.stats.n : "?") + " 기대=" + d14n);
+    const d25 = E.answer("Titer D25 평균", { table: t });
+    add("없는 일자는 밝히고 답함", (d25.unhandled || []).some(x => /D25/.test(x)),
+      "미처리: " + (d25.unhandled || []).join(" / "));
+
+    /* 5) 라벨 구분 — SE-HPLC Main 과 IE-HPLC Main */
+    const mains = t.columns.filter(c => /Main$/.test(c.label));
+    add("Main 라벨이 서로 구분됨",
+      mains.length >= 2 && new Set(mains.map(c => c.label)).size === mains.length,
+      mains.map(c => c.label).join(" / "));
+
+    /* 6) "배치 수" 트리거 */
+    ["배치 수 알려줘", "배치수", "총 몇 배치야"].forEach(function (q) {
+      const r = E.answer(q, { table: t });
+      add("count 트리거 · " + q, r.intent === "count" || r.kind === "meta" || r.kind === "count",
+        "intent=" + r.intent + " kind=" + r.kind);
+    });
+
+    /* 7) 질의 로그 마스킹 — 선언과 구현이 맞는가 */
+    if (L && L._mask) {
+      [["s.park@donga-st.demo 로 보내줘", "[이메일]", "s.park"],
+       ["연락처 010-1234-5678", "[휴대폰]", "1234-5678"],
+       ["주민번호 900101-1234567", "[주민번호]", "1234567"],
+       ["https://intra.example.com/x 참고", "[URL]", "intra.example"]].forEach(function (c) {
+        const m = L._mask(c[0]);
+        add("마스킹 · " + c[1],
+          m.text.indexOf(c[1]) > -1 && m.text.indexOf(c[2]) === -1 && m.removed.indexOf(c[1]) > -1,
+          "결과: " + m.text);
+      });
+      /* 측정값은 지우면 안 됩니다 — 마스킹이 조회를 망가뜨리면 안 됩니다 */
+      const keep = L._mask("Titer 1000 이상이고 생존율 87.5 넘는 배치");
+      add("마스킹이 측정값은 남김",
+        /1000/.test(keep.text) && /87\.5/.test(keep.text) && keep.removed.length === 0,
+        "결과: " + keep.text);
     }
     return out;
   }
@@ -772,7 +932,25 @@ window.AskRegression = (function () {
      가장 조심해야 하는 응답입니다. 부분 등록 상태에서 전체를 판정한 것처럼
      답하면 규제 문서에 잘못된 결론이 실립니다.
      검사 뒤에는 반드시 원래 상태로 되돌립니다. */
-  function runSpecChecks(t) {
+  /* 규격은 이제 쓰기 권한이 있어야 바꿀 수 있습니다. 검사가 권한 없이
+     돌면 등록이 전부 거절되어, 판정 로직이 아니라 권한만 보게 됩니다.
+     규제업무 계정으로 로그인한 상태를 만들어 두고 봅니다. */
+  function asWriter(fn) {
+    const A = window.Auth;
+    if (!A || !A.signIn) return fn();
+    const had = A.current();
+    const u = (window.HUB.USERS || []).find(x => x.role === "regulatory");
+    A.signIn(u.email, window.HUB.DEMO_PASSWORD);
+    try { return fn(); }
+    finally {
+      if (had) sessionStorage.setItem("hub.session", JSON.stringify(had));
+      else sessionStorage.removeItem("hub.session");
+    }
+  }
+
+  function runSpecChecks(t) { return asWriter(() => runSpecChecksInner(t)); }
+
+  function runSpecChecksInner(t) {
     const S2 = window.Specs, E = window.AskEngine;
     const before = JSON.parse(JSON.stringify(S2.state()));
     const out = [];

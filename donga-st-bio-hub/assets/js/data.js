@@ -12,23 +12,34 @@ window.HUB = (function () {
   "use strict";
 
   /* -- Roles ------------------------------------------------------------- */
+  /* perms — 무엇을 바꿀 수 있는가.
+
+     규격(spec:write)은 Pass/Fail 판정의 기준이고 그 판정은 규제 문서에
+     실립니다. 로그인한 누구나 고칠 수 있으면 기준 자체에 근거가 없어집니다.
+     그래서 읽기는 전원, 쓰기는 규제업무만입니다.
+
+     ⚠ 이것은 화면 통제입니다. 서버가 없으므로 실제 접근 통제가 아닙니다 —
+       auth.js 와 같은 한계이고, 서버를 붙일 때 함께 옮겨야 합니다. */
   const ROLES = {
     research: {
       id: "research",
       ko: "연구개발", en: "R&D Scientist",
       scope: ["pipeline", "literature", "assays"],
+      perms: ["spec:read"],
       landing: "연구 중심 뷰"
     },
     medical: {
       id: "medical",
       ko: "메디컬 어페어스", en: "Medical Affairs",
       scope: ["trials", "literature", "publications"],
+      perms: ["spec:read"],
       landing: "임상 중심 뷰"
     },
     regulatory: {
       id: "regulatory",
       ko: "규제업무", en: "Regulatory Affairs",
       scope: ["submissions", "dossiers", "pipeline"],
+      perms: ["spec:read", "spec:write"],
       landing: "허가 중심 뷰"
     }
   };
