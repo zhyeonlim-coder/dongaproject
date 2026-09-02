@@ -183,6 +183,44 @@ window.AskMutation = (function () {
         "if (c.generated) {",
         "if (false) {", fn) },
 
+    { id: "M5b 생성값: 집계 포함 건수를 뺌",
+      why: "F5. \"이 항목은 생성값\" 만 있고 28건 중 몇 건인지 없으면 " +
+           "전부인지 일부인지 알 수 없습니다",
+      expect: "Q",
+      run: fn => withMutatedSource(ENG,
+        '(n ? " 이 응답의 집계에는 생성값 " + n + "건이 포함되어 있습니다." : "")',
+        '""', fn) },
+
+    { id: "M5c 생성값: count 경로 고지 제거",
+      why: "F5. 건수를 세는 것도 집계입니다 — 생성값 28건이 실측 건수로 읽히는가",
+      expect: "Q",
+      run: fn => withMutatedSource(ENG,
+        "      note: qualityNote(metric, rows)\n    });\n  }\n\n  /* ── 비교",
+        "      note: \"\"\n    });\n  }\n\n  /* ── 비교", fn) },
+
+    { id: "M5d 생성값: missing 경로 고지 제거",
+      why: "F5. 생성값은 전 행이 차 있어 늘 \"모두 입력됨\" 으로 나옵니다 — " +
+           "실측이 하나도 없는데 완비된 것처럼 읽히는가",
+      expect: "Q",
+      run: fn => withMutatedSource(ENG,
+        "const genAllCols = cols.filter(c => c.generated).map(c => c.label);",
+        "const genAllCols = [];", fn) },
+
+    { id: "M5e 생성값: 미입력 목록에 없는 것을 안 밝힘",
+      why: "F5. 생성값은 미입력 0건이라 목록에서 빠집니다 — 빠진 쪽이 " +
+           "완비된 항목으로 읽히는데 아무 말도 하지 않는가",
+      expect: "Q",
+      run: fn => withMutatedSource(ENG,
+        "const genHidden = genAllCols.filter(l => shown.indexOf(l) === -1);",
+        "const genHidden = [];", fn) },
+
+    { id: "M23 추이: 항목 바꿔 답하고 말하지 않음",
+      why: "\"Total Yield 추이\" 에 Titer 그래프를 주면서 아무 말도 하지 않는가",
+      expect: "Q",
+      run: fn => withMutatedSource(ENG,
+        "const swapped = (metric && metric.key !== \"titer\" &&",
+        "const swapped = (false && metric.key !== \"titer\" &&", fn) },
+
     /* ── 파일럿 전 수정분 (저장 위치 · 권한 · 동점 · D-day · 마스킹) ─── */
     { id: "M15 권한: 저장소 가드를 통과시킴",
       why: "화면만 막고 저장소는 아무나 쓸 수 있는 상태로 되돌아가는가",

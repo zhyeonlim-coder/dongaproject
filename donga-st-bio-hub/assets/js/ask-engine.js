@@ -860,8 +860,13 @@ window.AskEngine = (function () {
   function qualityNote(col, rows) {
     const bits = [];
     if (col && col.generated) {
+      /* 몇 건이 통계에 들어갔는지까지 씁니다. "이 항목은 생성값입니다" 만
+         있으면, 28건 평균 중 몇 건이 생성값인지 알 수 없습니다 —
+         전부일 수도 일부일 수도 있고, 그 차이가 해석을 바꿉니다. */
+      const n = (rows || []).filter(r => typeof r[col.key] === "number" && isFinite(r[col.key])).length;
       bits.push("⚠ " + col.label + " 은(는) 실측이 아니라 생성된 값입니다 — " +
-        (window.Provenance ? window.Provenance.GENERATED_WHY : "원본에 컬럼이 없습니다."));
+        (window.Provenance ? window.Provenance.GENERATED_WHY : "원본에 컬럼이 없습니다.") +
+        (n ? " 이 응답의 집계에는 생성값 " + n + "건이 포함되어 있습니다." : ""));
     }
     if (col) {
       const ex = excludedCount(rows, col.key);
@@ -1955,7 +1960,10 @@ window.AskEngine = (function () {
       facts: [{ k: "전체", v: rows.length + "건" }, { k: metric.label + " 기록", v: n + "건" },
               { k: "미입력", v: (rows.length - n) + "건" }],
       rows: rows.slice(0, 12).map(r => evidence(r, table, metric)),
-      evidenceCols: evidenceCols(table, metric)
+      evidenceCols: evidenceCols(table, metric),
+      /* 건수를 세는 것도 집계입니다. 생성값을 세어 놓고 실측 건수처럼
+         읽히면, "정제 데이터가 28건 있다" 는 잘못된 인상을 남깁니다. */
+      note: qualityNote(metric, rows)
     });
   }
 
@@ -2023,6 +2031,15 @@ window.AskEngine = (function () {
                 "업로드한 표에서는 항목별 평균 · 최고 · 비교를 대신 물어보실 수 있습니다."],
         suggestions: suggestList(table) });
     }
+    /* 추이는 일자별 Titer 로만 계산합니다 — 원본에서 날짜별로 여러 번
+       기록된 항목이 그것뿐이기 때문입니다. 그런데 사용자가 다른 항목의
+       추이를 물었다면, 바꿔서 답했다는 사실을 반드시 말해야 합니다.
+       말하지 않으면 "Total Yield 추이" 질문에 Titer 그래프가 나오고,
+       사용자는 그것을 Total Yield 로 읽습니다. */
+    const swapped = (metric && metric.key !== "titer" &&
+                     String(metric.key).indexOf("titerDay_") !== 0 &&
+                     metric.key !== "titerHCCF") ? metric.label : null;
+
     const days = window.DATA_TITER_DAYS || [];
     const ids = rows.map(r => r.__id);
     const batches = (window.DATA_BATCHES || []).filter(b => ids.indexOf(b.id) > -1);
@@ -2054,7 +2071,8 @@ window.AskEngine = (function () {
       return b.points[b.points.length - 1].value - a.points[a.points.length - 1].value;
     })[0];
     const first = best.points[0], last = best.points[best.points.length - 1];
-    const headline = base.scopeLabel + " 범위에서 일자별 Titer 가 기록된 배치는 " + series.length +
+    const headline = (swapped ? "[" + swapped + " 대신 일자별 Titer 로 답합니다] " : "") +
+      base.scopeLabel + " 범위에서 일자별 Titer 가 기록된 배치는 " + series.length +
       "건입니다. 최종 Titer 가 가장 높은 " + best.label + "은(는) " + first.day + " " + first.value +
       " mg/L 에서 " + last.day + " " + last.value + " mg/L 로 " +
       (first.value ? ((last.value - first.value) / first.value * 100).toFixed(0) + "% " : "") + "상승했습니다.";
@@ -2067,7 +2085,12 @@ window.AskEngine = (function () {
         v: s.points[0].day + " " + s.points[0].value + " → " +
            s.points[s.points.length - 1].day + " " + s.points[s.points.length - 1].value + " mg/L"
       })),
-      note: "원본에 Titer D15~D20 은 전 행이 \"-\" 로 기록되어 있어 계산에서 빠집니다."
+      note: (swapped
+        ? "⚠ " + swapped + " 의 추이는 계산할 수 없어 일자별 Titer 로 답했습니다 — " +
+          "원본에서 날짜별로 여러 번 기록된 항목은 Titer 뿐입니다. " +
+          "물어보신 항목의 값이 아닙니다. "
+        : "") +
+        "원본에 Titer D15~D20 은 전 행이 \"-\" 로 기록되어 있어 계산에서 빠집니다."
     });
   }
 
@@ -2079,17 +2102,48 @@ window.AskEngine = (function () {
       return { label: c.label, filled: filled, missing: rows.length - filled };
     }).filter(x => x.missing > 0).sort((a, b) => b.missing - a.missing);
 
+    /* 생성값은 전 행이 채워져 있습니다. 그래서 미입력 목록에는 아예
+       나오지 않고, 읽는 사람은 그 항목들이 완비된 것으로 받아들입니다 —
+       목록에 있는 것보다 없는 쪽이 더 오해를 부릅니다.
+       목록에 있든 없든, 조회 대상에 생성값이 있으면 밝힙니다. */
+    const shown = list.slice(0, 10).map(x => x.label);
+    const genAllCols = cols.filter(c => c.generated).map(c => c.label);
+    const genLabels = genAllCols.filter(l => shown.indexOf(l) > -1);
+    const genHidden = genAllCols.filter(l => shown.indexOf(l) === -1);
+
     if (!list.length) {
+      /* "미입력이 없다" 가 가장 오해하기 쉬운 자리입니다 — 생성값 컬럼은
+         전 행이 채워져 있으니 항상 "모두 입력됨" 으로 나옵니다.
+         실측이 하나도 없는데 완비된 것처럼 읽힙니다. */
+      const genAll = cols.filter(c => c.generated).map(c => c.label);
       return Object.assign(base, { kind: "missing",
         headline: base.scopeLabel + " 범위 " + rows.length + "건은 조회한 항목이 모두 입력되어 있습니다.",
-        facts: [] });
+        facts: [],
+        note: genAll.length
+          ? "⚠ 다만 " + genAll.join(" · ") + " 은(는) 실측이 아니라 생성된 값입니다 — " +
+            (window.Provenance ? window.Provenance.GENERATED_WHY : "") +
+            " 전 행이 채워져 있는 것은 생성했기 때문이지 측정했기 때문이 아닙니다."
+          : "" });
     }
     return Object.assign(base, {
       kind: "missing",
       headline: base.scopeLabel + " 범위 " + rows.length + "건 중 미입력이 가장 많은 항목은 " +
         list[0].label + " (" + list[0].missing + "건)입니다. 미입력이 있는 항목은 총 " + list.length + "개입니다.",
       facts: list.slice(0, 10).map(x => ({ k: x.label, v: x.missing + "건 미입력 / " + x.filled + "건 기록" })),
-      note: "미입력에는 미측정 · 해당 없음 · 불검출 · 무효가 섞여 있을 수 있습니다. EBR 화면에서 사유별로 구분됩니다."
+      /* 이 표에 생성값 컬럼이 섞여 있으면 밝힙니다. "기록 28건" 이 실측
+         28건으로 읽히면 정제 데이터가 있는 줄 알게 됩니다. */
+      note: (genLabels.length
+        ? "⚠ 이 표의 " + genLabels.join(" · ") + " 은(는) 실측이 아니라 생성된 값입니다 — " +
+          (window.Provenance ? window.Provenance.GENERATED_WHY : "") +
+          " 위 \"기록\" 건수에는 그 생성값이 포함되어 있습니다. "
+        : "") +
+        (genHidden.length
+          ? "⚠ " + genHidden.join(" · ") + " 은(는) 미입력이 0건이라 이 목록에 없지만, " +
+            "실측이 아니라 생성된 값이라 전 행이 채워져 있는 것입니다 — " +
+            (window.Provenance ? window.Provenance.GENERATED_WHY : "") +
+            " 완비된 항목으로 읽지 마세요. "
+          : "") +
+        "미입력에는 미측정 · 해당 없음 · 불검출 · 무효가 섞여 있을 수 있습니다. EBR 화면에서 사유별로 구분됩니다."
     });
   }
 

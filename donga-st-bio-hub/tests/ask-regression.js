@@ -716,9 +716,14 @@ window.AskRegression = (function () {
     /* 4) 생성값 — 데이터에 표식이 있고, 표시되는 경로마다 고지 */
     const gen = t.columns.filter(c => c.generated);
     add("생성값 컬럼 표식", gen.length === 7, "generated=" + gen.length + "개 (기대 7)");
+    /* 경로를 하나라도 빼면 그 경로에서 조용히 사라집니다 — count · missing ·
+       trend 가 실제로 그런 상태였습니다. 생성값이 나올 수 있는 경로를
+       전부 넣습니다. */
     [["extreme", "수율이 가장 높은 배치"], ["stat", "Total Yield 평균"],
      ["list", "Total Yield 80 넘는 거"], ["compare", "과제별 Total Yield 비교"],
-     ["group", "정제팀 데이터 보여줘"], ["entity", "B045-2가 어느 과제 거야?"]].forEach(function (p) {
+     ["group", "정제팀 데이터 보여줘"], ["entity", "B045-2가 어느 과제 거야?"],
+     ["count", "Total Yield 몇 건 기록됐어?"], ["missing", "Total Yield 미입력인 배치"],
+     ["missing-mixed", "미입력이 가장 많은 항목은?"]].forEach(function (p) {
       const r = E.answer(p[1], { table: t });
       const txt = String(r.note || "") + (r.hints || []).join(" ");
       /* "생성된 값" 이라고 말하는 것만으로는 부족합니다 — 왜 생성했는지가
@@ -732,6 +737,28 @@ window.AskRegression = (function () {
     const ent = E.answer("B045-2가 어느 과제 거야?", { table: t });
     add("생성값 · 값 옆 표식", (ent.facts || []).filter(f => /◇/.test(f.v)).length === 7,
       "◇ " + (ent.facts || []).filter(f => /◇/.test(f.v)).length + "개");
+
+    /* 집계에 몇 건이 들어갔는지까지 — "이 항목은 생성값" 만으로는
+       28건 중 몇 건이 생성값인지 알 수 없습니다 */
+    [["stat", "Total Yield 평균"], ["count", "Total Yield 몇 건 기록됐어?"],
+     ["extreme", "수율이 가장 높은 배치"]].forEach(function (p) {
+      const r = E.answer(p[1], { table: t });
+      add("생성값 포함 건수 · " + p[0], /생성값 \d+건이 포함/.test(String(r.note || "")),
+        "note: " + String(r.note || "").slice(0, 80));
+    });
+
+    /* 추이는 일자별 Titer 로만 계산합니다. 다른 항목을 물었는데 바꿔서
+       답하고 그 사실을 말하지 않으면, 사용자는 Titer 그래프를 물어본
+       항목으로 읽습니다. */
+    const tr = E.answer("Total Yield 추이", { table: t });
+    add("추이 · 항목 바꿔 답한 것을 밝힘",
+      /대신 일자별 Titer/.test(String(tr.headline)) &&
+      /물어보신 항목의 값이 아닙니다/.test(String(tr.note || "")),
+      "headline: " + String(tr.headline).slice(0, 70));
+    const trOk = E.answer("Titer 추이", { table: t });
+    add("추이 · Titer 를 물었으면 경고 없음",
+      !/대신 일자별 Titer/.test(String(trOk.headline)),
+      "headline: " + String(trOk.headline).slice(0, 70));
 
     /* 5) 검증 필요 블록 — 탐지 · 통계 제외 · 고지 */
     const blocks = t.unverified || [];
