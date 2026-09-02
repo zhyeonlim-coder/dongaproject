@@ -985,6 +985,30 @@ window.AskRegression = (function () {
         "intent=" + r.intent + " kind=" + r.kind);
     });
 
+    /* 6-b) 규격 안내 문구가 없는 메뉴를 가리키지 않는가.
+
+       규격 관리는 관리자 화면으로 옮겼습니다. 안내가 예전 메뉴 경로를
+       그대로 말하면 연구원은 없는 메뉴를 찾다가 포기하고, 규격은 계속
+       0건으로 남습니다 — 판정이 영영 불가가 되는 경로입니다. */
+    if (S2) asWriter(function () {
+      const before = JSON.parse(JSON.stringify(S2.state()));
+      try {
+        S2.clear();
+        const r = E.answer("실패한 배치 있어?", { table: t });
+        const hints = (r.hints || []).join(" ");
+        add("규격 0건 안내 유지", r.kind === "spec-none" && /판정할 수 없/.test(r.headline),
+          "kind=" + r.kind);
+        add("규격 안내가 없는 메뉴를 가리키지 않음",
+          !/DoE\s*&\s*Intelligence\s*→\s*규격/.test(hints) && /담당자/.test(hints),
+          "hints: " + hints.slice(0, 90));
+      } finally {
+        S2.clear();
+        (before.list || []).slice().reverse().forEach(e => S2.add({
+          columnKey: e.columnKey, lo: e.lo, hi: e.hi, unit: e.unit,
+          scope: e.scope, doc: e.doc, demo: e.demo, by: e.by }));
+      }
+    });
+
     /* 7) 질의 로그 마스킹 — 선언과 구현이 맞는가 */
     if (L && L._mask) {
       [["s.park@donga-st.demo 로 보내줘", "[이메일]", "s.park"],

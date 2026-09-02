@@ -545,11 +545,16 @@
       { label: "Intelligence Hub", items: [
         { key: "doe", ko: "DoE 조건 설계 & 분석", active: tab === "doe", color: "var(--c-accent-mid)" },
         { key: "ai",  ko: "AI 검색 (데이터 · 문헌)", active: tab === "ai",  color: "#6D28D9" },
-        { key: "wiki", ko: "Troubleshooting & Wiki", active: tab === "wiki", color: "#B45309" },
-        { key: "spec", ko: "규격(Spec) 관리", active: tab === "spec", color: "#0F766E" }
+        { key: "wiki", ko: "Troubleshooting & Wiki", active: tab === "wiki", color: "#B45309" }
       ].concat(devMode()
-        /* 질의 로그는 관리자용입니다 — 개발 모드(?dev=1)에서만 메뉴에 뜹니다 */
-        ? [{ key: "qlog", ko: "미응답 · 저신뢰 질의", active: tab === "qlog", color: "#0F766E" }]
+        /* 관리자용 메뉴 — 개발 모드(?dev=1)에서만 뜹니다.
+
+           규격은 Pass/Fail 판정의 기준이라 연구원이 일상적으로 드나들
+           화면이 아닙니다. 다만 기능을 없애면 규격이 0건인 채로 굳어
+           "실패한 배치 있어?" 류 질문이 영영 판정 불가가 됩니다.
+           그래서 메뉴에서만 빼고 등록 경로는 그대로 둡니다. */
+        ? [{ key: "spec", ko: "규격(Spec) 관리", active: tab === "spec", color: "#0F766E" },
+           { key: "qlog", ko: "미응답 · 저신뢰 질의", active: tab === "qlog", color: "#0F766E" }]
         : [])},
       { label: "바로가기", items: [
         { ko: "대시보드", href: "dashboard.html" },
@@ -1007,12 +1012,13 @@
     const titles = { doe: "DoE 조건 설계 & 분석",
                      ai: "AI 자연어 검색 · 사내 데이터 & 학술 문헌",
                      wiki: "Troubleshooting & Lesson Learned",
-                     spec: "규격(Spec) 관리 · Pass/Fail 판정 기준",
+                     spec: "규격(Spec) 관리 · Pass/Fail 판정 기준 (관리자)",
                      qlog: "미응답 · 저신뢰 질의 (관리자)" };
     $("#page-title").textContent = titles[tab];
     $("#hub-tabs").innerHTML = [["doe", "DoE 설계 & 분석"], ["ai", "AI 검색"],
-                                ["wiki", "Troubleshooting & Wiki"], ["spec", "규격(Spec) 관리"]]
-      .concat(devMode() ? [["qlog", "미응답 · 저신뢰 질의"]] : [])
+                                ["wiki", "Troubleshooting & Wiki"]]
+      .concat(devMode()
+        ? [["spec", "규격(Spec) 관리"], ["qlog", "미응답 · 저신뢰 질의"]] : [])
       .map(([k, ko]) => '<button class="track-tab" data-tab="' + k + '" aria-selected="' + (tab === k) + '" ' +
         'style="min-height:38px;padding:0 var(--s-5)">' + esc(ko) + '</button>').join("");
     $$("[data-tab]").forEach(b => b.addEventListener("click", () => { tab = b.dataset.tab; location.hash = tab; paint(); }));
@@ -1020,7 +1026,33 @@
     const host = $("#hub-body");
     if (tab === "wiki") { host.innerHTML = wikiView(); wireWiki(); return; }
     if (tab === "ai") { paintAsk(); return; }
-    if (tab === "spec") { host.innerHTML = specView(); wireSpec(); return; }
+    if (tab === "spec") {
+      /* 예전 북마크(#spec)로 들어온 일반 사용자 — 빈 화면을 주는 대신
+         왜 안 보이는지와 어떻게 여는지를 말해 줍니다. 기능을 없앤 것이
+         아니라 자리를 옮긴 것이므로, 그 사실이 화면에 있어야 합니다. */
+      if (!devMode()) {
+        host.innerHTML =
+          '<section class="card"><div class="card-body">' +
+          '<h2 class="card-title">규격(Spec) 관리는 관리자 화면으로 옮겼습니다</h2>' +
+          '<p class="ask-note">규격은 Pass/Fail 판정의 기준이라 등록·수정은 관리자와 ' +
+          '규제업무 담당자만 합니다. 연구원 화면에서는 판정 <b>결과</b>만 봅니다 — ' +
+          'AI 검색에서 "실패한 배치 있어?" 처럼 물으시면 됩니다.<br>' +
+          '기능이 없어진 것은 아닙니다. 관리자는 주소 끝에 ' +
+          '<code>?dev=1</code> 을 붙여 여시면 됩니다.</p>' +
+          '<div style="margin-top:var(--s-3);display:flex;gap:8px;flex-wrap:wrap">' +
+          '<button class="btn btn-accent" id="spec-open-admin">관리자 화면으로 열기</button>' +
+          '<button class="btn btn-sm" id="spec-go-ai">AI 검색으로</button>' +
+          "</div></div></section>";
+        const oa = $("#spec-open-admin");
+        if (oa) oa.addEventListener("click", function () {
+          location.href = "hub.html?dev=1#spec";
+        });
+        const ga = $("#spec-go-ai");
+        if (ga) ga.addEventListener("click", function () { tab = "ai"; location.hash = "ai"; paint(); });
+        return;
+      }
+      host.innerHTML = specView(); wireSpec(); return;
+    }
     if (tab === "qlog") { host.innerHTML = qlogView(); wireQlog(); return; }
     host.innerHTML = doeView();
     wireDoe();
