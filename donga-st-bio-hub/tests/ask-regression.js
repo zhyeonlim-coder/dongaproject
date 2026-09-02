@@ -1009,6 +1009,43 @@ window.AskRegression = (function () {
       }
     });
 
+    /* 6-c) 규격 메뉴 노출 조건.
+
+       dev 플래그는 localStorage 에 남아 한 번 켜지면 계속 켜져 있습니다.
+       그래서 devMode() 만 보면, ?dev=1 을 썼던 브라우저에서 연구원
+       계정으로 로그인해도 관리자 메뉴가 그대로 보입니다 — 실제로 그렇게
+       보인다는 지적을 받고 고친 자리입니다. 권한까지 함께 봐야 합니다. */
+    if (A && A.can) {
+      const had = A.current();
+      const pick = role => (window.HUB.USERS || []).find(u => u.role === role);
+      let devWas = null;
+      try { devWas = localStorage.getItem("hub.dev"); localStorage.setItem("hub.dev", "1"); }
+      catch (e) { /* 저장이 막힌 환경 */ }
+      try {
+        /* 화면 코드와 같은 판정식입니다. hub.js 를 싣지 않는 검사 페이지라
+           식을 여기 옮겨 두고, 어긋나면 변이 검사가 잡습니다. */
+        const canSee = () => {
+          let dev = false;
+          try { dev = localStorage.getItem("hub.dev") === "1"; } catch (e) { dev = false; }
+          return dev && A.can("spec:write");
+        };
+        A.signIn(pick("research").email, window.HUB.DEMO_PASSWORD);
+        add("규격 메뉴 · dev 켜져 있어도 연구원에게는 안 보임", canSee() === false,
+          "연구원에게 보임 (dev=" + (function () { try { return localStorage.getItem("hub.dev"); } catch (e) { return "?"; } })() + ")");
+        A.signIn(pick("regulatory").email, window.HUB.DEMO_PASSWORD);
+        add("규격 메뉴 · 규제업무 + dev 면 보임", canSee() === true, "규제업무에게 안 보임");
+        try { localStorage.removeItem("hub.dev"); } catch (e) { /* */ }
+        add("규격 메뉴 · dev 꺼지면 규제업무에게도 안 보임", canSee() === false, "dev 없이 보임");
+      } finally {
+        try {
+          if (devWas === null) localStorage.removeItem("hub.dev");
+          else localStorage.setItem("hub.dev", devWas);
+        } catch (e) { /* */ }
+        if (had) sessionStorage.setItem("hub.session", JSON.stringify(had));
+        else sessionStorage.removeItem("hub.session");
+      }
+    }
+
     /* 7) 질의 로그 마스킹 — 선언과 구현이 맞는가 */
     if (L && L._mask) {
       [["s.park@donga-st.demo 로 보내줘", "[이메일]", "s.park"],
