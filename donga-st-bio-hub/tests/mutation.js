@@ -277,6 +277,14 @@ window.AskMutation = (function () {
          (scoped ≠ allRows), 전체 범위일 때 두 집합은 증명 가능하게 같기
          때문입니다. 동작이 같은 변이는 "검사가 없다" 는 증거가 아니라
          변이가 잘못 만들어진 것이라 목록에 넣지 않았습니다. */
+    { id: "M27 생성값: 값 옆 표식 제거",
+      why: "F5. 짧은 답에서는 문단 끝 고지가 안 읽힙니다 — 값 옆 ◇ 가 " +
+           "사라지면 \"79.6 %입니다\" 한 줄에 아무 표시도 남지 않습니다",
+      expect: "Q",
+      run: fn => withMutatedSource(ENG,
+        "return (col && col.generated) ? base + GEN_MARK : base;",
+        "return base;", fn) },
+
     /* ── LLM 경로 방어선 ────────────────────────────────────────────── */
     { id: "M24 가드: confidence 범위 검사 제거",
       why: "모델이 confidence 99 를 주면 낮은 확신 검사를 스스로 끄게 되는가",

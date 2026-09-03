@@ -885,13 +885,27 @@ window.AskEngine = (function () {
     const sd = n > 1 ? Math.sqrt(vals.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1)) : 0;
     return { n, mean, median: mid, sd, min: sorted[0], max: sorted[n - 1], cv: mean ? (sd / mean) * 100 : null };
   }
+  /* 값 하나를 사람이 읽는 문자열로.
+
+     ★ 생성값이면 값 바로 옆에 ◇ 를 붙입니다.
+
+     예전에는 "이 항목은 생성값입니다" 를 문단 끝에만 적었습니다. 표에는
+     셀마다 ◇ 가 붙는데 문장에는 없어서, "Total Yield 평균은 79.6 %입니다"
+     라는 한 줄짜리 답에서는 아무 표시도 보이지 않았습니다. 봇은 답을 짧게
+     주는 도구라 문단 끝 고지가 특히 안 읽힙니다.
+
+     fmt 는 값과 단위를 붙이는 유일한 지점입니다. 여기에 달아 두면
+     문장 · facts · 표 · 복사한 텍스트 어디로 가든 따라갑니다 — 경로마다
+     따로 붙이면 언젠가 한 곳이 빠지고, 빠진 곳이 조용한 오답이 됩니다. */
+  const GEN_MARK = " ◇";
   function fmt(v, col) {
     if (v === null || v === undefined || !isFinite(v)) return "미입력";
     const dp = col && typeof col.dp === "number" ? col.dp
       : (Math.abs(v) >= 100 ? 1 : Math.abs(v) >= 1 ? 2 : 3);
     const s = Number(v).toFixed(dp).replace(/\.?0+$/, "");
     const out = s === "" || s === "-" ? "0" : s;
-    return col && col.unit ? out + " " + col.unit : out;
+    const base = col && col.unit ? out + " " + col.unit : out;
+    return (col && col.generated) ? base + GEN_MARK : base;
   }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -1677,8 +1691,10 @@ window.AskEngine = (function () {
       if (v === null || v === undefined) return;
       /* 값 옆에 표식을 답니다 — 이 화면은 한 배치의 모든 값을 펼치므로
          실측과 생성값이 나란히 놓입니다. 구분이 없으면 섞여 읽힙니다. */
+      /* 생성값 ◇ 는 fmt 가 이미 붙입니다 — 여기서 또 붙이면 두 번 나옵니다.
+         세기만 하고, 검증 필요 표식만 여기서 답니다. */
       let mark = "";
-      if (col.generated) { mark = " ◇생성값"; genN++; }
+      if (col.generated) genN++;
       else if (r.__unverified && r.__unverified[col.key]) { mark = " ⚠검증 필요"; unvN++; }
       vals.push({ k: col.label, v: fmt(v, col) + mark });
     });

@@ -327,9 +327,14 @@ window.Ask = (function () {
         const cls = c.key === "__label" ? ' class="mono" style="font-weight:600"'
           : (isGen ? ' class="mono is-generated"'
             : (typeof row[c.key] === "string" && /[\d]/.test(row[c.key]) ? ' class="mono"' : ""));
+        /* 값 문자열에 ◇ 가 이미 있으면(엔진의 fmt 가 붙임) 또 붙이지
+           않습니다 — 두 개가 나란히 찍히면 표식이 아니라 오타로 보입니다. */
+        const raw = row[c.key] == null ? "—" : String(row[c.key]);
+        const already = raw.indexOf("◇") > -1;
         return "<td" + cls + (isGen ? ' title="실측이 아니라 생성된 값입니다"' : "") + ">" +
-          esc(row[c.key] == null ? "—" : row[c.key]) +
-          (isGen && row[c.key] != null ? '<span class="gen-mark" aria-label="생성값">◇</span>' : "") +
+          esc(raw) +
+          (isGen && row[c.key] != null && !already
+            ? '<span class="gen-mark" aria-label="생성값">◇</span>' : "") +
           "</td>";
       }).join("") + "</tr>").join("") +
       "</tbody></table></div>";

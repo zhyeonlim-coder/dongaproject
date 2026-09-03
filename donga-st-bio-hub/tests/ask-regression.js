@@ -787,6 +787,26 @@ window.AskRegression = (function () {
     const ent = E.answer("B045-2가 어느 과제 거야?", { table: t });
     add("생성값 · 값 옆 표식", (ent.facts || []).filter(f => /◇/.test(f.v)).length === 7,
       "◇ " + (ent.facts || []).filter(f => /◇/.test(f.v)).length + "개");
+    add("생성값 · 표식이 겹쳐 찍히지 않음",
+      !(ent.facts || []).some(f => (String(f.v).match(/◇/g) || []).length > 1),
+      "◇ 가 두 번 찍힌 값이 있음");
+
+    /* 문장 속 수치에도 붙어야 합니다.
+
+       봇은 답을 짧게 주는 도구라 문단 끝 고지가 특히 안 읽힙니다.
+       "Total Yield 평균은 79.6 %입니다" 한 줄만 보고 넘어가는 사람에게는
+       문단 끝 문구가 없는 것이나 같습니다. */
+    [["stat", "Total Yield 평균"], ["extreme", "수율이 가장 높은 배치"],
+     ["compare", "과제별 Total Yield 비교"], ["list", "Total Yield 80 넘는 거"]].forEach(function (p) {
+      const r = E.answer(p[1], { table: t });
+      add("생성값 · 문장 속 수치에 표식 · " + p[0],
+        String(r.headline || "").indexOf("◇") > -1,
+        "문장: " + String(r.headline || "").slice(0, 70));
+    });
+    /* 실측 항목에는 붙으면 안 됩니다 (거짓 표식 방지) */
+    const real = E.answer("Titer 평균", { table: t });
+    add("실측 항목에는 생성값 표식 없음", String(real.headline || "").indexOf("◇") === -1,
+      "문장: " + String(real.headline || "").slice(0, 70));
 
     /* 집계에 몇 건이 들어갔는지까지 — "이 항목은 생성값" 만으로는
        28건 중 몇 건이 생성값인지 알 수 없습니다 */

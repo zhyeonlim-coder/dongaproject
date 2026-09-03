@@ -522,7 +522,48 @@
     }));
   }
 
-  /* ── CSV ────────────────────────────────────────────────────────────── */
+  /* ── CSV ──────────────────────────────────────────────────────────────
+
+     ★ 이 파일은 보고서에 그대로 붙습니다.
+
+     화면에는 생성값 ◇ 표식과 "검증 필요 N건 제외" 가 붙어 있지만, 예전에는
+     CSV 에 아무것도 따라가지 않았습니다. 파일이 나가는 순간 그 표시가
+     전부 사라져, 받는 사람은 43개 컬럼이 전부 실측인 줄 압니다.
+     화면에서 막아 놓고 파일로 새게 두면 막은 것이 아닙니다.
+
+     그래서 세 가지를 함께 씁니다.
+       1) 파일 맨 위 고지 블록 — 출처 · 스캔 전사 경고 · 생성값 · 검증 필요
+       2) 컬럼 이름에 붙는 표식 — 컬럼 하나만 복사해 가도 따라갑니다
+       3) 행마다 "검증 필요 항목" 열 — 어느 배치의 어느 값인지
+
+     숫자 자체는 건드리지 않습니다. 셀에 기호를 섞으면 Excel 에서 수치가
+     아니게 되어, 받는 사람이 계산을 못 합니다 — 그건 다른 종류의 손해입니다.
+     ────────────────────────────────────────────────────────────────────── */
+
+  /* 화면·봇과 같은 판정을 씁니다. 두 곳이 다른 기준을 쓰면 언젠가 어긋나고,
+     어긋난 쪽이 파일이면 아무도 모릅니다. */
+  function provenanceOf() {
+    const P = window.Provenance;
+    if (!P || !window.AskTables) return null;
+    const t = window.AskTables.internal();
+    const gen = {}, unv = {};
+    t.columns.forEach(function (c) { if (c.generated) gen[c.label] = true; });
+    t.rows.forEach(function (r) {
+      if (!r.__unverified) return;
+      unv[r.__label] = t.columns
+        .filter(c => r.__unverified[c.key] && typeof r[c.key] === "number")
+        .map(c => c.label);
+    });
+    return { P: P, genLabels: Object.keys(gen), unvByBatch: unv, table: t };
+  }
+
+  /* 컬럼 라벨이 생성값 컬럼인가 — data-page 의 라벨과 AskTables 의 라벨은
+     표기가 조금 다릅니다("정제 Total Yield" vs "Total Yield"). 끝말로 봅니다. */
+  function isGeneratedLabel(label, genLabels) {
+    const s = String(label);
+    return genLabels.some(g => s === g || s.endsWith(" " + g));
+  }
+
   function exportCSV() {
     Promise.all([window.Scope.batches(), window.Repo.getStudies()]).then(function (res) {
       const batches = res[0], studies = res[1];
@@ -534,8 +575,58 @@
         const s = String(v);
         return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
       };
-      const lines = [cols.map(c => q(c.label)).join(",")];
-      rows.forEach(r => lines.push(cols.map(c => q(cellValue(r, c.key))).join(",")));
+
+      const pv = provenanceOf();
+      const genLabels = pv ? pv.genLabels : [];
+      const genInFile = cols.filter(c => isGeneratedLabel(c.label, genLabels)).map(c => c.label);
+
+      /* 이 파일에 실제로 들어간 배치 중 검증 필요가 걸린 것 */
+      const unvRows = [];
+      if (pv) {
+        rows.forEach(function (r) {
+          const list = pv.unvByBatch[r.id] || pv.unvByBatch[r.expNo];
+          if (list && list.length) unvRows.push({ id: r.id, items: list });
+        });
+      }
+
+      /* 1) 고지 블록 — 컬럼 머리 위에 놓습니다. Excel 에서도 그대로 보입니다. */
+      const head = [];
+      if (pv) {
+        head.push([q("※ 이 파일을 인용하기 전에 읽어 주세요")]);
+        head.push([q("출처"), q(pv.P.SOURCE.file + " / " + pv.P.SOURCE.sheet +
+          " — 스캔 이미지 전사본")]);
+        head.push([q("원본 비고"), q("스캔 화질로 인한 판독 오차 가능성이 있어 " +
+          "중요한 수치는 원본과 대조 확인이 필요합니다")]);
+        head.push([q("생성값 (실측 아님)"), q(genInFile.length
+          ? genInFile.join(" · ") + " — " + pv.P.GENERATED_WHY
+          : "이 파일에 없음")]);
+        head.push([q("검증 필요"), q(unvRows.length
+          ? unvRows.length + "개 배치(" + unvRows.map(x => x.id).join(" · ") +
+            ")가 여러 항목에서 동시에 같은 값입니다. 원본 스캔과 대조 전까지 " +
+            "통계에 넣지 마세요. 해당 항목은 행 끝 \"검증 필요 항목\" 열에 적었습니다."
+          : "이 파일에 없음")]);
+        head.push([q("내보낸 시각"), q(window.Entries.stamp()),
+                   q("행 수"), q(rows.length)]);
+        head.push([""]);
+      }
+
+      /* 2) 컬럼 이름에 표식 — 컬럼 하나만 복사해 가도 따라갑니다 */
+      const label = c => isGeneratedLabel(c.label, genLabels)
+        ? c.label + " [생성값·실측아님]" : c.label;
+
+      const lines = head.map(a => a.join(","));
+      const extra = pv ? [q("검증 필요 항목")] : [];
+      lines.push(cols.map(c => q(label(c))).concat(extra).join(","));
+
+      /* 3) 행마다 어느 값이 검증 필요인지 */
+      rows.forEach(function (r) {
+        const cells = cols.map(c => q(cellValue(r, c.key)));
+        if (pv) {
+          const list = pv.unvByBatch[r.id] || pv.unvByBatch[r.expNo] || [];
+          cells.push(q(list.length ? list.join(" · ") : ""));
+        }
+        lines.push(cells.join(","));
+      });
 
       const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
       const a = document.createElement("a");
@@ -543,7 +634,12 @@
       a.download = "batch_data_" + window.Entries.stamp().slice(0, 10) + ".csv";
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(a.href);
-      toast(rows.length + "행을 CSV로 내보냈습니다.");
+      /* 내보낸 직후에도 한 번 말해 줍니다 — 파일을 열기 전에 알아야
+         보고서에 붙이기 전에 확인합니다 */
+      toast(rows.length + "행을 CSV로 내보냈습니다." +
+        (genInFile.length ? " 생성값 " + genInFile.length + "개 항목" : "") +
+        (unvRows.length ? " · 검증 필요 " + unvRows.length + "개 배치" : "") +
+        ((genInFile.length || unvRows.length) ? " — 파일 맨 위 고지를 확인하세요." : ""));
     });
   }
 
