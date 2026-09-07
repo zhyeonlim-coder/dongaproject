@@ -82,6 +82,62 @@ window.GlobalAI = (function () {
     return null;
   }
 
+  /* ── LLM 경로 (Phase B) ──────────────────────────────────────────────
+     규칙이 먼저입니다. 규칙이 확실히 읽은 질문은 LLM 을 부르지 않습니다 —
+     빠르고, 공짜이고, 이미 검증된 경로이기 때문입니다.
+
+     LLM 을 부르는 것은 규칙이 놓쳤을 때뿐입니다. 그때도 LLM 이 하는 일은
+     "어떤 도구를 어떤 인자로" 하나이고, 조회·계산·검증은 그대로 브라우저가
+     합니다. 모델은 데이터를 본 적이 없어 수치를 지어낼 재료가 없습니다. */
+  let llmAvailable = null;        /* null=모름, false=키 없음(더 안 부름) */
+
+  function ruleMissed(question, plan) {
+    if (plan.tool !== "searchExperimentData") return false;
+    try {
+      const t = window.AskTables.internal();
+      const r = window.AskEngine.answer(question, { table: t });
+      if (r.kind === "overview" || r.kind === "clarify") return true;
+      if ((r.unhandled || []).some(u => /읽지 못해|찾지 못했습니다/.test(u))) return true;
+      return false;
+    } catch (e) { return false; }
+  }
+
+  function askServer(question, ctx) {
+    if (llmAvailable === false) return Promise.resolve(null);
+    const ctl = ("AbortController" in window) ? new AbortController() : null;
+    const timer = setTimeout(() => ctl && ctl.abort(), 12000);
+    return fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: ctl ? ctl.signal : undefined,
+      body: JSON.stringify({
+        mode: "plan", question: question,
+        context: {
+          pageKo: ctx.pageKo, section: ctx.section,
+          describe: window.AIContext.describe(),
+          doe: ctx.doe ? { hasPlan: ctx.doe.hasPlan, runs: ctx.doe.runs,
+                           filled: ctx.doe.filled } : null
+        },
+        toolDefs: window.AITools.toolDefs(),
+        history: history.slice(-3).map(h => ({ q: h.q }))
+      })
+    }).then(function (r) {
+      clearTimeout(timer);
+      if (r.status === 503) { llmAvailable = false; return null; }
+      if (!r.ok) return null;
+      return r.json();
+    }).then(function (j) {
+      if (!j) return null;
+      llmAvailable = true;
+      /* ★ 실행 직전 마지막 방어선 — 서버 allowlist 와 별개로 한 번 더 */
+      const g = window.AIPlanGuard.check(j);
+      return g.ok ? { tool: g.tool, args: g.args, via: "llm" } : null;
+    }).catch(function () {
+      clearTimeout(timer);
+      return null;      /* 실패하면 규칙 경로가 이어받습니다 */
+    });
+  }
+
   /* ── 실행 ────────────────────────────────────────────────────────────
      반환은 화면이 그대로 그릴 수 있는 모양입니다. 수치는 이 시점에 이미
      검증을 통과했습니다 — 화면은 검증 여부를 다시 따지지 않아도 됩니다. */
@@ -94,22 +150,99 @@ window.GlobalAI = (function () {
     }
 
     const ctx = window.AIContext.get();
-    const plan = route(question, ctx);
+    const rulePlan = route(question, ctx);
     const started = Date.now();
 
-    return window.AITools.run(plan.tool, Object.assign({}, plan.args, {
-      prev: history.length ? history[history.length - 1].carry : null
-    }), ctx).then(function (res) {
-      const out = shape(question, plan, res, ctx, Date.now() - started);
-      remember(question, out, res);
-      log(question, plan, res, Date.now() - started);
-      return out;
+    const decide = ruleMissed(question, rulePlan)
+      ? askServer(question, ctx).then(p => (p && p.tool) ? p : rulePlan)
+      : Promise.resolve(rulePlan);
+
+    return decide.then(function (plan) {
+      return window.AITools.run(plan.tool, Object.assign({}, plan.args, {
+        prev: history.length ? history[history.length - 1].carry : null
+      }), ctx).then(function (res) {
+        const out = shape(question, plan, res, ctx, Date.now() - started);
+        out.via = plan.via || "rule";
+        remember(question, out, res);
+        log(question, plan, res, Date.now() - started);
+        return out;
+      });
     }).catch(function (e) {
-      return { kind: "error", tool: plan.tool,
+      return { kind: "error", tool: rulePlan.tool,
         headline: "답변을 만들지 못했습니다 — " + ((e && e.message) || "알 수 없는 오류"),
         note: "이 오류는 AI 기능에만 영향을 줍니다. 화면의 다른 기능은 그대로 쓰실 수 있습니다.",
         suggestions: suggestions() };
     });
+  }
+
+  /* ── 해설 스트리밍 (B-4) ─────────────────────────────────────────────
+     ★ 수치는 이 함수가 불리기 전에 이미 확정·검증돼 화면에 그려져
+       있습니다. 여기서 흐르는 것은 설명 문장뿐입니다.
+
+     서버가 문장을 막으면(근거 없는 수치) 아무것도 남기지 않습니다 —
+     반쯤 나온 문장을 두면 그게 곧 검증 안 된 답이 됩니다. */
+  function narrate(question, out, onDelta) {
+    if (llmAvailable === false) return Promise.resolve(null);
+    return fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "narrate", question: question,
+        result: slimResult(out), allowedNumbers: collectNumbers(out)
+      })
+    }).then(function (r) {
+      if (r.status === 503) { llmAvailable = false; return null; }
+      if (!r.ok || !r.body) return null;
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "", text = "", blocked = null;
+      function pump() {
+        return reader.read().then(function (c) {
+          if (c.done) return blocked ? { blocked: blocked } : { text: text };
+          buf += dec.decode(c.value, { stream: true });
+          const parts = buf.split("\n\n");
+          buf = parts.pop();
+          parts.forEach(function (chunk) {
+            const ev = (chunk.match(/^event: (.+)$/m) || [])[1];
+            const dl = (chunk.match(/^data: (.+)$/m) || [])[1];
+            if (!ev || !dl) return;
+            let d; try { d = JSON.parse(dl); } catch (e) { return; }
+            if (ev === "delta") { text += d.text; if (onDelta) onDelta(d.text); }
+            else if (ev === "blocked" || ev === "error") blocked = d;
+          });
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function () { return null; });
+  }
+
+  /* 문장에 쓸 수 있는 수치 — 결과 객체에 실제로 있는 값만 */
+  function collectNumbers(out) {
+    const nums = [];
+    const push = v => { if (typeof v === "number" && isFinite(v)) nums.push(v); };
+    const grab = s => String(s == null ? "" : s)
+      .replace(/-?\d+(?:\.\d+)?/g, m => { push(Number(m)); return m; });
+    const r = (out && (out.answer || out.data)) || {};
+    if (r.stats) ["n", "mean", "median", "sd", "min", "max", "cv"].forEach(k => push(r.stats[k]));
+    push(r.scopeRows);
+    grab(r.headline);
+    (r.facts || []).forEach(f => grab(f.v));
+    (r.rows || []).forEach(row => Object.keys(row).forEach(k => grab(row[k])));
+    return Array.from(new Set(nums)).slice(0, 400);
+  }
+
+  /* 서버에 보낼 결과 — 필요한 만큼만. 원본 데이터를 통째로 보내지 않습니다 */
+  function slimResult(out) {
+    const r = (out && (out.answer || out.data)) || {};
+    return {
+      kind: out.kind, headline: r.headline,
+      stats: r.stats || null, metric: r.metric || null,
+      rows: (r.rows || []).slice(0, 8),
+      facts: (r.facts || []).slice(0, 12),
+      note: r.note || "", scopeLabel: r.scopeLabel, scopeRows: r.scopeRows,
+      unhandled: r.unhandled || []
+    };
   }
 
   /* 도구 결과를 화면이 쓰는 모양으로 */
@@ -204,7 +337,10 @@ window.GlobalAI = (function () {
     }
   }
 
-  return { ask: ask, reset: reset, suggestions: suggestions,
+  return { ask: ask, reset: reset, suggestions: suggestions, narrate: narrate,
            applyAction: applyAction, history: () => history.slice(),
-           _route: route, _filterFromText: filterFromText, _litQuery: litQuery };
+           llmState: () => llmAvailable,
+           _route: route, _filterFromText: filterFromText, _litQuery: litQuery,
+           _collectNumbers: collectNumbers, _slimResult: slimResult,
+           _ruleMissed: ruleMissed };
 })();

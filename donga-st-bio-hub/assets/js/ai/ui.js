@@ -176,9 +176,13 @@ window.GlobalAIUI = (function () {
     slot.innerHTML = statusHTML(toolKo + " 실행 중…");
 
     window.GlobalAI.ask(question).then(function (out) {
+      /* ★ 여기서 그리는 수치는 전부 검증을 통과한 것입니다.
+         표·통계·핵심 결과를 먼저 확정 표시하고, 그 다음에야 해설을
+         흘려보냅니다. 순서가 뒤집히면 검증 안 된 숫자가 먼저 보입니다. */
       slot.innerHTML = answerHTML(out);
       wireAnswer(slot, out);
       busy = false; scroll();
+      streamNarration(slot, question, out);
     }).catch(function (e) {
       slot.innerHTML = '<div class="gai-err">답변을 만들지 못했습니다 — ' +
         esc((e && e.message) || "알 수 없는 오류") +
@@ -189,6 +193,47 @@ window.GlobalAIUI = (function () {
 
   function statusHTML(t) {
     return '<div class="gai-status"><span class="gai-dot"></span>' + esc(t) + "</div>";
+  }
+
+  /* ── 해설 스트리밍 ───────────────────────────────────────────────────
+     수치와 표가 이미 확정 표시된 뒤에만 불립니다. 흐르는 것은 설명
+     문장뿐이고, 서버가 그 문장을 막으면 아무것도 남기지 않습니다 —
+     반쯤 나온 문장을 두면 그게 곧 검증 안 된 답이 됩니다.
+
+     키가 없으면(Phase A 상태) 조용히 아무 일도 하지 않습니다. 엔진이
+     만든 결정론적 문장이 이미 위에 있으므로 답변은 온전합니다. */
+  function streamNarration(slot, question, out) {
+    if (!window.GlobalAI.narrate) return;
+    if (out.kind === "error" || out.kind === "empty" ||
+        out.kind === "action-proposal" || out.kind === "no-data") return;
+
+    const box = document.createElement("div");
+    box.className = "gai-narr";
+    box.innerHTML = '<div class="gai-status"><span class="gai-dot"></span>해설을 쓰는 중…</div>';
+    slot.appendChild(box);
+    let started = false;
+
+    window.GlobalAI.narrate(question, out, function (delta) {
+      if (!started) { box.innerHTML = '<div class="gai-narr-text"></div>'; started = true; }
+      const el = box.querySelector(".gai-narr-text");
+      el.textContent += delta;
+      scroll();
+    }).then(function (r) {
+      if (!r) { box.remove(); return; }          /* 키 없음 · 실패 — 조용히 */
+      if (r.blocked) {
+        /* 문장을 통째로 버립니다. 부분 노출이 없어야 합니다. */
+        box.innerHTML = '<div class="gai-warn">' +
+          esc(r.blocked.message || "설명 문장을 사용하지 않았습니다.") +
+          (r.blocked.numbers && r.blocked.numbers.length
+            ? " (근거 없는 수치: " + esc(r.blocked.numbers.join(", ")) + ")" : "") +
+          " 위 결과는 엔진이 계산한 값 그대로입니다.</div>";
+        return;
+      }
+      if (!r.text || !r.text.trim()) { box.remove(); return; }
+      box.innerHTML = '<div class="gai-narr-text">' + esc(r.text) + "</div>" +
+        '<div class="gai-narr-tag">AI 해설 · 위 수치는 엔진이 계산하고 검증한 값입니다</div>';
+      scroll();
+    }).catch(function () { box.remove(); });
   }
   function scroll() { body.scrollTop = body.scrollHeight; }
 

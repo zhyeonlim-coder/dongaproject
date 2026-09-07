@@ -168,3 +168,13 @@
   .gai-fab { right: var(--s-4); bottom: var(--s-4); height: 44px; padding: 0 var(--s-4); }
   .gai-fab kbd { display: none; }
 }
+
+/* ── AI 해설 (스트리밍) ────────────────────────────────────────────────
+   수치와 표가 확정 표시된 아래에 붙습니다. 시각적으로도 구분해 둡니다 —
+   위는 엔진이 계산·검증한 값, 아래는 그것에 대한 설명입니다. */
+.gai-narr {
+  margin-top: var(--s-3); padding-top: var(--s-3);
+  border-top: 1px dashed var(--c-border);
+}
+.gai-narr-text { font-size: 13px; line-height: 1.75; color: var(--c-text); white-space: pre-wrap; }
+.gai-narr-tag { font-size: 11px; color: var(--c-text-soft); margin-top: var(--s-2); }

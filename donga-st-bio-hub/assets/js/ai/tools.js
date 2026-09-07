@@ -349,7 +349,10 @@ window.AITools = (function () {
       });
       return { name: s.name, description: s.description,
                input_schema: { type: "object", properties: props,
-                               required: required, additionalProperties: false } };
+                               required: required, additionalProperties: false },
+               /* 인자가 스키마를 정확히 지키도록 — 프리필이 없는 모델에서
+                  JSON 형태를 강제하는 문서화된 방법입니다 */
+               strict: true };
     });
   }
 

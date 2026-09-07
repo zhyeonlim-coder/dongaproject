@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase B 방어선 검사 · Bio Knowledge Hub</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 24px; background: #0A192F; color: #E6ECF5;
+         font: 13px/1.6 "IBM Plex Mono", ui-monospace, Consolas, monospace; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .sub { color: #8FA2BB; font-size: 12px; margin-bottom: 18px; max-width: 74ch; }
+  .verdict { display: inline-block; padding: 4px 12px; border-radius: 999px;
+             font-weight: 700; margin-bottom: 16px; }
+  .ok { background: #123A2A; color: #6EE7B7; }
+  .no { background: #3A1218; color: #FCA5A5; }
+  pre { white-space: pre; overflow-x: auto; background: #0E2340; border: 1px solid #1E3A5F;
+        border-radius: 8px; padding: 14px; }
+  .hint { color: #8FA2BB; font-size: 12px; margin-top: 14px; line-height: 1.8; }
+  code { background: #0E2340; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Phase B 방어선 검사</h1>
+<p class="sub">
+  모델이 이미 넘어갔다고 가정하고, 그 다음에 오는 방어선이 막는지 봅니다.
+  키가 없어도 돌고, 키가 붙어도 결과가 달라지지 않습니다.
+</p>
+
+<div id="verdict"></div>
+<pre id="out">실행 중…</pre>
+
+<p class="hint">
+  콘솔에서 직접: <code>AskMutation.run()</code> ·
+  <code>copy(AskMutation.text(AskMutation.run()))</code><br>
+  변이를 추가하려면 <code>tests/mutation.js</code> 의 <code>MUTANTS</code> 에 한 항목 넣으면 됩니다.
+</p>
+
+<!-- 데이터 계층 (ask-regression.html 과 같은 순서) -->
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/auth.js"></script>
+<script src="../assets/js/data/provenance.js"></script>
+<script src="../assets/js/data/labels.js"></script>
+<script src="../assets/js/data/value.js"></script>
+<script src="../assets/js/data/projects.js"></script>
+<script src="../assets/js/data/studies.js"></script>
+<script src="../assets/js/data/batches.js"></script>
+<script src="../assets/js/data/downstream.js"></script>
+<script src="../assets/js/data/samples.js"></script>
+<script src="../assets/js/data/entries.js"></script>
+<script src="../assets/js/data/repo.js"></script>
+<script src="../assets/js/data/lots.js"></script>
+
+<script src="../assets/js/data/units.js"></script>
+<script src="../assets/js/data/specs-baseline.js"></script>
+<script src="../assets/js/data/specs.js"></script>
+<script src="../assets/js/data/asklog.js"></script>
+<script src="../assets/js/data/rulelex.js"></script>
+<script src="../assets/js/data/promote.js"></script>
+<script src="../assets/js/data/tables.js"></script>
+<script src="../assets/js/data/catalog.js"></script>
+<script src="../assets/js/ask-llm.js"></script>
+<script src="../assets/js/ask-guard.js"></script>
+<script src="../assets/js/ask-verify.js"></script>
+<script src="slot-fixtures.js"></script>
+<script src="../assets/js/ask-engine.js"></script>
+
+<script src="ask-regression.js"></script>
+<script src="../assets/js/selection.js"></script>
+<script src="../assets/js/lit-api.js"></script>
+<script src="../assets/js/ai/context.js"></script>
+<script src="../assets/js/ai/tools.js"></script>
+<script src="../assets/js/ai/assistant.js"></script>
+<script src="../assets/js/ai/guard.js"></script>
+<script src="phase-b.js"></script>
+<script>
+  (function () {
+    const out = document.getElementById("out");
+    const v = document.getElementById("verdict");
+    window.PhaseBTest.run().then(function (res) {
+      window.__lastGlobalAI = res;
+      out.textContent = window.PhaseBTest.text(res);
+      v.className = "verdict " + (res.pass ? "ok" : "no");
+      v.textContent = res.pass ? "전체 통과" : "실패 있음";
+    }).catch(function (e) {
+      v.className = "verdict no"; v.textContent = "실행 실패";
+      out.textContent = (e && e.stack) || String(e);
+    });
+  })();
+</script>
+</body>
+</html>
