@@ -180,6 +180,38 @@ window.Shell = (function () {
     if (window.Store && window.Store.subscribe) window.Store.subscribe(() => paintRail());
     on("project", () => paintRail());
 
+    /* ── Global AI ───────────────────────────────────────────────────────
+       모든 화면이 이 함수를 거치므로, 여기 한 번만 붙이면 8개 페이지에
+       같은 패널이 생깁니다. 화면마다 복사해 붙이면 언젠가 한 곳이
+       뒤처지고, 그 화면만 다르게 동작합니다.
+
+       ★ AI 가 없어도 화면은 그대로 동작해야 합니다. 모듈이 로드되지 않은
+         페이지에서는 조용히 넘어갑니다 — 여기서 예외가 나면 그 화면 전체가
+         멈춥니다. */
+    try {
+      if (window.AIContext) {
+        window.AIContext.setPage(o.page || null);
+        /* 필터가 바뀌면 AI 가 보는 화면 상태도 따라 바뀝니다 */
+        if (window.Scope && window.Scope.subscribe) {
+          window.Scope.subscribe(function () {
+            if (window.Scope.batches) {
+              window.Scope.batches().then(function (list) {
+                window.AIContext.setVisibleBatches((list || []).map(b => b.id));
+              }).catch(function () { window.AIContext.setVisibleBatches(null); });
+            }
+          });
+        }
+      }
+      /* 회의 모드에는 붙이지 않습니다 — 여러 명이 한 화면을 보는 자리라
+         개인 질의 이력이 노출되면 안 되고, 회의 전용 검색이 따로 있습니다. */
+      const meeting = /meeting/i.test(String(o.page || "")) ||
+                      document.body.classList.contains("meeting-mode");
+      if (window.GlobalAIUI && !meeting) window.GlobalAIUI.mount();
+    } catch (e) {
+      /* AI 초기화 실패가 화면을 막지 않습니다 */
+      if (window.console && console.warn) console.warn("Global AI 초기화 실패:", e);
+    }
+
     return user;
   }
 

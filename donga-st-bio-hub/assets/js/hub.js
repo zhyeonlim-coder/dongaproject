@@ -592,6 +592,33 @@
     view: "contour", ax: 0, ay: 1, goal: "max"
   };
 
+  /* ── AI 에게 지금 설계 상태를 알려 줍니다 ────────────────────────────
+     값을 복사해 넘기지 않고 함수로 넘깁니다 — 복사하면 그 순간의 사본이
+     되어, 사용자가 인자를 바꿔도 AI 는 옛 설계를 보게 됩니다.
+
+     fit() 도 함수째 넘깁니다. AI 가 회귀를 다시 구현하지 않고 화면이 쓰는
+     그 계산을 그대로 부르게 하기 위해서입니다 — 두 벌이 되면 화면과 AI 의
+     ANOVA 표가 갈라집니다. */
+  if (window.AIContext) {
+    window.AIContext.provide("doe", function () {
+      return {
+        hasPlan: !!DS.plan,
+        designName: DS.plan ? DS.plan.design.ko || DS.plan.design.name || DS.designId : null,
+        k: DS.plan ? DS.plan.k : DS.factors.length,
+        alpha: DS.plan ? DS.plan.alpha : 1,
+        centers: DS.centers,
+        runs: DS.plan ? DS.plan.runs.length : 0,
+        filled: DS.responses.filter(v => v !== "" && v != null).length,
+        factors: DS.factors.map(f => f.name + " (" + f.low + "~" + f.high + " " + f.unit + ")"),
+        factorDefs: DS.factors,
+        responseName: DS.response.name + (DS.response.unit ? " (" + DS.response.unit + ")" : ""),
+        goal: DS.goal,
+        /* 화면과 같은 함수 — AI 전용 계산을 따로 두지 않습니다 */
+        fit: function () { return DS.plan ? D.fit(DS.plan, DS.responses) : null; }
+      };
+    });
+  }
+
   function doeView() {
     return '<section class="card" style="margin-bottom:var(--s-4)">' +
         '<div class="card-head"><div>' +
@@ -1023,6 +1050,9 @@
   /* ── Paint ──────────────────────────────────────────────────────────── */
   function paint() {
     paintSubnav();
+    /* AI 에게 지금 어느 탭인지 알려 줍니다 — 추천 질문과 DoE 도구 활성이
+       이 값에 따라 갈립니다 */
+    if (window.AIContext) window.AIContext.setSection(tab === "doe" ? "doe" : tab === "ai" ? "lit" : tab);
     const titles = { doe: "DoE 조건 설계 & 분석",
                      ai: "AI 자연어 검색 · 사내 데이터 & 학술 문헌",
                      wiki: "Troubleshooting & Lesson Learned",

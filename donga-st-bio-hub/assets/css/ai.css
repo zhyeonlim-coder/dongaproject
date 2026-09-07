@@ -1,0 +1,170 @@
+/* ==========================================================================
+   ai.css — Global AI Assistant
+
+   기존 토큰만 씁니다 (--c-* · --s-* · --r-*). 새 색과 새 반경을 만들면
+   이 패널만 다른 제품처럼 보입니다.
+   기존 선택자를 건드리지 않습니다 — 전부 .gai- 접두어입니다.
+   ========================================================================== */
+
+/* ── 플로팅 버튼 ─────────────────────────────────────────────────────── */
+.gai-fab {
+  position: fixed; right: var(--s-6); bottom: var(--s-6); z-index: 60;
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  height: 48px; padding: 0 var(--s-5);
+  border: 1px solid var(--c-navy-700); border-radius: 999px;
+  background: var(--c-ink); color: #fff;
+  font: 600 13px/1 inherit; cursor: pointer;
+  box-shadow: 0 6px 20px rgba(10, 25, 47, .28);
+}
+.gai-fab:hover { background: var(--c-navy-800); }
+.gai-fab:focus-visible { outline: 2px solid var(--c-accent-hi); outline-offset: 2px; }
+.gai-fab[hidden] { display: none !important; }
+.gai-fab kbd {
+  font: 600 10px/1 ui-monospace, monospace; color: #8FA2BB;
+  border: 1px solid var(--c-navy-600); border-radius: var(--r-sm);
+  padding: 3px 5px; background: var(--c-navy-900);
+}
+
+/* ── 패널 ────────────────────────────────────────────────────────────── */
+.gai-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 70;
+  width: min(460px, 100vw);
+  display: flex; flex-direction: column;
+  background: var(--c-surface); border-left: 1px solid var(--c-border);
+  box-shadow: -8px 0 28px rgba(10, 25, 47, .16);
+  transform: translateX(100%); transition: transform .18s ease;
+}
+.gai-panel.is-open { transform: translateX(0); }
+.gai-panel.is-full { width: 100vw; border-left: none; }
+
+.gai-head {
+  flex: none; display: flex; align-items: center; gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--c-border); background: var(--c-paper);
+}
+.gai-title { font-size: 14px; font-weight: 700; color: var(--c-text); }
+.gai-ctx {
+  font-size: 11px; color: var(--c-text-soft); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gai-head-actions { margin-left: auto; display: flex; gap: var(--s-1); flex: none; }
+
+.gai-body { flex: 1 1 auto; overflow-y: auto; padding: var(--s-5); }
+.gai-foot {
+  flex: none; border-top: 1px solid var(--c-border);
+  padding: var(--s-3) var(--s-4); background: var(--c-paper);
+}
+.gai-form { display: flex; gap: var(--s-2); align-items: flex-end; }
+.gai-input {
+  flex: 1 1 auto; min-height: 38px; max-height: 120px; resize: none;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--c-border-str); border-radius: var(--r-md);
+  font: 13px/1.5 inherit; color: var(--c-text); background: var(--c-surface);
+}
+.gai-input:focus { outline: 2px solid var(--c-accent-mid); outline-offset: -1px; }
+
+/* ── 메시지 ──────────────────────────────────────────────────────────── */
+.gai-msg { margin-bottom: var(--s-5); }
+.gai-q {
+  display: inline-block; max-width: 92%;
+  padding: var(--s-2) var(--s-3); border-radius: var(--r-lg);
+  background: var(--c-accent-bg); border: 1px solid var(--c-accent-bg-2);
+  font-size: 13px; color: var(--c-text);
+}
+.gai-a { font-size: 13px; line-height: 1.7; color: var(--c-text); }
+.gai-a .gai-headline { font-weight: 600; margin-bottom: var(--s-2); }
+.gai-note { font-size: 12px; color: var(--c-text-mute); margin-top: var(--s-2); line-height: 1.7; }
+.gai-warn {
+  font-size: 12px; color: var(--c-warn); background: var(--c-warn-bg);
+  border: 1px solid #F0DFC4; border-radius: var(--r-md);
+  padding: var(--s-2) var(--s-3); margin-top: var(--s-2);
+}
+.gai-err {
+  font-size: 12px; color: var(--c-risk); background: #FDF2F2;
+  border: 1px solid #F5D0D0; border-radius: var(--r-md);
+  padding: var(--s-3); line-height: 1.7;
+}
+
+/* 조건 · 미처리 표시 — 답변 맨 앞 */
+.gai-cond { display: flex; flex-wrap: wrap; gap: var(--s-1); margin-bottom: var(--s-2); }
+.gai-chip {
+  font-size: 11px; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--c-border-str); color: var(--c-text-mute);
+  background: var(--c-paper);
+}
+.gai-chip.is-unhandled { border-color: #E4C89B; color: var(--c-warn); background: var(--c-warn-bg); }
+
+/* 핵심 수치 카드 — 검증을 통과한 뒤에만 그립니다 */
+.gai-stat {
+  border: 1px solid var(--c-border); border-radius: var(--r-lg);
+  padding: var(--s-4); background: var(--c-paper); margin: var(--s-3) 0;
+}
+.gai-stat-k { font-size: 11px; color: var(--c-text-soft); letter-spacing: .04em; }
+.gai-stat-v { font-size: 22px; font-weight: 700; color: var(--c-text); margin-top: 2px;
+              font-family: "IBM Plex Mono", ui-monospace, monospace; }
+.gai-stat-sub { font-size: 12px; color: var(--c-text-mute); margin-top: var(--s-2); }
+
+/* 표 */
+.gai-tbl-wrap { overflow-x: auto; margin: var(--s-3) 0; }
+.gai-tbl { border-collapse: collapse; width: 100%; font-size: 12px; }
+.gai-tbl th, .gai-tbl td {
+  border-bottom: 1px solid var(--c-border); padding: 6px 8px; text-align: left; white-space: nowrap;
+}
+.gai-tbl th { color: var(--c-text-soft); font-weight: 600; background: var(--c-paper); }
+.gai-tbl td.mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+/* 근거 카드 */
+.gai-src {
+  display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap;
+  margin-top: var(--s-3); padding-top: var(--s-3);
+  border-top: 1px dashed var(--c-border);
+  font-size: 11px; color: var(--c-text-soft);
+}
+.gai-src-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid var(--c-border); border-radius: var(--r-sm);
+  padding: 2px 7px; background: var(--c-surface);
+}
+.gai-src-tag.is-verified { border-color: #BFE3CB; color: var(--c-ok); }
+.gai-src-tag.is-external { border-color: var(--c-accent-bg-2); color: var(--c-accent); }
+
+/* 실행 제안 */
+.gai-action {
+  border: 1px solid var(--c-accent-bg-2); background: var(--c-accent-bg);
+  border-radius: var(--r-lg); padding: var(--s-3) var(--s-4); margin: var(--s-3) 0;
+}
+.gai-action-q { font-size: 13px; color: var(--c-text); margin-bottom: var(--s-3); }
+.gai-action-btns { display: flex; gap: var(--s-2); }
+
+/* 추천 질문 */
+.gai-sugg { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
+.gai-sugg button {
+  font-size: 12px; padding: 5px 10px;
+  border: 1px solid var(--c-border-str); border-radius: 999px;
+  background: var(--c-surface); color: var(--c-text-mute); cursor: pointer;
+}
+.gai-sugg button:hover { border-color: var(--c-accent-mid); color: var(--c-accent); }
+
+/* 상태 — 검색 중 · 도구 실행 중 */
+.gai-status {
+  display: flex; align-items: center; gap: var(--s-2);
+  font-size: 12px; color: var(--c-text-soft); padding: var(--s-2) 0;
+}
+.gai-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--c-accent-mid);
+  animation: gai-pulse 1s ease-in-out infinite;
+}
+@keyframes gai-pulse { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .gai-dot { animation: none; opacity: .7; }
+  .gai-panel { transition: none; }
+}
+
+.gai-empty { color: var(--c-text-soft); font-size: 13px; line-height: 1.8; }
+
+/* ── 좁은 화면 — 실험실 태블릿에서도 깨지지 않게 ────────────────────── */
+@media (max-width: 720px) {
+  .gai-panel { width: 100vw; border-left: none; }
+  .gai-fab { right: var(--s-4); bottom: var(--s-4); height: 44px; padding: 0 var(--s-4); }
+  .gai-fab kbd { display: none; }
+}
