@@ -589,9 +589,16 @@
     }
 
     const base = baseValueOf(batch, f);
-    const r = E.setValue(scopeKey(), f.k, val, o.reason, {
-      baseValue: base, baseSource: originLabel(f)
-    });
+    /* ★ 저장은 Repo 를 지납니다.
+
+       화면의 입력칸이 데이터의 원본이 되면 안 됩니다. 여기서 저장소를
+       직접 부르면 값은 저장되지만 아무도 그 사실을 모르고, 대시보드 ·
+       조회 · AI 는 예전에 읽어 둔 값을 계속 보여 줍니다.
+       Repo 를 지나면 저장과 함께 통지가 나가 모두가 같은 값을 봅니다. */
+    const r = (window.Repo && window.Repo.setValue ? window.Repo : E)
+      .setValue(scopeKey(), f.k, val, o.reason, {
+        baseValue: base, baseSource: originLabel(f)
+      });
 
     if (!r.ok && r.needReason) { openReason(batch, f, raw, r.reason); return "needReason"; }
     if (!r.ok) { setMsg(f.k, "error", [r.reason || "저장하지 못했습니다"]); return "error"; }

@@ -146,19 +146,119 @@ window.Repo = (function () {
      배치로 분석값을 물으면 그 배치의 **대표 시료** 값을 돌려줍니다 —
      배치 한 줄짜리 화면(KPI·요약)이 계속 동작해야 하기 때문입니다.
      시료별로 봐야 하는 화면은 valueOfSample 을 씁니다. */
+  /* ── 저장소 어댑터 ────────────────────────────────────────────────────
+     Repo 밖의 코드는 값이 어디에 저장되는지 몰라야 합니다. 지금은 Entries
+     (브라우저)이고, 나중에 서버가 되더라도 이 객체만 갈아 끼우면 됩니다.
+
+     Repo.useStore() 로 통째로 교체할 수 있습니다 — 그때 고칠 파일이
+     여기 하나가 되도록 읽기·쓰기·구독을 전부 이 안에 모아 둡니다. */
+  let store = {
+    name: "browser (Entries)",
+    read: function (scope, field) {
+      if (!window.Entries || !window.VAL) return undefined;
+      const rec = window.Entries.getValue(scope, field);
+      return rec ? window.VAL.numeric(rec.value) : undefined;
+    },
+    record: function (scope, field) {
+      return window.Entries ? window.Entries.getValue(scope, field) : null;
+    },
+    write: function (scope, field, value, reason, opts) {
+      if (!window.Entries) return { ok: false, reason: "저장소가 없습니다." };
+      return window.Entries.setValue(scope, field, value, reason, opts);
+    },
+    onChange: function (fn) {
+      return window.Entries && window.Entries.subscribe
+        ? window.Entries.subscribe(fn) : function () {};
+    }
+  };
+  function useStore(s) { store = s; notify("store"); }
+
+  /* ── 변경 통지 ────────────────────────────────────────────────────────
+     값이 바뀌면 화면 · 테이블 · AI 가 모두 알아야 합니다. 통지가 없으면
+     각자 예전에 읽어 둔 값을 계속 보여 주고, 어느 쪽이 맞는지 알 수
+     없게 됩니다 — 실제로 그런 상태였습니다. */
+  const changeSubs = [];
+  function subscribe(fn) {
+    changeSubs.push(fn);
+    return function () { const i = changeSubs.indexOf(fn); if (i > -1) changeSubs.splice(i, 1); };
+  }
+  function notify(what) {
+    changeSubs.slice().forEach(function (f) {
+      try { f(what); } catch (e) { /* 구독자 오류가 저장을 되돌리지 않습니다 */ }
+    });
+  }
+  /* 저장소가 스스로 바뀐 경우(다른 탭 · 나중엔 서버 push)도 흘려보냅니다 */
+  store.onChange(function (what) { if (what === "value") notify("value"); });
+
+  /* ── Entries 키 규칙 ──────────────────────────────────────────────────
+     EBR 이 쓰는 키와 조회가 읽는 키가 같아야 합니다. 예전에는 달랐습니다 —
+     일자별 Titer 를 EBR 은 "titer_D10" 으로 저장하는데 조회는 "D10" 을
+     찾고 있었습니다. 한쪽만 고치면 이미 입력된 값이 미아가 되므로,
+     EBR 이 쓰던 규칙을 정본으로 삼고 조회를 맞춥니다.
+
+       upstream            ivcd · maxVCD · titerHCCF · qP     → 그대로
+       titer (일자별 D10~) titer_D10                          → titer_ 접두
+       downstream · 분석    downstream_totalYield · nGlycan_g0f → 그룹_키 */
+  function entryKey(groupId, key) {
+    if (groupId === "titer" && /^D\d+$/.test(String(key))) return "titer_" + key;
+    return fieldKey(groupId, key);
+  }
+
+  /* ── 값 조회 — 이 함수가 유일한 관문입니다 ──────────────────────────
+     EBR 이 입력한 값이 있으면 그것이 현재 값입니다. 없을 때만 Excel 원본
+     으로 내려갑니다. 대시보드 · 데이터 조회 · CSV · Global AI · 통계 ·
+     DoE 가 전부 이 함수를 지나므로, 여기 한 곳만 맞으면 전부 같은 값을
+     봅니다. */
   function valueOf(batch, groupId, key) {
+    if (!batch) return null;
+
     if (groupId === "upstream" || groupId === "titer") {
+      const ent = store.read("batch:" + batch.id, entryKey(groupId, key));
+      if (ent !== undefined) return ent;
+      /* 일자별 Titer 는 batch.upstream.titer 아래에 있습니다 */
+      if (groupId === "titer" && /^D\d+$/.test(String(key))) {
+        const tt = batch.upstream && batch.upstream.titer;
+        const v = tt ? tt[key] : null;
+        return v === undefined ? null : v;
+      }
       const v = batch.upstream ? batch.upstream[key] : null;
       return v === undefined ? null : v;
     }
-    /* 정제 값은 downstream.js 가 채웁니다 (원본 Excel 에는 없는 컬럼) */
+
     if (groupId === "downstream") {
+      const ent = store.read("batch:" + batch.id, entryKey(groupId, key));
+      if (ent !== undefined) return ent;
+      /* 정제 값은 downstream.js 가 만들어 넣습니다 (원본 Excel 에 없는 컬럼) */
       const v = batch.downstream ? batch.downstream[key] : null;
       return v === undefined ? null : v;
     }
+
+    /* 분석 항목은 대표 시료에 붙습니다.
+       배치 단위로 입력한 값이 있으면 그것이 우선입니다 — EBR 은 시료를
+       만들지 않고도 배치에 바로 입력할 수 있기 때문입니다. */
+    const ent = store.read("batch:" + batch.id, entryKey(groupId, key));
+    if (ent !== undefined) return ent;
     const s = primarySample(batch.id);
     return s ? valueOfSample(s, groupId, key) : null;
   }
+
+  /* ── 값 쓰기 — EBR 이 여기를 지납니다 ────────────────────────────────
+     화면의 입력칸이 원본이 되면 안 됩니다. 입력 → 이 함수 → 저장소 →
+     (통지) → 화면·AI·분석 순서로 흐릅니다.
+
+     이력·사유 강제는 저장소(Entries)가 이미 하고 있으므로 그대로 맡깁니다. */
+  function setValue(scope, field, value, reason, opts) {
+    const r = store.write(scope, field, value, reason, opts);
+    if (r && r.ok && r.action !== "None") notify("value");
+    return r;
+  }
+  /* 값 하나의 기록(작성자·시각·사유·이력)까지 — 감사 화면과 AI 가 씁니다 */
+  function recordOf(scope, field) { return store.record(scope, field); }
+
+  /* 저장소 독립 표면 — 나중에 서버로 바꿔도 부르는 쪽은 그대로입니다 */
+  function get(scope, field) { return store.read(scope, field); }
+  function set(scope, field, value, reason, opts) { return setValue(scope, field, value, reason, opts); }
+  function update(scope, field, value, reason, opts) { return setValue(scope, field, value, reason, opts); }
 
   /* ── 시료(Sample) ───────────────────────────────────────────────────────
      Excel 유래 시료(DATA_SAMPLES) + 사용자가 EBR 에서 추가한 시료(Entries)를
@@ -482,6 +582,9 @@ window.Repo = (function () {
     getFilterOptions, searchStudies,
     dataClass, colInClass, classMatchesTerm, getDataClasses,
     projectLabel, studyOf, valueOf,
-    getMeasurementRows, getStudySummary
+    getMeasurementRows, getStudySummary,
+    /* Single Source of Truth 표면 — 저장소가 바뀌어도 이 이름들은 그대로 */
+    get, set, update, setValue, recordOf, subscribe, entryKey, useStore,
+    storeName: () => store.name
   };
 })();

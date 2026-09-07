@@ -116,10 +116,11 @@ window.AskTables = (function () {
         const k = R ? R.fieldKey(g.id, it.key) : (g.id + "_" + it.key);
         row[k] = R ? numeric(R.valueOf(b, g.id, it.key)) : null;
       }));
-      /* 일자별 Titer — 원본은 b.upstream.titer.D10 … 에 있습니다 */
-      const td = (b.upstream && b.upstream.titer) || {};
+      /* 일자별 Titer — Repo 를 지납니다. 여기서 b.upstream.titer 를 직접
+         읽으면 EBR 로 고친 값이 이 표에만 반영되지 않아, 화면마다 다른
+         숫자가 보이게 됩니다. */
       (window.DATA_TITER_DAYS || []).forEach(function (d) {
-        row["titerDay_" + d] = numeric(td[d]);
+        row["titerDay_" + d] = R ? numeric(R.valueOf(b, "titer", d)) : null;
       });
       return row;
     });
@@ -163,6 +164,18 @@ window.AskTables = (function () {
   function build(list, label, note) { return buildInternal(list, label, note); }
   /* EBR 입력이 바뀌면 내부 테이블을 다시 만들어야 합니다 */
   function invalidate() { internalCache = null; emit(); }
+
+  /* ★ 값이 바뀌면 캐시를 버립니다.
+
+     이 표는 한 번 만들면 캐시에 남습니다. EBR 에서 값을 고쳐도 캐시가
+     그대로면, Global AI 와 통계는 계속 옛 숫자를 답합니다 — 화면은 새 값,
+     AI 는 옛 값이 되고 둘 다 그럴듯해서 어느 쪽이 틀렸는지 알 수 없습니다.
+     Repo 가 값 변경을 알려 줄 때마다 다시 만듭니다. */
+  if (window.Repo && window.Repo.subscribe) {
+    window.Repo.subscribe(function (what) {
+      if (what === "value" || what === "store") invalidate();
+    });
+  }
 
   /* ══════════════════════════════════════════════════════════════════════
      2. 업로드 파일 → 테이블
