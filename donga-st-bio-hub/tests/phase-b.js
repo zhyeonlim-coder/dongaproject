@@ -217,7 +217,7 @@ window.PhaseBTest = (function () {
       });
     }
 
-    let out = null;
+    let out = null, narratePrev = null;
     return window.GlobalAI.ask("이번 실험에서 뭔가 특이한 점이 있어?").then(function (o) {
       out = o;
       /* ── plan 단계 계약 ───────────────────────────────────────────── */
@@ -235,9 +235,13 @@ window.PhaseBTest = (function () {
       }
       sent.length = 0;
       /* plan 단계에서 503(키 없음)을 받으면 더 부르지 않는 것이 정상
-         동작입니다. narrate 계약을 따로 보려면 그 판단을 되돌려야 합니다. */
+         동작입니다. narrate 계약을 따로 보려면 그 판단을 되돌려야 합니다.
+         해설은 기본이 꺼져 있으므로, 이 계약을 보려면 켜야 합니다 —
+         켜진 상태의 계약을 검사하는 것이 이 블록의 목적입니다. */
       window.GlobalAI._setLlmState(null);
-      /* ── narrate 단계 계약 ────────────────────────────────────────── */
+      narratePrev = (function () { try { return localStorage.getItem("hub.ai.narrate"); } catch (e) { return null; } })();
+      window.GlobalAI.setNarrate(true);
+      /* ── narrate 단계 계약 (켜진 상태) ────────────────────────────── */
       return window.GlobalAI.narrate("이번 실험에서 뭔가 특이한 점이 있어?", out, function () {});
     }).then(function () {
       window.fetch = real;
@@ -282,6 +286,10 @@ window.PhaseBTest = (function () {
           if (prev === null) localStorage.removeItem("hub.ai.narrate");
           else localStorage.setItem("hub.ai.narrate", prev);
         } catch (e) {}
+        try {
+          if (narratePrev === null) localStorage.removeItem("hub.ai.narrate");
+          else localStorage.setItem("hub.ai.narrate", narratePrev);
+        } catch (e) {}
         T.add("해설을 끄면 아무것도 보내지 않음", sent.length === 0,
           "꺼진 상태에서도 서버를 불렀습니다");
         return T.out;
@@ -293,6 +301,178 @@ window.PhaseBTest = (function () {
     });
   }
 
+  /* ── 6·7. 해설 OFF / ON 의 데이터 계약 ───────────────────────────────
+     ★ 이것이 이 파일에서 가장 중요한 검사입니다.
+
+     OFF 는 기본값이고, 그 상태에서는 측정에서 나온 어떤 수치도 서버로
+     나가면 안 됩니다. 원본 셀 값도, 평균 같은 파생 통계도, headline 에
+     인용된 값도, 배치명과 값의 결합도 전부입니다.
+
+     ON 은 명시적 선택입니다. 그때 무엇이 나가는지 숨기지 않고 세어서
+     보고합니다 — 나가는 것이 없다고 말하는 대신 무엇이 나가는지 셉니다. */
+  function narrateContract() {
+    const t = window.AskTables.internal();
+    const Q = "B045-1의 Max VCD가 얼마야?";
+
+    /* 원본 셀 값 · 파생 통계를 판별할 기준 */
+    const RAW = new Set();
+    t.columns.filter(c => c.type === "num").forEach(function (c) {
+      t.rows.forEach(function (r) {
+        const v = r[c.key];
+        if (typeof v === "number" && isFinite(v)) RAW.add(v);
+      });
+    });
+
+    const sent = [];
+    const real = window.fetch;
+    function hook() {
+      window.fetch = function (url, opt) {
+        if (String(url).indexOf("/api/chat") > -1) {
+          try { sent.push(JSON.parse(opt.body)); } catch (e) { sent.push({ parse: "fail" }); }
+        }
+        return Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) });
+      };
+    }
+    /* payload 안의 숫자를 분류합니다.
+
+       ★ 사용자가 쓴 질문은 빼고 봅니다.
+         "B045-1 의 Max VCD 가 얼마야?" 라고 물으면 그 문장에 배치명이
+         들어 있는 것은 당연합니다 — 사용자가 직접 쓴 값(C)이지 Repo 에서
+         자동으로 붙은 값이 아닙니다. 질문까지 세면 "사용자가 물어본 것을
+         보냈다" 를 유출로 셈하게 되고, 그러면 검사가 막아야 할 것과
+         막지 말아야 할 것을 구분하지 못합니다. */
+    function classify(payload) {
+      const copy = Object.assign({}, payload || {});
+      delete copy.question;                    /* C. user-provided */
+      const s = JSON.stringify(copy);
+      const seen = new Set();
+      s.replace(/-?\d+(?:\.\d+)?/g, function (m) {
+        const n = Number(m); if (isFinite(n)) seen.add(n); return m;
+      });
+      const res = (payload && payload.result) || {};
+      const st = res.stats || {};
+      const raw = [], derived = [];
+      ["min", "max"].forEach(k => { if (typeof st[k] === "number") raw.push(k + "=" + st[k]); });
+      ["mean", "median", "sd", "cv"].forEach(k => {
+        if (typeof st[k] === "number") derived.push(k + "=" + (+st[k].toFixed(3)));
+      });
+      /* headline 에 인용된 원본 셀 값 */
+      const inHead = [];
+      String(res.headline || "").replace(/-?\d+(?:\.\d+)?/g, function (m) {
+        const n = Number(m); if (RAW.has(n)) inHead.push(n); return m;
+      });
+      return {
+        raw: raw, derived: derived, headRaw: Array.from(new Set(inHead)),
+        identifier: /B\d{3}-\d/.test(s),
+        rows: "rows" in res, facts: "facts" in res,
+        bytes: s.length
+      };
+    }
+
+    const prev = (function () { try { return localStorage.getItem("hub.ai.narrate"); } catch (e) { return null; } })();
+    const T = mk();
+
+    /* ── OFF (기본값) ─────────────────────────────────────────────── */
+    window.GlobalAI.setNarrate(false);
+    T.add("기본값이 OFF", window.GlobalAI.narrateEnabled() === false,
+      "켜져 있음 — 명시적 opt-in 이어야 합니다");
+
+    sent.length = 0; hook();
+    window.GlobalAI._setLlmState(null);
+    let offAns = null;
+    return window.GlobalAI.ask(Q).then(function (out) {
+      offAns = out;
+      window.GlobalAI._setLlmState(null);
+      return window.GlobalAI.narrate(Q, out, function () {});
+    }).then(function (r) {
+      window.fetch = real;
+      const nar = sent.filter(x => x.mode === "narrate");
+      const plan = sent.filter(x => x.mode !== "narrate");
+
+      /* 화면 기능은 그대로여야 합니다 */
+      const row = t.rows.find(x => x.__label === "B045-1");
+      const real1 = row ? row.maxVCD : null;
+      T.add("OFF · Repo 실제 값 조회됨",
+        !!offAns && offAns.kind === "engine" &&
+        String(JSON.stringify(offAns.answer.facts || [])).indexOf(String(real1)) > -1,
+        "Repo=" + real1);
+      T.add("OFF · AskVerify 통과",
+        !!(offAns.answer && offAns.answer.verified && offAns.answer.verified.ok),
+        JSON.stringify(offAns.answer && offAns.answer.verified));
+
+      /* 데이터 계약 */
+      T.add("OFF · narrate 호출 0건", nar.length === 0, "narrate 호출 " + nar.length + "건");
+      const planCls = plan.length ? classify(plan[0]) : null;
+      T.add("OFF · raw measurement 0",
+        nar.length === 0 && (!planCls || planCls.raw.length === 0), "raw 가 전송됨");
+      T.add("OFF · derived statistic 0",
+        nar.length === 0 && (!planCls || planCls.derived.length === 0), "derived 가 전송됨");
+      T.add("OFF · headline measurement 0",
+        nar.length === 0 && (!planCls || planCls.headRaw.length === 0), "headline 값이 전송됨");
+      T.add("OFF · 측정값+배치 결합 0",
+        nar.length === 0 && (!planCls || !planCls.identifier), "배치 식별자가 전송됨");
+
+      /* ── ON (명시적 opt-in) ────────────────────────────────────── */
+      window.GlobalAI.setNarrate(true);
+      T.add("ON 으로 전환됨", window.GlobalAI.narrateEnabled() === true, "켜지지 않음");
+      sent.length = 0; hook();
+      window.GlobalAI._setLlmState(null);
+      return window.GlobalAI.ask(Q);
+    }).then(function (out) {
+      window.GlobalAI._setLlmState(null);
+      return window.GlobalAI.narrate(Q, out, function () {});
+    }).then(function () {
+      window.fetch = real;
+      try {
+        if (prev === null) localStorage.removeItem("hub.ai.narrate");
+        else localStorage.setItem("hub.ai.narrate", prev);
+      } catch (e) {}
+
+      const nar = sent.filter(x => x.mode === "narrate");
+      T.add("ON · narrate 호출 발생", nar.length > 0, "호출 없음");
+      if (nar.length) {
+        const c = classify(nar[0]);
+        /* 무엇이 나가는지 기록합니다 — 통과/실패가 아니라 사실 기록입니다 */
+        T.add("ON · rows(배치별 값) 미전송", c.rows === false, "rows 가 전송됨");
+        T.add("ON · facts(항목별 값) 미전송", c.facts === false, "facts 가 전송됨");
+        window.__narrateOnPayload = c;   /* 보고에 씁니다 */
+      }
+      return T.out;
+    }).catch(function (e) {
+      window.fetch = real;
+      try {
+        if (prev === null) localStorage.removeItem("hub.ai.narrate");
+        else localStorage.setItem("hub.ai.narrate", prev);
+      } catch (x) {}
+      T.add("해설 계약 검사 실행", false, (e && e.message) || "실패");
+      return T.out;
+    });
+  }
+
+  /* ── 8. Claude 경로는 규칙을 우회하지 않고 폴백으로만 ────────────────
+     규칙이 읽은 질문은 LLM 을 부르지 않아야 합니다. 부르면 느려지고
+     비용이 들고, 이미 검증된 경로를 흔듭니다. */
+  function fallbackOnly() {
+    const T = mk();
+    /* 규칙이 확실히 읽는 질문 */
+    const clear = ["Titer 평균이랑 편차", "수율이 가장 높은 배치", "배치 수 알려줘"];
+    clear.forEach(function (q) {
+      const plan = window.GlobalAI._route(q, window.AIContext.get());
+      T.add("규칙이 읽음 · " + q, window.GlobalAI._ruleMissed(q, plan) === false,
+        "LLM 으로 넘어감 — 규칙이 처리해야 합니다");
+    });
+    /* 규칙이 못 읽는 질문 — 이때만 LLM 을 불러야 합니다 */
+    const vague = ["이번 실험 데이터에서 사람이 놓치기 쉬운 이상한 패턴이나 주의할 점을 찾아줘",
+                   "이번 실험에서 뭔가 특이한 점이 있어?"];
+    vague.forEach(function (q) {
+      const plan = window.GlobalAI._route(q, window.AIContext.get());
+      T.add("규칙이 못 읽음 → 폴백 · " + q.slice(0, 20) + "…",
+        window.GlobalAI._ruleMissed(q, plan) === true,
+        "규칙이 처리했다고 판단 — LLM 폴백이 일어나지 않습니다");
+    });
+    return T.out;
+  }
+
   function run() {
     const groups = [];
     groups.push(["A. 클라이언트 가드", guardChecks()]);
@@ -300,8 +480,10 @@ window.PhaseBTest = (function () {
     return keyLeakCheck()
       .then(r => { groups.push(["C. 키 노출", r]); return streamOrderCheck(); })
       .then(r => { groups.push(["D. 스트리밍 순서", r]); return payloadCheck(); })
+      .then(r => { groups.push(["E. 단계별 전송 계약", r]); return narrateContract(); })
+      .then(r => { groups.push(["F. 해설 OFF/ON 계약", r]); return Promise.resolve(fallbackOnly()); })
       .then(function (r) {
-        groups.push(["E. 단계별 전송 계약", r]);
+        groups.push(["G. Claude 는 폴백으로만", r]);
         const checks = groups.map(function (g) {
           const bad = g[1].filter(x => !x.pass);
           return { id: g[0], pass: !bad.length,

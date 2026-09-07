@@ -70,15 +70,22 @@ module.exports = async function handler(req, res) {
     add("chatRoute", typeof chatMod === "function",
       "chat.js 로드됨 · 허용 도구 " + (chatMod.ALLOWED || []).length + "개");
   } catch (e) {
-    add("chatRoute", false, "chat.js 를 로드하지 못했습니다: " + (e && e.message));
+    /* ★ 예외 원문을 응답에 넣지 않습니다.
+       require 실패 메시지에는 서버의 파일 경로가 들어갑니다. 점검 도구가
+       내부 구조를 흘리면 점검하지 않느니만 못합니다.
+       디버깅에 필요한 것은 서버 로그에만 남깁니다. */
+    console.error("[health] chat.js 로드 실패:", e);
+    add("chatRoute", false, "chat.js 를 로드하지 못했습니다 (자세한 내용은 서버 로그)");
   }
 
-  /* 4. 서버측 수치 검증이 실제로 동작하는가 (호출 없이 확인) */
+  /* 4. 서버 이탈 차단(containment)이 동작하는가 — 호출 없이 확인.
+     ★ 이것은 값의 진위를 보는 "검증" 이 아닙니다. 서버는 Repo 를 볼 수
+       없습니다. 모델이 받은 값 집합 밖의 숫자를 썼는지만 봅니다. */
   if (chatMod && chatMod._unknownNumbers) {
     const bad = chatMod._unknownNumbers("평균은 9999 입니다", [981.4, 28]);
     const good = chatMod._unknownNumbers("평균은 981.4 입니다", [981.4, 28]);
-    add("numberGuard", bad.length === 1 && bad[0] === 9999 && good.length === 0,
-      "근거 없는 수치를 잡고 정상 수치는 통과시킵니다");
+    add("containment", bad.length === 1 && bad[0] === 9999 && good.length === 0,
+      "받은 값 밖의 숫자를 잡고, 받은 값은 통과시킵니다 (값의 진위 판단은 브라우저 AskVerify)");
   }
 
   const deep = String((req.query && req.query.deep) || "") === "1";

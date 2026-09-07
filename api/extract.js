@@ -252,9 +252,12 @@ module.exports = async function handler(req, res) {
     });
   } catch (err) {
     const status = err && err.status ? err.status : 500;
+    console.error("[api] Claude 호출 실패:", err);
     return res.status(status >= 400 && status < 600 ? status : 500).json({
       error: "upstream",
-      message: (err && err.message) || "Claude API 호출에 실패했습니다."
+      /* 예외 원문을 응답에 넣지 않습니다 — 내부 사정이 새고, 사용자는
+         무엇을 해야 할지 알 수 없습니다. 자세한 내용은 서버 로그에만. */
+      message: "Claude API 호출에 실패했습니다. 잠시 후 다시 시도해 주세요."
     });
   }
 };

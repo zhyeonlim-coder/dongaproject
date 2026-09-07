@@ -50,6 +50,9 @@ window.GlobalAIUI = (function () {
             '<button class="btn btn-ghost btn-sm" id="gai-close" aria-label="닫기">✕</button>' +
           '</div>' +
         '</div>' +
+        /* 지금 어느 모드인지 항상 보입니다 — 사용자가 모르는 채로 켜져
+           있으면 안 되고, 모르는 채로 꺼져 있어도 안 됩니다 */
+        '<div class="gai-mode" id="gai-mode"></div>' +
         '<div class="gai-body" id="gai-body"></div>' +
         '<div class="gai-foot">' +
           '<form class="gai-form" id="gai-form">' +
@@ -106,6 +109,43 @@ window.GlobalAIUI = (function () {
     const d = window.AIContext.describe();
     el.textContent = d || "현재 화면 기준으로 답합니다";
     el.title = d;
+    paintMode();
+  }
+
+  /* ── 외부 AI 해설 상태 ───────────────────────────────────────────────
+     기본은 꺼짐이고, 켜는 것은 명시적 선택입니다. 켜면 무엇이 나가는지
+     그 자리에 적습니다 — 켜고 나서 알게 되면 늦습니다.
+
+     경고창을 띄우지 않습니다. 매번 막아 세우면 사람은 읽지 않고 누릅니다.
+     대신 상태를 늘 보이게 두고, 켤 때 한 번 확인을 받습니다. */
+  function paintMode() {
+    const el = root && root.querySelector("#gai-mode");
+    if (!el) return;
+    const on = window.GlobalAI.narrateEnabled();
+    el.innerHTML =
+      '<span class="gai-mode-tag' + (on ? " is-on" : "") + '">' +
+        (on ? "외부 AI 해설 ON" : "외부 AI 해설 OFF") + "</span>" +
+      '<span class="gai-mode-why">' +
+        (on
+          ? "질문과 분석 결과 요약(평균·최소·최대 등)이 외부 AI 서비스로 전송됩니다."
+          : "조회·계산·검증은 이 브라우저에서만 하고, 실험 데이터를 외부로 보내지 않습니다.") +
+      "</span>" +
+      '<button class="gai-mode-btn" id="gai-mode-toggle" type="button">' +
+        (on ? "끄기" : "켜기") + "</button>";
+
+    const b = el.querySelector("#gai-mode-toggle");
+    if (b) b.addEventListener("click", function () {
+      if (!on) {
+        const okd = window.confirm(
+          "외부 AI 해설을 켜면 질문 및 일부 분석 결과(평균 · 최소 · 최대 등 " +
+          "요약 수치)가 외부 AI 서비스로 전송될 수 있습니다.\n\n" +
+          "표와 수치 자체는 지금도 이 브라우저에서 계산·검증합니다. " +
+          "켜면 그 결과를 설명하는 문장이 추가됩니다.\n\n켜시겠습니까?");
+        if (!okd) return;
+      }
+      window.GlobalAI.setNarrate(!on);
+      paintMode();
+    });
   }
 
   /* ── 열고 닫기 ───────────────────────────────────────────────────────── */

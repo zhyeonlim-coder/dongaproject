@@ -178,3 +178,26 @@
 }
 .gai-narr-text { font-size: 13px; line-height: 1.75; color: var(--c-text); white-space: pre-wrap; }
 .gai-narr-tag { font-size: 11px; color: var(--c-text-soft); margin-top: var(--s-2); }
+
+/* ── 외부 AI 해설 모드 표시 ────────────────────────────────────────────
+   항상 보입니다. 사용자가 모르는 채로 켜져 있어도, 모르는 채로 꺼져
+   있어도 안 됩니다. */
+.gai-mode {
+  flex: none; display: flex; align-items: center; gap: var(--s-2);
+  padding: var(--s-2) var(--s-5);
+  border-bottom: 1px solid var(--c-border); background: var(--c-paper-2);
+  font-size: 11px; color: var(--c-text-mute);
+}
+.gai-mode-tag {
+  flex: none; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--c-border-str); background: var(--c-surface);
+  color: var(--c-text-mute);
+}
+.gai-mode-tag.is-on { border-color: var(--c-accent-mid); color: var(--c-accent); }
+.gai-mode-why { flex: 1 1 auto; line-height: 1.5; }
+.gai-mode-btn {
+  flex: none; font-size: 11px; padding: 3px 9px; cursor: pointer;
+  border: 1px solid var(--c-border-str); border-radius: var(--r-sm);
+  background: var(--c-surface); color: var(--c-text-mute);
+}
+.gai-mode-btn:hover { border-color: var(--c-accent-mid); color: var(--c-accent); }

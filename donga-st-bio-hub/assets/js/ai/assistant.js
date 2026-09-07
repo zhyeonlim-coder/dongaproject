@@ -91,6 +91,22 @@ window.GlobalAI = (function () {
      합니다. 모델은 데이터를 본 적이 없어 수치를 지어낼 재료가 없습니다. */
   let llmAvailable = null;        /* null=모름, false=키 없음(더 안 부름) */
 
+  /* ── 외부 AI 해설 스위치 ─────────────────────────────────────────────
+     기본 꺼짐. "on" 이라고 적혀 있을 때만 켜집니다.
+     읽기에 실패해도 꺼진 쪽입니다 — 모르면 안 보냅니다. */
+  const NARRATE_KEY = "hub.ai.narrate";
+  function narrateEnabled() {
+    try { return localStorage.getItem(NARRATE_KEY) === "on"; }
+    catch (e) { return false; }
+  }
+  function setNarrate(on) {
+    try {
+      if (on) localStorage.setItem(NARRATE_KEY, "on");
+      else localStorage.removeItem(NARRATE_KEY);
+    } catch (e) { /* 저장소가 막힌 환경 — 꺼진 상태로 남습니다 */ }
+    return narrateEnabled();
+  }
+
   function ruleMissed(question, plan) {
     if (plan.tool !== "searchExperimentData") return false;
     try {
@@ -183,14 +199,20 @@ window.GlobalAI = (function () {
      반쯤 나온 문장을 두면 그게 곧 검증 안 된 답이 됩니다. */
   function narrate(question, out, onDelta) {
     if (llmAvailable === false) return Promise.resolve(null);
-    /* ★ 해설을 끄면 어떤 측정값도 서버로 나가지 않습니다.
-       plan 단계는 원래 값을 보내지 않으므로, 이 스위치 하나로
-       "실험 데이터가 브라우저를 벗어나지 않는다" 가 참이 됩니다.
-       그렇게 운영해야 하는 곳이 있을 수 있어 남겨 둡니다.
-         끄기: localStorage.setItem("hub.ai.narrate", "off") */
-    try {
-      if (localStorage.getItem("hub.ai.narrate") === "off") return Promise.resolve(null);
-    } catch (e) { /* 저장소가 막힌 환경 */ }
+    /* ★ 기본값은 꺼짐입니다. 켜는 것은 명시적 선택(opt-in)입니다.
+
+       해설을 만들려면 무엇을 설명할지 모델에게 알려야 하고, 그 순간
+       측정에서 나온 수치(min·max·평균 등)가 외부로 나갑니다. 그건
+       기능 문제가 아니라 데이터 반출 결정이라, 사용자가 모르는 채로
+       켜져 있으면 안 됩니다.
+
+       꺼져 있어도 나머지는 전부 그대로입니다 — 조회 · 도구 · 통계 ·
+       DoE · 검증 · 근거 표시 · 화면 제안. 꺼지는 것은 해설 문단 하나뿐입니다.
+
+         켜기: localStorage.setItem("hub.ai.narrate", "on")
+       저장소를 못 읽는 환경에서도 꺼진 쪽으로 갑니다 — 모르면 안 보내는
+       것이 맞는 기본값입니다. */
+    if (!narrateEnabled()) return Promise.resolve(null);
     return fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -372,6 +394,7 @@ window.GlobalAI = (function () {
   return { ask: ask, reset: reset, suggestions: suggestions, narrate: narrate,
            applyAction: applyAction, history: () => history.slice(),
            llmState: () => llmAvailable,
+           narrateEnabled: narrateEnabled, setNarrate: setNarrate,
            /* 검사용 — 503(키 없음)을 한 번 받으면 더 부르지 않는 것이
               정상 동작이라, 단계별 계약을 따로 보려면 되돌릴 수 있어야
               합니다. 제품 코드에서는 부르지 않습니다. */
