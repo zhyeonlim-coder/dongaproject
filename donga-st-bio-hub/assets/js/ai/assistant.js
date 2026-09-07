@@ -183,6 +183,14 @@ window.GlobalAI = (function () {
      반쯤 나온 문장을 두면 그게 곧 검증 안 된 답이 됩니다. */
   function narrate(question, out, onDelta) {
     if (llmAvailable === false) return Promise.resolve(null);
+    /* ★ 해설을 끄면 어떤 측정값도 서버로 나가지 않습니다.
+       plan 단계는 원래 값을 보내지 않으므로, 이 스위치 하나로
+       "실험 데이터가 브라우저를 벗어나지 않는다" 가 참이 됩니다.
+       그렇게 운영해야 하는 곳이 있을 수 있어 남겨 둡니다.
+         끄기: localStorage.setItem("hub.ai.narrate", "off") */
+    try {
+      if (localStorage.getItem("hub.ai.narrate") === "off") return Promise.resolve(null);
+    } catch (e) { /* 저장소가 막힌 환경 */ }
     return fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -217,7 +225,17 @@ window.GlobalAI = (function () {
     }).catch(function () { return null; });
   }
 
-  /* 문장에 쓸 수 있는 수치 — 결과 객체에 실제로 있는 값만 */
+  /* ── 모델이 문장에 쓸 수 있는 수치 ───────────────────────────────────
+     ★ 이것은 "검증 기준" 이 아니라 "울타리" 입니다.
+
+     이 목록은 이미 AskVerify 를 통과한 결과에서 뽑습니다. 서버는 이
+     목록 밖의 숫자가 문장에 있는지만 봅니다 — 목록 안의 숫자가 옳은지는
+     서버가 판단할 수 없고, 판단할 필요도 없습니다. 그건 AskVerify 가
+     데이터셋에서 다시 계산해 이미 확인했습니다.
+
+     보내는 결과(slimResult)에 없는 값은 여기에도 넣지 않습니다.
+     울타리가 보낸 것보다 넓으면, 모델이 보지도 않은 값을 "허용된 값"
+     으로 쓸 수 있게 됩니다. */
   function collectNumbers(out) {
     const nums = [];
     const push = v => { if (typeof v === "number" && isFinite(v)) nums.push(v); };
@@ -226,22 +244,36 @@ window.GlobalAI = (function () {
     const r = (out && (out.answer || out.data)) || {};
     if (r.stats) ["n", "mean", "median", "sd", "min", "max", "cv"].forEach(k => push(r.stats[k]));
     push(r.scopeRows);
+    push((r.rows || []).length);
     grab(r.headline);
-    (r.facts || []).forEach(f => grab(f.v));
-    (r.rows || []).forEach(row => Object.keys(row).forEach(k => grab(row[k])));
-    return Array.from(new Set(nums)).slice(0, 400);
+    grab(r.note);
+    return Array.from(new Set(nums)).slice(0, 200);
   }
 
-  /* 서버에 보낼 결과 — 필요한 만큼만. 원본 데이터를 통째로 보내지 않습니다 */
+  /* ── 서버로 나가는 결과 ──────────────────────────────────────────────
+     ★ 여기서 나가는 것은 실제 측정에서 나온 수치입니다.
+       "데이터를 서버로 보내지 않는다" 는 plan 단계에만 참이고, 이 단계에는
+       해당하지 않습니다. 그러니 최소한만 보냅니다.
+
+     행 단위 값(rows)과 항목별 값(facts)은 보내지 않습니다. 2~4문장짜리
+     설명을 쓰는 데 배치별 개별 측정값은 필요 없고, 표는 이미 사용자
+     화면에 검증된 채로 그려져 있습니다. 요약 통계만으로 충분합니다.
+
+     보내는 것: 문장 · 요약 통계 · 항목 이름/단위 · 주의 문구 · 범위 건수
+     안 보내는 것: 배치별 값 · 배치 목록 · 원본 행 */
   function slimResult(out) {
     const r = (out && (out.answer || out.data)) || {};
     return {
-      kind: out.kind, headline: r.headline,
-      stats: r.stats || null, metric: r.metric || null,
-      rows: (r.rows || []).slice(0, 8),
-      facts: (r.facts || []).slice(0, 12),
-      note: r.note || "", scopeLabel: r.scopeLabel, scopeRows: r.scopeRows,
-      unhandled: r.unhandled || []
+      kind: out.kind,
+      headline: r.headline,
+      stats: r.stats || null,
+      metric: r.metric || null,
+      note: r.note || "",
+      scopeLabel: r.scopeLabel,
+      scopeRows: r.scopeRows,
+      unhandled: r.unhandled || [],
+      /* 표에 몇 행이 있는지만 — 값은 보내지 않습니다 */
+      rowCount: (r.rows || []).length
     };
   }
 
@@ -340,6 +372,10 @@ window.GlobalAI = (function () {
   return { ask: ask, reset: reset, suggestions: suggestions, narrate: narrate,
            applyAction: applyAction, history: () => history.slice(),
            llmState: () => llmAvailable,
+           /* 검사용 — 503(키 없음)을 한 번 받으면 더 부르지 않는 것이
+              정상 동작이라, 단계별 계약을 따로 보려면 되돌릴 수 있어야
+              합니다. 제품 코드에서는 부르지 않습니다. */
+           _setLlmState: v => { llmAvailable = v; },
            _route: route, _filterFromText: filterFromText, _litQuery: litQuery,
            _collectNumbers: collectNumbers, _slimResult: slimResult,
            _ruleMissed: ruleMissed };

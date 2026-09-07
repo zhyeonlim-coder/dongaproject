@@ -231,7 +231,8 @@ window.GlobalAIUI = (function () {
       }
       if (!r.text || !r.text.trim()) { box.remove(); return; }
       box.innerHTML = '<div class="gai-narr-text">' + esc(r.text) + "</div>" +
-        '<div class="gai-narr-tag">AI 해설 · 위 수치는 엔진이 계산하고 검증한 값입니다</div>';
+        '<div class="gai-narr-tag">AI 해설 — 위 표와 수치는 엔진이 데이터에서 계산하고 ' +
+        '대조한 값이고, 이 문단은 그것을 설명한 것입니다.</div>';
       scroll();
     }).catch(function () { box.remove(); });
   }
