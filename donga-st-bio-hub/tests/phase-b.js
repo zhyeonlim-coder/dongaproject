@@ -218,6 +218,11 @@ window.PhaseBTest = (function () {
     }
 
     let out = null, narratePrev = null;
+    /* 앞 그룹이 가짜 503 을 돌려주면 assistant 는 "이 페이지에서는 LLM 을
+       쓸 수 없다" 를 기억합니다 — 실제 사용에서는 맞는 동작이지만, 여기서는
+       그 기억 때문에 plan 호출이 아예 일어나지 않아 검사가 헛돕니다.
+       그룹을 시작할 때 그 기억을 지웁니다. */
+    window.GlobalAI._setLlmState(null);
     return window.GlobalAI.ask("이번 실험에서 뭔가 특이한 점이 있어?").then(function (o) {
       out = o;
       /* ── plan 단계 계약 ───────────────────────────────────────────── */
@@ -230,8 +235,19 @@ window.PhaseBTest = (function () {
         const leak = leakedIn(s, cellValues());
         T.add("plan · 실험 측정값 0건", leak.length === 0,
           "유출: " + leak.slice(0, 5).join(", "));
-        T.add("plan · 배치 목록이 가지 않음", !/B\d{3}-\d/.test(s),
-          "배치 식별자가 payload 에 있음");
+        /* 사용자가 쓴 문장(question · history[].q)은 빼고 봅니다. "B045-1 이
+           얼마야?" 라고 물으면 그 배치명이 payload 에 있는 것은 사용자가
+           직접 쓴 것이지 Repo 가 자동으로 붙인 것이 아닙니다. 여기서 막아야
+           하는 것은 "묻지도 않았는데 화면의 배치 목록이 따라 나가는 것"
+           입니다. history 에 질문 외의 것이 붙으면 바로 아래 줄이 잡습니다. */
+        const auto = JSON.stringify({ mode: plan.mode, context: plan.context,
+                                      toolDefs: plan.toolDefs });
+        T.add("plan · 배치 목록이 가지 않음", !/B\d{3}-\d/.test(auto),
+          "배치 식별자가 질문 밖 payload 에 있음");
+        T.add("plan · history 는 질문 문장뿐",
+          (plan.history || []).every(h => h && Object.keys(h).length === 1 &&
+                                          typeof h.q === "string"),
+          "history 에 질문 외 항목이 있음: " + JSON.stringify(plan.history || []).slice(0, 120));
       }
       sent.length = 0;
       /* plan 단계에서 503(키 없음)을 받으면 더 부르지 않는 것이 정상
@@ -344,6 +360,12 @@ window.PhaseBTest = (function () {
     function classify(payload) {
       const copy = Object.assign({}, payload || {});
       delete copy.question;                    /* C. user-provided */
+      /* history 는 사용자가 앞서 직접 쓴 질문들입니다 — 지금 질문과 같은
+         부류이므로 같이 뺍니다. 여기를 빼지 않으면 "B045-1 의 Max VCD 가
+         얼마야?" 라고 두 번 물었다는 사실만으로 배치명 유출로 셉니다.
+         빼는 것은 질문 문장뿐이고, history 에 질문 외의 것이 붙는 순간
+         아래 검사가 다시 잡습니다. */
+      delete copy.history;
       const s = JSON.stringify(copy);
       const seen = new Set();
       s.replace(/-?\d+(?:\.\d+)?/g, function (m) {
@@ -411,6 +433,15 @@ window.PhaseBTest = (function () {
         nar.length === 0 && (!planCls || planCls.headRaw.length === 0), "headline 값이 전송됨");
       T.add("OFF · 측정값+배치 결합 0",
         nar.length === 0 && (!planCls || !planCls.identifier), "배치 식별자가 전송됨");
+      /* classify 가 history 를 빼고 보므로, history 자체가 질문 문장만
+         담고 있는지는 여기서 따로 확인합니다 — 나중에 누가 history 에
+         결과나 수치를 얹으면 이 줄이 먼저 깨집니다. */
+      const hist = (plan[0] && plan[0].history) || [];
+      const histOnlyQ = hist.every(function (h) {
+        return h && Object.keys(h).length === 1 && typeof h.q === "string";
+      });
+      T.add("OFF · history 는 질문 문장뿐", histOnlyQ,
+        "history 에 질문 외 항목이 있음: " + JSON.stringify(hist).slice(0, 120));
 
       /* ── ON (명시적 opt-in) ────────────────────────────────────── */
       window.GlobalAI.setNarrate(true);

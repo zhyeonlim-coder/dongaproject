@@ -148,6 +148,24 @@ window.GlobalAITest = (function () {
     return window.AITools.run("searchLiterature", { query: "" }).then(function (r) {
       T.out.pop();
       T.add("빈 질의 거절", r.ok === false, JSON.stringify(r).slice(0, 80));
+
+      /* Europe PMC 는 검색어와 겹치는 낱말을 <b> 로 감싸 주는데, 그것을
+         &lt;b&gt; 로 escape 해서 돌려주는 응답이 섞여 있습니다. 그대로
+         두면 화면에 논문 제목 대신 "&lt;b&gt;EGFR&lt;/b&gt;" 이 찍힙니다.
+         실제 production 에서 이 모양으로 보였습니다. */
+      const clean = window.LitAPI && window.LitAPI._clean;
+      T.add("문헌 제목 정리 함수 노출됨", typeof clean === "function", "없음");
+      if (typeof clean === "function") {
+        T.add("escape 된 강조 태그 제거",
+          clean("&lt;b&gt;EGFR&lt;/b&gt; signalling") === "EGFR signalling",
+          JSON.stringify(clean("&lt;b&gt;EGFR&lt;/b&gt; signalling")));
+        T.add("생 태그 제거",
+          clean("<b>EGFR</b> signalling") === "EGFR signalling",
+          JSON.stringify(clean("<b>EGFR</b> signalling")));
+        T.add("본문 앰퍼샌드는 살림",
+          clean("Smith &amp; Jones") === "Smith & Jones",
+          JSON.stringify(clean("Smith &amp; Jones")));
+      }
       return T.out;
     });
   }

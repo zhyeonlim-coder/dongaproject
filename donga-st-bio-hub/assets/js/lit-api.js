@@ -123,8 +123,21 @@ window.LitAPI = (function () {
       });
   }
 
+  /* Europe PMC 는 검색어와 겹치는 낱말을 <b> 로 감싸 주는데, 그 태그를
+     &lt;b&gt; 처럼 실체 참조로 escape 해서 돌려주는 응답이 섞여 있습니다.
+     태그부터 지우면 escape 된 쪽이 그대로 남아 화면에 "&lt;b&gt;" 라는
+     글자가 찍힙니다. 실체 참조를 먼저 되돌린 다음 태그를 지웁니다.
+     여기서 나온 문자열은 화면에 그릴 때 다시 escape 하므로, 되돌리는 것
+     자체가 주입 통로가 되지는 않습니다. */
+  const ENT = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'" };
+  function unent(s) {
+    return s.replace(/&(amp|lt|gt|quot|apos|#39);/g, (m, k) => ENT[k]);
+  }
   function clean(s) {
-    return String(s == null ? "" : s)
+    let t = String(s == null ? "" : s);
+    /* 이중 escape 된 응답까지 걷어내되, 횟수는 묶어 둡니다 */
+    for (let i = 0; i < 3 && /&(amp|lt|gt|quot|apos|#39);/.test(t); i++) t = unent(t);
+    return t
       .replace(/<[^>]+>/g, " ")          // JATS/HTML 태그 제거
       .replace(/\s+/g, " ").trim();
   }
@@ -257,5 +270,5 @@ window.LitAPI = (function () {
     ];
   }
 
-  return { search, toQuery, patentLinks, _epmc: searchEuropePMC, _crossref: searchCrossref };
+  return { search, toQuery, patentLinks, _epmc: searchEuropePMC, _crossref: searchCrossref, _clean: clean };
 })();
