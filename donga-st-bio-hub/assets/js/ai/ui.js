@@ -291,6 +291,7 @@ window.GlobalAIUI = (function () {
         srcHTML(out.meta) + "</div>" + suggHTML(out.suggestions);
     }
     if (out.kind === "action-proposal") return actionHTML(out);
+    if (out.kind === "formatted") return formattedHTML(out);
     if (out.kind === "literature") return litHTML(out);
     if (out.kind === "compare-rows") return compareHTML(out);
     if (out.kind === "doe-anova") return anovaHTML(out);
@@ -347,6 +348,20 @@ window.GlobalAIUI = (function () {
     if (r.source) h += '<div class="gai-note">' + esc(r.source) + "</div>";
 
     h += srcHTML(out.meta, r);
+
+    /* 답을 받은 다음에 하는 행동을 그 자리에 둡니다 — 표를 자세히 보거나,
+       이 결과를 다른 모양으로 바꾸거나, 이어서 묻는 것입니다. */
+    const acts = [];
+    if (r.rows && r.rows.length) {
+      acts.push('<button class="gai-mode-btn" data-evidence>근거 데이터 보기 (' +
+        esc(r.rows.length) + "행)</button>");
+    }
+    if (r.stats) {
+      acts.push('<button class="gai-mode-btn" data-q="이 결과를 표로 정리해줘">표로 정리</button>');
+      acts.push('<button class="gai-mode-btn" data-q="이 결과를 보고서 문장으로 만들어줘">보고서 문장</button>');
+    }
+    if (acts.length) h += '<div class="gai-followup">' + acts.join("") + "</div>";
+
     if (r.suggestions && r.suggestions.length) h += suggHTML(r.suggestions.slice(0, 4));
     return h;
   }
@@ -375,14 +390,39 @@ window.GlobalAIUI = (function () {
   }
 
   /* 화면 조작 — 제안만 하고 사용자가 누를 때만 실행 */
+  const ACTION_KO = { filter: "필터를 적용", sort: "정렬을 적용", select: "배치를 선택" };
   function actionHTML(out) {
     lastProposal = out.data;
+    const what = ACTION_KO[out.data.action] || "이 동작을 실행";
     return '<div class="gai-action"><div class="gai-action-q">' +
-      esc(out.data.label) + " 로 필터를 적용할까요?</div>" +
+      esc(out.data.label) + " 로 " + what + "할까요?</div>" +
       '<div class="gai-action-btns">' +
       '<button class="btn btn-accent btn-sm" data-apply>적용</button>' +
       '<button class="btn btn-ghost btn-sm" data-cancel>취소</button></div></div>' +
       '<div class="gai-note">현재 보고 계신 화면은 [적용] 을 누르기 전까지 바뀌지 않습니다.</div>';
+  }
+
+  /* 직전 결과를 표·보고서 문장으로 다시 정리한 것.
+     ★ 새로 조회한 값이 아니라 이미 나온 값을 옮긴 것이라, 그 사실을
+       적어 둡니다 — 새 조회 결과로 읽으면 시점이 헷갈립니다. */
+  function formattedHTML(out) {
+    const d = out.data;
+    let h = '<div class="gai-headline">' + esc(d.title) + "</div>";
+    if (d.style === "table" && d.rows) {
+      h += '<div class="gai-tbl-wrap"><table class="gai-tbl"><thead><tr>' +
+        "<th>항목</th><th>값</th></tr></thead><tbody>" +
+        d.rows.map(r => "<tr><td>" + esc(r["항목"]) + '</td><td class="mono">' +
+          esc(r["값"]) + "</td></tr>").join("") + "</tbody></table></div>";
+    } else if (d.text) {
+      h += '<div class="gai-narr-text" style="white-space:pre-wrap">' + esc(d.text) + "</div>" +
+        '<button class="gai-mode-btn" data-copy style="margin-top:var(--s-2)">문장 복사</button>';
+    }
+    h += '<div class="gai-note">직전 조회 결과를 다시 정리한 것입니다 — ' +
+      "새로 조회하거나 새 수치를 만들지 않았습니다." +
+      (d.scope ? " (범위 " + esc(d.scope) + ")" : "") + "</div>";
+    if (d.source) h += '<div class="gai-note">' + esc(d.source) + "</div>";
+    h += srcHTML(out.meta);
+    return h;
   }
 
   function litHTML(out) {
@@ -469,6 +509,30 @@ window.GlobalAIUI = (function () {
 
   function wireAnswer(slot, out) {
     wireSuggIn(slot);
+
+    /* 근거 데이터 보기 — 표를 접었다 폈다 합니다. 새로 조회하지 않고
+       이미 그려 둔 표를 보여 줍니다. */
+    const ev = slot.querySelector("[data-evidence]");
+    if (ev) ev.addEventListener("click", function () {
+      const w = slot.querySelector(".gai-tbl-wrap");
+      if (!w) return;
+      const hidden = w.style.display === "none";
+      w.style.display = hidden ? "" : "none";
+      this.textContent = (hidden ? "근거 데이터 숨기기" : "근거 데이터 보기");
+    });
+
+    const cp = slot.querySelector("[data-copy]");
+    if (cp) cp.addEventListener("click", function () {
+      const el = slot.querySelector(".gai-narr-text");
+      if (!el) return;
+      const b = this;
+      const done = () => { b.textContent = "복사됨"; setTimeout(() => { b.textContent = "문장 복사"; }, 1500); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(el.textContent).then(done).catch(function () {
+          b.textContent = "복사하지 못했습니다";
+        });
+      } else { b.textContent = "이 브라우저에서는 복사할 수 없습니다"; }
+    });
     const ap = slot.querySelector("[data-apply]");
     if (ap) {
       ap.addEventListener("click", function () {

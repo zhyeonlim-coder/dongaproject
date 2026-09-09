@@ -27,9 +27,33 @@
   let batchId = null;
   let sampleId = null;      // null = Batch 단위 입력
 
+
   /* "form" = 팀 서식 입력 · "requests" = 분석 및 시료 관리
      대시보드 카드에서 ebr.html#requests 로 바로 들어옵니다 (딥링크) */
   let mode = (location.hash || "").replace("#", "") === "requests" ? "requests" : "form";
+
+  /* ── AI 에게 지금 무엇을 입력 중인지 알려 줍니다 ──────────────────────
+     값을 복사해 넘기지 않고 함수로 넘깁니다 — 복사하면 그 순간의 사본이
+     되어, 사용자가 다른 배치로 옮겨도 AI 는 옛 배치를 봅니다.
+
+     ★ 입력 중인(저장 전) 값은 넘기지 않습니다. 저장되지 않은 값은 아직
+       공식 기록이 아니고, 다른 사람은 볼 수도 없습니다. AI 가 그것을
+       조회 결과에 섞으면 저장된 값과 구분되지 않습니다.
+
+     ★ 등록은 mode 선언 뒤에 둡니다. provide() 는 곧바로 구독자에게
+       변경을 알리고, 그 구독자가 이 함수를 부릅니다 — 선언보다 앞에
+       두면 초기화 전 변수를 읽어 화면 전체가 멈춥니다. */
+  if (window.AIContext) {
+    window.AIContext.provide("experiment", function () {
+      if (!batchId) return null;
+      const b = (window.DATA_BATCHES || []).find(x => x.id === batchId);
+      return b ? (b.expNo || b.id) : batchId;
+    });
+    window.AIContext.provide("ebr", function () {
+      return { batchId: batchId, sampleId: sampleId, mode: mode,
+               입력중: !!batchId };
+    });
+  }
   let reqTab = "queue";     // "queue" | "storage"
   let reqOpen = null;
   let reqFilter = "open";

@@ -28,6 +28,21 @@
   let groupBy = "batch";        // "batch" | "sample"
   let colFilters = {};          // { colKey: "부분일치 문자열" }
 
+  /* ── AI 에게 이 화면의 표 상태를 알려 줍니다 ─────────────────────────
+     "여기서 가장 높은 값" 의 "여기" 를 풀려면, 지금 표에 무엇이 어떤
+     순서로 보이는지 알아야 합니다. Scope(과제·기간 등)는 AIContext 가
+     이미 읽고 있으므로, 여기서는 이 화면만 아는 것을 더합니다 —
+     컬럼 정렬과 컬럼 필터입니다. */
+  if (window.AIContext) {
+    window.AIContext.provide("table", function () {
+      return {
+        groupBy: groupBy,
+        sorts: sorts.map(s => ({ key: s.key, dir: s.dir })),
+        colFilters: Object.keys(colFilters).length ? Object.assign({}, colFilters) : null
+      };
+    });
+  }
+
   window.Shell.subnav([
     { label: "조회 단위", items: [
       { key: "batch",   ko: "배치별", active: true },
@@ -318,6 +333,17 @@
       else sorts = [{ key, dir: 1 }];
     }
     render();
+  }
+
+  /* AI 가 정렬을 제안하고 사용자가 [적용] 을 눌렀을 때 — 화면이 원래
+     쓰는 정렬 경로를 그대로 탑니다. AI 전용 정렬을 따로 만들면 컬럼을
+     눌렀을 때와 결과가 갈립니다. */
+  if (window.AIContext && window.AIContext.registerHook) {
+    window.AIContext.registerHook("sort", function (patch) {
+      if (!patch || !patch.key) throw new Error("정렬 대상이 없습니다");
+      sorts = [{ key: patch.key, dir: patch.dir === 1 ? 1 : -1 }];
+      render();
+    });
   }
 
   function applyColFilters(rows) {

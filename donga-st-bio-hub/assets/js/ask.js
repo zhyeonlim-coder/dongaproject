@@ -799,5 +799,27 @@ window.Ask = (function () {
 
   function state() { return S; }
 
+  /* ── Global AI 에게 이 화면의 문헌 검색 상태를 알려 줍니다 ────────────
+     "이 연구와 비슷한 논문은?" 같은 질문은 방금 무엇을 찾았는지 알아야
+     풀립니다. 결과를 복사하지 않고 함수로 넘겨, 새로 검색하면 그것이
+     바로 보이게 합니다.
+
+     ★ 논문 정보는 외부 API 응답 그대로입니다. 제목·저자·DOI 를 여기서
+       만들지 않습니다 — 검색되지 않은 논문은 없는 것입니다. */
+  if (window.AIContext) {
+    window.AIContext.provide("literature", function () {
+      if (!S.lit) return null;
+      const items = (S.lit.items || S.lit || []);
+      return {
+        query: S.q || null,
+        count: items.length,
+        items: items.slice(0, 8).map(function (p) {
+          return { title: p.title, authors: p.authors, journal: p.journal,
+                   year: p.year, doi: p.doi || null, url: p.url || null };
+        })
+      };
+    });
+  }
+
   return { view, wire, state };
 })();

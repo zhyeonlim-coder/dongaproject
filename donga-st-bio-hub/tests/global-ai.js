@@ -152,6 +152,114 @@ window.GlobalAITest = (function () {
     });
   }
 
+  /* ── 8. 결과 재가공 — 새 수치를 만들지 않는가 ────────────────────────
+     "표로 정리해줘" · "보고서 문장으로" 는 이미 나온 값을 옮기는 것이지
+     다시 조회하는 것이 아닙니다. 다시 조회하면 그 사이 값이 바뀌었을 때
+     원래 답과 다른 숫자가 나오고, 사용자는 같은 것을 봤다고 생각합니다. */
+  function runFormat() {
+    const T = mk();
+    window.GlobalAI.reset();
+    return window.GlobalAI.ask("Titer 평균이랑 편차").then(function (a1) {
+      const st = a1.answer && a1.answer.stats;
+      T.add("재가공 · 원본 통계 확보", !!st, "통계 없음");
+      return window.GlobalAI.ask("이 결과를 표로 정리해줘").then(function (a2) {
+        T.add("표로 정리", a2.kind === "formatted" && a2.data.style === "table" &&
+          a2.data.rows.length > 0, "kind=" + a2.kind);
+        /* 표의 모든 값이 원본 통계에서 온 것인지 */
+        if (st && a2.data && a2.data.rows) {
+          const allowed = new Set();
+          ["n", "mean", "median", "sd", "min", "max", "cv"].forEach(function (k) {
+            const v = st[k];
+            if (typeof v !== "number") return;
+            allowed.add(v);
+            for (let dp = 0; dp <= 3; dp++) allowed.add(Number(v.toFixed(dp)));
+          });
+          const bad = [];
+          a2.data.rows.forEach(function (r) {
+            String(r["값"]).replace(/-?\d+(?:\.\d+)?/g, function (m) {
+              const n = Number(m);
+              if (!allowed.has(n) && !allowed.has(Number(n.toFixed(1)))) bad.push(n);
+              return m;
+            });
+          });
+          T.add("표 · 원본에 없는 수치 0", bad.length === 0, "새 수치: " + bad.slice(0, 4).join(", "));
+        }
+        /* 재가공물을 다시 재가공해도 원본을 찾아야 합니다 */
+        return window.GlobalAI.ask("이 결과를 보고서 문장으로 만들어줘");
+      }).then(function (a3) {
+        T.add("보고서 문장 (재가공물 뒤에서도)",
+          a3.kind === "formatted" && a3.data.style === "report" && !!a3.data.text,
+          "kind=" + a3.kind + " — 직전이 표 정리 결과여도 원본 조회를 찾아야 합니다");
+        if (st && a3.data && a3.data.text) {
+          const allowed = new Set();
+          ["n", "mean", "median", "sd", "min", "max", "cv"].forEach(function (k) {
+            const v = st[k];
+            if (typeof v !== "number") return;
+            allowed.add(v);
+            for (let dp = 0; dp <= 3; dp++) allowed.add(Number(v.toFixed(dp)));
+          });
+          const bad = [];
+          String(a3.data.text).replace(/-?\d+(?:\.\d+)?/g, function (m) {
+            const n = Number(m);
+            if (!allowed.has(n) && !allowed.has(Number(n.toFixed(1)))) bad.push(n);
+            return m;
+          });
+          T.add("보고서 문장 · 원본에 없는 수치 0", bad.length === 0,
+            "새 수치: " + bad.slice(0, 4).join(", "));
+        }
+        /* 조회한 적이 없으면 지어내지 않고 없다고 답해야 합니다 */
+        window.GlobalAI.reset();
+        return window.GlobalAI.ask("이 결과를 보고서 문장으로 만들어줘");
+      }).then(function (a4) {
+        T.add("직전 결과 없으면 만들지 않음",
+          a4.kind === "no-data" && /직전 결과가 없|먼저/.test(String(a4.headline)),
+          "kind=" + a4.kind + " · " + String(a4.headline).slice(0, 60));
+        return T.out;
+      });
+    });
+  }
+
+  /* ── 9. 화면 조작 3종 — 제안만 하고 실행하지 않는가 ─────────────────── */
+  function runActions() {
+    const T = mk();
+    return window.GlobalAI.ask("Titer 높은 순으로 정렬해줘").then(function (a) {
+      T.add("정렬 · 제안 생성", a.kind === "action-proposal" && a.data.action === "sort",
+        "kind=" + a.kind);
+      T.add("정렬 · 항목을 실제 컬럼에서 찾음",
+        !!a.data && /Titer/.test(String(a.data.label)), "label=" + (a.data && a.data.label));
+      return window.GlobalAI.ask("B123-7 선택해줘");
+    }).then(function (a) {
+      T.add("선택 · 제안 생성", a.kind === "action-proposal" && a.data.action === "select",
+        "kind=" + a.kind);
+      return window.GlobalAI.ask("B999-99 선택해줘");
+    }).then(function (a) {
+      T.add("선택 · 없는 배치는 거절",
+        a.kind === "no-data" || (a.kind === "engine"), "kind=" + a.kind);
+      /* 훅이 없는 화면에서는 대신 해 주지 않고 그렇게 말해야 합니다 */
+      const r = window.GlobalAI.applyAction({ action: "sort", patch: { key: "titerHCCF", dir: -1 } });
+      T.add("훅 없는 화면에서는 정렬을 대신 하지 않음",
+        r.ok === false && /없습니다|눌러/.test(r.why || ""), JSON.stringify(r));
+      T.add("알 수 없는 동작은 거절",
+        window.GlobalAI.applyAction({ action: "deleteAll" }).ok === false, "실행됨");
+      return T.out;
+    });
+  }
+
+  /* ── 10. Context 표준 필드 ───────────────────────────────────────────── */
+  function runContextFields() {
+    const T = mk();
+    const c = window.AIContext.get();
+    ["currentExperiment", "selectedRows", "selectedFilters", "currentDateRange",
+     "currentLiteratureQuery", "currentLiteratureResults"].forEach(function (k) {
+      T.add("Context 필드 존재 · " + k, k in c, "없음");
+    });
+    T.add("Context 훅 등록 API", typeof window.AIContext.registerHook === "function", "없음");
+    /* 훅은 화면이 등록할 때만 있어야 합니다 — 없는 화면에서 있으면 안 됩니다 */
+    T.add("훅은 등록한 화면에서만", window.AIContext.hook("sort") === null,
+      "검사 페이지에 정렬 훅이 있습니다");
+    return Promise.resolve(T.out);
+  }
+
   function run() {
     const t = window.AskTables.internal();
     const groups = [];
@@ -162,8 +270,11 @@ window.GlobalAITest = (function () {
       .then(r => { groups.push(["D. DoE 화면 밖 차단", r]); return runNoAutoAction(); })
       .then(r => { groups.push(["E. 화면 임의 변경 없음", r]); return runSuggestions(t); })
       .then(r => { groups.push(["F. 추천 질문", r]); return runLit(); })
+      .then(r => { groups.push(["G. 문헌 도구", r]); return runFormat(); })
+      .then(r => { groups.push(["H. 결과 재가공", r]); return runActions(); })
+      .then(r => { groups.push(["I. 화면 조작 3종", r]); return runContextFields(); })
       .then(function (r) {
-        groups.push(["G. 문헌 도구", r]);
+        groups.push(["J. Context 표준 필드", r]);
         const checks = groups.map(function (g) {
           const bad = g[1].filter(x => !x.pass);
           return { id: g[0], pass: !bad.length,

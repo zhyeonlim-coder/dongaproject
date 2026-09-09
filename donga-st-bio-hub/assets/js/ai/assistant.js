@@ -33,7 +33,34 @@ window.GlobalAI = (function () {
   const DOE_WORDS = ["anova", "분산분석", "회귀", "regression", "최적 조건", "최적조건",
                      "최적화", "optimi", "설계", "doe", "인자", "factor"];
   const CALC_WORDS = ["물질수지", "mass balance", "feed", "seed", "희석", "dilution"];
-  const FILTER_WORDS = ["만 보여", "만 조회", "필터", "걸러", "정렬", "sort", "선택해"];
+  const FILTER_WORDS = ["만 보여", "만 조회", "필터", "걸러"];
+  const SORT_WORDS = ["정렬", "sort", "순으로", "순서대로", "높은 순", "낮은 순"];
+  const SELECT_WORDS = ["선택해", "골라줘", "선택하", "지정해"];
+  const FORMAT_WORDS = ["표로", "정리해", "정리 해", "보고서", "논문 스타일", "논문스타일",
+                        "문장으로", "요약해 줘", "요약해줘"];
+  const REPORT_WORDS = ["보고서", "논문", "문장으로", "서술"];
+
+  /* 질문에서 항목 이름을 꺼냅니다 — 엔진의 별칭 사전을 그대로 씁니다.
+     여기서 이름 목록을 다시 적으면 두 벌이 되고, 컬럼이 늘 때 한쪽만
+     따라갑니다. */
+  function metricFromText(t) {
+    try {
+      const table = window.AskTables.internal();
+      const cols = window.AskEngine._detectMetrics
+        ? window.AskEngine._detectMetrics(String(t).toLowerCase(), table) : [];
+      if (cols && cols.length) return cols[0].label;
+    } catch (e) { /* 엔진이 없는 화면 */ }
+    return null;
+  }
+  /* 질문에서 배치명을 꺼냅니다 — 실제 존재하는 것만 */
+  function batchFromText(t) {
+    try {
+      const table = window.AskTables.internal();
+      const up = String(t).toUpperCase();
+      const hit = table.rows.find(r => up.indexOf(String(r.__label).toUpperCase()) > -1);
+      return hit ? hit.__label : null;
+    } catch (e) { return null; }
+  }
 
   function route(q, ctx) {
     const t = String(q || "");
@@ -54,6 +81,33 @@ window.GlobalAI = (function () {
         : has(t, "feed") ? "feedVolume"
         : has(t, "seed") ? "seedVolume" : "dilution";
       return { tool: "calculateProcess", args: { kind: kind, input: {} } };
+    }
+    /* 결과 재가공 — 직전 답을 다른 모양으로. 새 조회가 아닙니다. */
+    if (FORMAT_WORDS.some(w => has(t, w))) {
+      /* "이 결과" 는 마지막 <b>조회</b> 결과를 가리킵니다.
+         방금 표로 정리한 것을 다시 보고서로 바꿔 달라고 할 수 있는데,
+         직전 항목만 보면 그때 "정리 결과" 를 원본으로 삼아 통계가 없다고
+         답하게 됩니다. 재가공물은 건너뛰고 원본을 찾습니다. */
+      let prev = null;
+      for (let i = history.length - 1; i >= 0; i--) {
+        const a = history[i].answer;
+        if (a && a.kind !== "formatted" && a.kind !== "action-proposal") { prev = a; break; }
+      }
+      const style = REPORT_WORDS.some(w => has(t, w)) ? "report" : "table";
+      return { tool: "formatResult", args: { style: style, prevAnswer: prev } };
+    }
+    /* 정렬 — 필터보다 먼저 봅니다. "정렬" 이 FILTER_WORDS 에도 있어서
+       순서가 뒤바뀌면 정렬 요청이 필터 제안으로 갑니다. */
+    if (SORT_WORDS.some(w => has(t, w))) {
+      const m = metricFromText(t);
+      if (m) {
+        return { tool: "proposeSort",
+                 args: { metric: m, order: /낮은|오름|작은|적은/.test(t) ? "asc" : "desc" } };
+      }
+    }
+    if (SELECT_WORDS.some(w => has(t, w))) {
+      const b = batchFromText(t);
+      if (b) return { tool: "proposeSelect", args: { batch: b } };
     }
     if (FILTER_WORDS.some(w => has(t, w)) && window.Scope) {
       const patch = filterFromText(t);
@@ -381,14 +435,32 @@ window.GlobalAI = (function () {
   /* ── 제안한 화면 조작을 실제로 적용 ─────────────────────────────────
      사용자가 버튼을 눌렀을 때만 여기 들어옵니다. */
   function applyAction(proposal) {
-    if (!proposal || proposal.action !== "filter") return { ok: false, why: "적용할 수 없는 제안입니다." };
-    if (!window.Scope || !window.Scope.setFilter) return { ok: false, why: "이 화면에는 필터가 없습니다." };
-    try {
-      window.Scope.setFilter(proposal.patch);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, why: "필터를 적용하지 못했습니다 — " + ((e && e.message) || "") };
+    if (!proposal || !proposal.action) return { ok: false, why: "적용할 수 없는 제안입니다." };
+
+    if (proposal.action === "filter") {
+      if (!window.Scope || !window.Scope.setFilter) return { ok: false, why: "이 화면에는 필터가 없습니다." };
+      try { window.Scope.setFilter(proposal.patch); return { ok: true }; }
+      catch (e) { return { ok: false, why: "필터를 적용하지 못했습니다." }; }
     }
+
+    if (proposal.action === "sort") {
+      /* 화면이 정렬 훅을 등록해 두었을 때만 됩니다. 없는 화면에서
+         억지로 DOM 을 만지지 않습니다 — 화면마다 표 구조가 달라서
+         한 곳에서 흉내 내면 언젠가 엉뚱한 표를 건드립니다. */
+      const h = window.AIContext.hook("sort");
+      if (!h) return { ok: false, why: "이 화면에서는 정렬을 대신 적용할 수 없습니다. 표 머리글을 눌러 주세요." };
+      try { h(proposal.patch); return { ok: true }; }
+      catch (e) { return { ok: false, why: "정렬을 적용하지 못했습니다." }; }
+    }
+
+    if (proposal.action === "select") {
+      const h = window.AIContext.hook("select");
+      if (!h) return { ok: false, why: "이 화면에서는 배치를 대신 선택할 수 없습니다." };
+      try { h(proposal.patch); return { ok: true }; }
+      catch (e) { return { ok: false, why: "선택하지 못했습니다." }; }
+    }
+
+    return { ok: false, why: "알 수 없는 동작입니다: " + proposal.action };
   }
 
   return { ask: ask, reset: reset, suggestions: suggestions, narrate: narrate,

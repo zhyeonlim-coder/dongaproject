@@ -201,3 +201,10 @@
   background: var(--c-surface); color: var(--c-text-mute);
 }
 .gai-mode-btn:hover { border-color: var(--c-accent-mid); color: var(--c-accent); }
+
+/* 답변 뒤에 오는 다음 행동 — 근거 보기 · 표 정리 · 보고서 문장 */
+.gai-followup {
+  display: flex; flex-wrap: wrap; gap: var(--s-2);
+  margin-top: var(--s-3); padding-top: var(--s-3);
+  border-top: 1px dashed var(--c-border);
+}

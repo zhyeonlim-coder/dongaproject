@@ -277,6 +277,99 @@ window.AITools = (function () {
       { source: "화면 조작 제안" });
   }
 
+  /* 정렬 제안 — 실행하지 않습니다 */
+  function proposeSort(args) {
+    if (!window.Scope || !window.Scope.setFilter) return no("이 화면에는 정렬이 없습니다.");
+    const metric = String((args && args.metric) || "").trim();
+    const dir = (args && args.order) === "asc" ? "asc" : "desc";
+    if (!metric) return no("어떤 항목으로 정렬할지 알려 주세요.");
+    const t = table();
+    const col = t.columns.find(c => c.type === "num" &&
+      String(c.label).toLowerCase().indexOf(metric.toLowerCase()) > -1);
+    if (!col) {
+      return no("\"" + metric + "\" 항목을 찾지 못해 정렬할 수 없습니다.");
+    }
+    return ok({ kind: "action-proposal", action: "sort",
+                patch: { key: col.key, dir: dir === "asc" ? 1 : -1 },
+                label: col.label + " " + (dir === "asc" ? "낮은 순" : "높은 순") },
+      { source: "화면 조작 제안" });
+  }
+
+  /* 행 선택 제안 — 실행하지 않습니다 */
+  function proposeSelect(args) {
+    const miss = ready();
+    if (miss.length) return notReady(miss);
+    const id = String((args && args.batch) || "").trim();
+    if (!id) return no("어느 배치를 선택할지 알려 주세요.");
+    const t = table();
+    const row = t.rows.find(r => r.__label === id || r.__id === id);
+    if (!row) return no("\"" + id + "\" 배치는 이 데이터에 없습니다.");
+    return ok({ kind: "action-proposal", action: "select",
+                patch: { batchId: row.__id, label: row.__label },
+                label: row.__label + " 선택" },
+      { source: "화면 조작 제안" });
+  }
+
+  /* ── 결과 재가공 ─────────────────────────────────────────────────────
+     "이 결과를 표로 정리해줘" · "보고서 문장으로 만들어줘".
+
+     ★ 새 수치를 만들지 않습니다. 직전 답에 이미 있는 값을 다른 모양으로
+       옮길 뿐입니다. 그래서 이 도구는 조회를 다시 하지 않고, 넘겨받은
+       결과만 씁니다 — 다시 조회하면 그 사이 값이 바뀌었을 때 원래 답과
+       다른 숫자가 나오고, 사용자는 같은 것을 봤다고 생각합니다. */
+  function formatResult(args, ctx) {
+    const prev = (args && args.prevAnswer) || null;
+    if (!prev) {
+      return no("정리할 직전 결과가 없습니다. 먼저 무엇인가를 조회해 주세요.");
+    }
+    const style = (args && args.style) === "report" ? "report" : "table";
+    const r = prev.answer || prev.data || {};
+    const st = r.stats || null;
+    const m = r.metric || null;
+
+    if (style === "table") {
+      const rows = [];
+      if (st) {
+        [["건수", st.n, "건"], ["평균", st.mean, m && m.unit],
+         ["중앙값", st.median, m && m.unit], ["표준편차", st.sd, m && m.unit],
+         ["최소", st.min, m && m.unit], ["최대", st.max, m && m.unit],
+         ["CV", st.cv, "%"]].forEach(function (x) {
+          if (typeof x[1] === "number" && isFinite(x[1])) {
+            rows.push({ 항목: x[0], 값: fmtNum(x[1]) + (x[2] ? " " + x[2] : "") });
+          }
+        });
+      }
+      (r.facts || []).forEach(f => rows.push({ 항목: f.k, 값: String(f.v) }));
+      if (!rows.length) return no("표로 정리할 수치가 직전 결과에 없습니다.");
+      return ok({ kind: "formatted", style: "table",
+                  title: (m ? m.label : "조회 결과") + " 정리", rows: rows,
+                  scope: r.scopeLabel, source: r.source || null },
+        { source: "직전 조회 결과 재구성", rows: rows.length });
+    }
+
+    /* 보고서 문장 — 값은 전부 직전 결과에서 가져옵니다 */
+    if (!st || !m) {
+      return no("보고서 문장으로 만들 통계가 직전 결과에 없습니다. " +
+        "평균·분포를 먼저 조회해 주세요.");
+    }
+    const u = m.unit ? " " + m.unit : "";
+    const sent =
+      (r.scopeLabel && r.scopeLabel !== "전체" ? r.scopeLabel + " 범위의 " : "") +
+      "배치 " + st.n + "건에 대한 " + m.label + " 측정 결과, " +
+      "평균 " + fmtNum(st.mean) + u + " (표준편차 " + fmtNum(st.sd) + u +
+      (typeof st.cv === "number" ? ", CV " + st.cv.toFixed(1) + "%" : "") + ")," +
+      " 범위는 " + fmtNum(st.min) + u + "에서 " + fmtNum(st.max) + u + "이었다." +
+      (r.note ? " " + r.note : "");
+    return ok({ kind: "formatted", style: "report", title: m.label + " 보고 문장",
+                text: sent, scope: r.scopeLabel, source: r.source || null },
+      { source: "직전 조회 결과 재구성", rows: st.n });
+  }
+
+  function fmtNum(v) {
+    if (typeof v !== "number" || !isFinite(v)) return "—";
+    return Math.abs(v) >= 100 ? v.toFixed(1) : String(+v.toFixed(2));
+  }
+
   /* ── 도구 명세 — Phase B 에서 그대로 tool 정의가 됩니다 ────────────── */
   const SPEC = [
     { name: "searchExperimentData", ko: "실험 데이터 조회",
@@ -317,7 +410,17 @@ window.AITools = (function () {
       params: {}, run: getCurrentPageContext },
     { name: "proposeFilter", ko: "필터 제안",
       description: "화면 필터 변경을 제안합니다. 실행하지 않고 제안만 만듭니다.",
-      params: { filter: "object" }, run: proposeFilter }
+      params: { filter: "object" }, run: proposeFilter },
+    { name: "proposeSort", ko: "정렬 제안",
+      description: "표를 어떤 항목 기준으로 정렬할지 제안합니다. 실행하지 않고 제안만 만듭니다.",
+      params: { metric: "string", order: "string" }, run: proposeSort },
+    { name: "proposeSelect", ko: "배치 선택 제안",
+      description: "특정 배치를 화면에서 선택하도록 제안합니다. 실행하지 않고 제안만 만듭니다.",
+      params: { batch: "string" }, run: proposeSelect },
+    { name: "formatResult", ko: "결과 정리",
+      description: "직전 조회 결과를 표 또는 연구보고서 문장으로 다시 정리합니다. " +
+        "새로 조회하거나 새 수치를 만들지 않고, 이미 나온 값만 옮깁니다.",
+      params: { style: "string" }, run: formatResult }
   ];
 
   const BY_NAME = {};

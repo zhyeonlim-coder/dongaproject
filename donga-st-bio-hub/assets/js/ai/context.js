@@ -54,6 +54,22 @@ window.AIContext = (function () {
     return function () { delete providers[key]; emit(); };
   }
 
+  /* ── 화면이 등록하는 동작 훅 ─────────────────────────────────────────
+     AI 가 화면을 직접 조작하지 않습니다. 화면이 "이건 내가 할 수 있다"
+     고 등록한 것만, 사용자가 [적용] 을 눌렀을 때 그 화면의 함수를
+     부릅니다.
+
+     이렇게 두는 이유는 표 구조가 화면마다 다르기 때문입니다. 공통
+     코드에서 DOM 을 흉내 내 만지면, 구조가 조금 다른 화면에서 엉뚱한
+     것을 건드리고 그게 조용히 지나갑니다. 훅이 없는 화면은 "여기서는
+     못 합니다" 라고 답하는 편이 낫습니다. */
+  const hooks = {};
+  function registerHook(name, fn) {
+    hooks[name] = fn;
+    return function () { delete hooks[name]; };
+  }
+  function hook(name) { return hooks[name] || null; }
+
   /* ── 공통 상태 — 어느 화면에서나 같은 방식으로 읽습니다 ─────────────── */
 
   function scopeState() {
@@ -80,19 +96,50 @@ window.AIContext = (function () {
   }
 
   function get() {
+    const s = scopeState();
     const out = {
       page: page,
       pageKo: page && PAGES[page] ? PAGES[page].ko : null,
       pageWhat: page && PAGES[page] ? PAGES[page].what : null,
       section: section,
-      scope: scopeState(),
+      scope: s,
       visibleBatchIds: visibleBatches,
-      visibleCount: visibleBatches ? visibleBatches.length : null
+      visibleCount: visibleBatches ? visibleBatches.length : null,
+
+      /* ── 화면이 등록한 것을 표준 이름으로 다시 노출합니다 ────────────
+         화면마다 부르는 이름이 다르면(어떤 곳은 batchId, 어떤 곳은 expNo)
+         질문을 해석하는 쪽이 화면 수만큼 분기해야 합니다. 여기서 한 번
+         정리해 두면 "이 실험" 을 푸는 코드가 한 벌이면 됩니다.
+
+         값은 화면이 준 것을 그대로 옮길 뿐 여기서 만들지 않습니다 —
+         없으면 null 입니다. */
+      currentExperiment: null,   /* 지금 지목된 배치 하나 */
+      selectedRows: null,        /* 사용자가 고른 행 */
+      selectedFilters: s ? s.active : null,
+      currentDateRange: s && s.raw && (s.raw.from || s.raw.to)
+        ? { from: s.raw.from || null, to: s.raw.to || null } : null,
+      currentLiteratureQuery: null,
+      currentLiteratureResults: null
     };
+
     Object.keys(providers).forEach(function (k) {
       try { out[k] = providers[k](); }
       catch (e) { out[k] = null; }
     });
+
+    /* 공급자가 준 값을 표준 자리에 채웁니다 (있을 때만) */
+    if (out.experiment) out.currentExperiment = out.experiment;
+    if (out.rows) out.selectedRows = out.rows;
+    if (out.literature) {
+      out.currentLiteratureQuery = out.literature.query || null;
+      out.currentLiteratureResults = out.literature.items || null;
+    }
+    if (out.doe) {
+      out.selectedFactors = out.doe.factorDefs || null;
+      out.selectedResults = out.doe.hasPlan
+        ? { response: out.doe.responseName, runs: out.doe.runs, filled: out.doe.filled }
+        : null;
+    }
     return out;
   }
 
@@ -105,6 +152,8 @@ window.AIContext = (function () {
     if (c.scope && c.scope.active.length) {
       bits.push(c.scope.active.map(a => a.k + " " + a.v).join(" · "));
     }
+    if (c.currentExperiment) bits.push("선택 " + c.currentExperiment);
+    if (c.currentLiteratureQuery) bits.push("문헌 \"" + c.currentLiteratureQuery + "\"");
     if (c.visibleCount != null) bits.push("화면에 " + c.visibleCount + "건");
     return bits.join(" · ");
   }
@@ -146,6 +195,7 @@ window.AIContext = (function () {
     PAGES: PAGES,
     setPage: setPage, setSection: setSection,
     provide: provide, setVisibleBatches: setVisibleBatches,
+    registerHook: registerHook, hook: hook,
     get: get, describe: describe, hasScope: hasScope,
     allows: allows, whyNot: whyNot,
     on: on
