@@ -245,7 +245,8 @@ window.GlobalAIUI = (function () {
   function streamNarration(slot, question, out) {
     if (!window.GlobalAI.narrate) return;
     if (out.kind === "error" || out.kind === "empty" ||
-        out.kind === "action-proposal" || out.kind === "no-data") return;
+        out.kind === "action-proposal" || out.kind === "no-data" ||
+        out.kind === "unsupported") return;
 
     const box = document.createElement("div");
     box.className = "gai-narr";
@@ -285,6 +286,11 @@ window.GlobalAIUI = (function () {
     if (out.kind === "error") {
       return '<div class="gai-err">' + esc(out.headline) +
         (out.note ? "<br>" + esc(out.note) : "") + "</div>" + suggHTML(out.suggestions);
+    }
+    if (out.kind === "unsupported") {
+      return '<div class="gai-a"><div class="gai-headline">' + esc(out.headline) + "</div>" +
+        (out.note ? '<div class="gai-note">' + esc(out.note) + "</div>" : "") +
+        "</div>" + suggHTML(out.suggestions);
     }
     if (out.kind === "no-data") {
       return '<div class="gai-a"><div class="gai-headline">' + esc(out.headline) + "</div>" +

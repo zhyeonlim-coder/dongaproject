@@ -52,6 +52,13 @@ window.Units = (function () {
     const out = [];
     const N = "(-?\\d+(?:\\.\\d+)?)";
     const U = "\\s*(g\\/l|mg\\/l|μg\\/l|µg\\/l|ug\\/l|ppm|ppb|pg\\/mg|ng\\/mg|%)?\\s*";
+    /* 세는 단위·시간 단위는 환산 대상이 아니라 그냥 말버릇입니다. 위 목록에
+       없다는 이유로 "배양 일수가 14일 이상" 이 통째로 파싱에 실패하고 있었고,
+       실패한 조건은 applied 에도 unhandled 에도 남지 않아 조용히 사라졌습니다.
+       걸러지지 않은 28건이 걸러진 결과처럼 보이는, 이 파일이 막으려던 바로
+       그 모양입니다. 여기서는 삼켜만 두고 단위로는 넘기지 않습니다 —
+       환산은 위 목록의 단위에 대해서만 해야 합니다. */
+    const S = "(?:일차|일|시간|분|초|회|건|개|번|℃|도|배)?\\s*";
 
     const eat = function (re, make) {
       let m;
@@ -69,17 +76,17 @@ window.Units = (function () {
       return { op: "between", min: Math.min(a, b), max: Math.max(a, b),
                raw: m[0].trim(), unit: m[2] || m[4] || null };
     });
-    eat(new RegExp(N + U + "보다\\s*(?:더\\s*)?(?:크|큰|높|많)", "g"),
+    eat(new RegExp(N + U + S + "보다\\s*(?:더\\s*)?(?:크|큰|높|많)", "g"),
       m => ({ op: "gt", min: Number(m[1]), max: null, raw: m[0].trim(), unit: m[2] || null }));
-    eat(new RegExp(N + U + "보다\\s*(?:더\\s*)?(?:작|적|낮)", "g"),
+    eat(new RegExp(N + U + S + "보다\\s*(?:더\\s*)?(?:작|적|낮)", "g"),
       m => ({ op: "lt", min: null, max: Number(m[1]), raw: m[0].trim(), unit: m[2] || null }));
-    eat(new RegExp(N + U + "(?:초과|넘는|넘게)", "g"),
+    eat(new RegExp(N + U + S + "(?:초과|넘는|넘게)", "g"),
       m => ({ op: "gt", min: Number(m[1]), max: null, raw: m[0].trim(), unit: m[2] || null }));
-    eat(new RegExp(N + U + "미만", "g"),
+    eat(new RegExp(N + U + S + "미만", "g"),
       m => ({ op: "lt", min: null, max: Number(m[1]), raw: m[0].trim(), unit: m[2] || null }));
-    eat(new RegExp(N + U + "(?:이상|over|above|>=?)", "g"),
+    eat(new RegExp(N + U + S + "(?:이상|over|above|>=?)", "g"),
       m => ({ op: "gte", min: Number(m[1]), max: null, raw: m[0].trim(), unit: m[2] || null }));
-    eat(new RegExp(N + U + "(?:이하|below|under|<=?)", "g"),
+    eat(new RegExp(N + U + S + "(?:이하|below|under|<=?)", "g"),
       m => ({ op: "lte", min: null, max: Number(m[1]), raw: m[0].trim(), unit: m[2] || null }));
     eat(new RegExp("최소\\s*" + N + U, "g"),
       m => ({ op: "gte", min: Number(m[1]), max: null, raw: m[0].trim(), unit: m[2] || null }));

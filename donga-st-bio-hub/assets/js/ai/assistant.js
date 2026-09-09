@@ -53,14 +53,39 @@ window.GlobalAI = (function () {
     return null;
   }
   /* 질문에서 배치명을 꺼냅니다 — 실제 존재하는 것만 */
+  /* ★ 긴 배치명부터 봅니다. B123-1 과 B123-10 이 같이 있으면 짧은 쪽이
+     먼저 걸려서, "B123-10 을 선택해 줘" 가 B123-1 선택으로 갔습니다.
+     화면에는 [적용] 버튼과 함께 B123-1 이라고 적혀 나오므로 사용자가
+     눈으로 잡을 수는 있지만, 물어본 것과 다른 배치를 제안하는 것은
+     조용한 오답에 가깝습니다. */
   function batchFromText(t) {
     try {
       const table = window.AskTables.internal();
       const up = String(t).toUpperCase();
-      const hit = table.rows.find(r => up.indexOf(String(r.__label).toUpperCase()) > -1);
-      return hit ? hit.__label : null;
+      const labels = table.rows.map(r => String(r.__label))
+        .sort((a, b) => b.length - a.length);
+      const hit = labels.find(function (lab) {
+        const i = up.indexOf(lab.toUpperCase());
+        if (i === -1) return false;
+        /* 뒤에 숫자가 더 붙어 있으면 다른 배치의 앞부분을 문 것입니다 */
+        return !/[0-9]/.test(up.charAt(i + lab.length));
+      });
+      return hit || null;
     } catch (e) { return null; }
   }
+
+  /* 직전 답이 문헌 목록이었는가 — 재가공물은 건너뜁니다 */
+  function lastWasLiterature() {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const a = history[i].answer;
+      if (!a || a.kind === "formatted" || a.kind === "action-proposal") continue;
+      return a.kind === "literature";
+    }
+    return false;
+  }
+  const CARRY_WORDS = ["그 중", "그중", "이 중", "그것", "그거", "그 논문", "이 논문",
+    "그 결과", "방금", "아까", "그럼", "그러면", "다음으로", "나머지"];
+  function looksLikeFollowUp(t) { return CARRY_WORDS.some(w => has(t, w)); }
 
   function route(q, ctx) {
     const t = String(q || "");
@@ -221,6 +246,22 @@ window.GlobalAI = (function () {
 
     const ctx = window.AIContext.get();
     const rulePlan = route(question, ctx);
+
+    /* ★ 직전 답이 문헌 목록이었는데 "그 중 최신 것은?" 처럼 이어 물으면,
+       규칙은 그 말에서 문헌 신호를 못 찾아 사내 배치 데이터 조회로 보냈고
+       화면에는 논문 대신 배치 28건이 나왔습니다. 사용자는 논문 목록을 보고
+       물었으므로 그 표를 논문의 답으로 읽습니다. 문헌 후속 질문은 아직
+       지원하지 않으므로, 다른 것을 답하는 대신 못 한다고 말합니다. */
+    if (rulePlan.tool === "searchExperimentData" && lastWasLiterature() &&
+        looksLikeFollowUp(question)) {
+      return Promise.resolve({ kind: "unsupported", tool: "searchLiterature",
+        question: question,
+        headline: "문헌 검색 결과에 이어서 묻는 것은 아직 지원하지 않습니다.",
+        note: "사내 실험 데이터를 대신 조회하면 논문에 대한 답으로 보일 수 있어 그렇게 하지 않았습니다. " +
+              "찾으시는 주제를 한 번 더 적어 주시면 문헌을 다시 검색합니다.",
+        suggestions: suggestions() });
+    }
+
     const started = Date.now();
 
     const decide = ruleMissed(question, rulePlan)
@@ -375,8 +416,14 @@ window.GlobalAI = (function () {
   /* ── 이어지는 질문 ───────────────────────────────────────────────────
      "그 실험의 Yield 는?" 의 "그" 를 풀려면 직전 답이 무엇을 지목했는지
      알아야 합니다. 엔진이 carry 에 그것을 담아 줍니다. */
+  /* ★ 엔진은 prev 를 { carry, question } 모양으로 받습니다 (ask.js 와 같은
+     계약입니다). 여기서 carry 객체를 그대로 넘기면 엔진 쪽 o.prev.carry 가
+     undefined 가 되어 승계가 조용히 꺼집니다 — "그 조건의 Titer 는?" 이
+     전체 28건을 되돌려 주고 있었습니다. 되돌아온 값이 그럴듯해서 화면만
+     봐서는 승계가 안 됐다는 것을 알 수 없었습니다. */
   function remember(q, out, res) {
-    const carry = out.answer && out.answer.carry ? out.answer.carry : null;
+    const carry = out.answer && out.answer.carry
+      ? { carry: out.answer.carry, question: q } : null;
     history.push({ q: q, answer: out, carry: carry, at: Date.now() });
     while (history.length > MAX_TURNS) history.shift();
   }
