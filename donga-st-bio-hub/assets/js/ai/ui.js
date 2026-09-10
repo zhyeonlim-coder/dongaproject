@@ -327,10 +327,90 @@ window.GlobalAIUI = (function () {
     if (out.kind === "doe-fit") return fitHTML(out);
     if (out.kind === "doe-optimum") return optHTML(out);
     if (out.kind === "engine") return engineHTML(out);
+    if (out.kind === "doe-plan") return doePlanHTML(out);
+    if (out.kind === "calc") return calcHTML(out);
+    if (out.kind === "context") return contextHTML(out);
     if (out.kind === "empty") {
       return '<div class="gai-empty">' + esc(out.headline) + "</div>" + suggHTML(out.suggestions);
     }
-    return '<div class="gai-a">' + esc(JSON.stringify(out.data).slice(0, 400)) + "</div>";
+    /* ★ 마지막 갈래에서 내부 payload 를 그대로 찍지 않습니다.
+       예전에는 여기서 JSON 을 그대로 보여 줬고, "어느 인자가 가장 영향이
+       커?" 에 {"kind":"doe-plan",...} 이 화면에 나왔습니다. 사용자에게
+       내부 구조를 보여 주는 것은 답이 아니고, 그 안의 숫자를 실측으로
+       읽을 위험도 있습니다. 못 그리는 모양이면 못 그린다고 말합니다. */
+    if (window.console && console.warn) {
+      console.warn("[GlobalAIUI] 그릴 수 없는 응답 모양입니다: " + out.kind, out);
+    }
+    return '<div class="gai-a"><div class="gai-headline">' +
+      "이 결과를 표시할 방법이 아직 없습니다.</div>" +
+      '<div class="gai-note">답을 만들기는 했지만 화면에 옮길 서식이 없어, ' +
+      "내부 값을 그대로 보여 주지 않았습니다. 다르게 물어봐 주시면 " +
+      "표시할 수 있는 형태로 답합니다.</div></div>" + suggHTML(window.GlobalAI.suggestions());
+  }
+
+  /* 결과가 반쪽일 때 — 그리려다 죽지 않고, 내부 값을 흘리지도 않습니다 */
+  function incompleteHTML(what, out) {
+    if (window.console && console.warn) {
+      console.warn("[GlobalAIUI] " + what + " 결과에 필요한 항목이 없습니다", out);
+    }
+    return '<div class="gai-a"><div class="gai-headline">' + esc(what) +
+      " 결과를 표시할 수 없습니다.</div>" +
+      '<div class="gai-note">계산 결과에 필요한 항목이 빠져 있어, 있는 값만 골라 ' +
+      "보여 주는 대신 표시하지 않았습니다. 응답값을 입력한 뒤 다시 물어봐 주세요.</div></div>";
+  }
+
+  /* DoE 설계 요약 — 화면에 있는 설계를 그대로 옮깁니다 */
+  function doePlanHTML(out) {
+    const d = out.data;
+    return '<div class="gai-headline">' + esc(d.design || "DoE 설계") + " 설계</div>" +
+      '<div class="gai-tbl-wrap"><table class="gai-tbl"><tbody>' +
+        "<tr><th>설계</th><td>" + esc(d.design || "—") + "</td></tr>" +
+        "<tr><th>Run 수</th><td class=\"mono\">" + esc(d.runs == null ? "—" : d.runs) + "</td></tr>" +
+        (d.centers != null ? "<tr><th>중심점</th><td class=\"mono\">" + esc(d.centers) + "</td></tr>" : "") +
+        (Array.isArray(d.factors)
+          ? d.factors.map((f, i) => "<tr><th>인자 " + (i + 1) + "</th><td>" + esc(f) + "</td></tr>").join("")
+          : "") +
+      "</tbody></table></div>" +
+      '<div class="gai-note">어느 인자가 실제로 영향이 큰지는 응답값을 입력한 뒤 ' +
+      "회귀·ANOVA 로 판정합니다. 설계만 보고 영향 크기를 말하지 않았습니다.</div>" +
+      srcHTML(out.meta);
+  }
+
+  /* 공정 계산 — 계산기가 돌려준 값만 옮깁니다 */
+  const CALC_KO = { massBalance: "물질수지", feedVolume: "Feed 량",
+                    seedVolume: "Seed 량", dilution: "희석" };
+  function calcHTML(out) {
+    const d = out.data, r = d.result;
+    const rows = (r && typeof r === "object")
+      ? Object.keys(r).filter(k => typeof r[k] !== "object").slice(0, 12)
+      : [];
+    return '<div class="gai-headline">' + esc(CALC_KO[d.type] || d.type) + " 계산 결과</div>" +
+      (rows.length
+        ? '<div class="gai-tbl-wrap"><table class="gai-tbl"><tbody>' +
+            rows.map(k => "<tr><th>" + esc(k) + '</th><td class="mono">' +
+              esc(r[k] == null ? "—" : r[k]) + "</td></tr>").join("") +
+          "</tbody></table></div>"
+        : '<div class="gai-note">계산기가 돌려준 값이 없습니다.</div>') +
+      '<div class="gai-note">입력값을 주지 않으셨으면 계산기 기본값으로 계산된 것입니다 — ' +
+      "숫자를 확인해 주세요.</div>" +
+      srcHTML(out.meta);
+  }
+
+  /* 현재 화면 상태 — 값이 아니라 "무엇을 보고 있는가" 입니다 */
+  function contextHTML(out) {
+    const d = out.data, c = d.context || {};
+    const rows = [
+      ["화면", c.pageKo], ["구역", c.section],
+      ["조건", (c.scope && c.scope.active.length)
+        ? c.scope.active.map(a => a.k + " " + a.v).join(" · ") : "없음"],
+      ["화면에 보이는 배치", c.visibleCount == null ? "확인 불가" : c.visibleCount + "건"],
+      ["지목된 배치", c.currentExperiment || "없음"],
+      ["문헌 검색어", c.currentLiteratureQuery || "없음"]
+    ].filter(r => r[1] != null);
+    return '<div class="gai-headline">' + esc(d.describe || "현재 화면 상태") + "</div>" +
+      '<div class="gai-tbl-wrap"><table class="gai-tbl"><tbody>' +
+        rows.map(r => "<tr><th>" + esc(r[0]) + "</th><td>" + esc(r[1]) + "</td></tr>").join("") +
+      "</tbody></table></div>" + srcHTML(out.meta);
   }
 
   /* 엔진 응답 — 조건 · 미처리 · 핵심 수치 · 표 · 근거 */
@@ -615,6 +695,7 @@ window.GlobalAIUI = (function () {
 
   function anovaHTML(out) {
     const a = out.data.anova, m = out.data.model;
+    if (!a) return incompleteHTML("분산분석", out);
     const rows = (a.rows || a.terms || []);
     return '<div class="gai-headline">분산분석 (Type I 순차제곱합)</div>' +
       '<div class="gai-tbl-wrap"><table class="gai-tbl"><thead><tr>' +
@@ -634,6 +715,9 @@ window.GlobalAIUI = (function () {
 
   function fitHTML(out) {
     const m = out.data.model;
+    /* 모형이 없으면 그리려다 죽는 대신 없다고 말합니다. 도구가 계약을
+       어긴 경우이므로 값을 추측해 채우지 않습니다. */
+    if (!m || !m.ts || !m.beta) return incompleteHTML("회귀모형", out);
     return '<div class="gai-headline">회귀모형 — ' + esc(out.data.response || "응답") + "</div>" +
       '<div class="gai-stat"><div class="gai-stat-k">R²</div>' +
       '<div class="gai-stat-v">' + esc(fmtNum(m.r2)) + "</div>" +
@@ -718,5 +802,8 @@ window.GlobalAIUI = (function () {
     });
   }
 
-  return { mount: mount, open: show, close: close, toggle: toggle, ask: send };
+  return { mount: mount, open: show, close: close, toggle: toggle, ask: send,
+           /* 검사용 — 어떤 응답 모양이 와도 내부 payload 가 화면에 나오지
+              않는지 확인합니다. 제품 코드에서는 부르지 않습니다. */
+           _answerHTML: answerHTML };
 })();

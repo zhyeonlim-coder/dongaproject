@@ -578,6 +578,56 @@ window.GlobalAITest = (function () {
     });
   }
 
+  /* ── 15. 화면에 내부 payload 가 나오지 않는가 ────────────────────────
+     production 에서 "어느 인자가 가장 영향이 커?" 에 대해 화면에
+     {"kind":"doe-plan","design":"Box-Behnken",...} 이 그대로 찍혔습니다.
+     UI 에 그 모양을 그리는 갈래가 없어 마지막 갈래가 JSON 을 출력했습니다.
+     도구가 만드는 모든 kind 에 그리는 갈래가 있는지 봅니다. */
+  function runNoRawPayload() {
+    const T = mk();
+    if (!window.GlobalAIUI || !window.GlobalAIUI._answerHTML) {
+      T.add("UI 렌더러를 검사할 수 있는가", false,
+        "GlobalAIUI._answerHTML 이 없습니다 — 이 검사는 UI 가 있는 화면에서 돕니다");
+      return Promise.resolve(T.out);
+    }
+    const render = window.GlobalAIUI._answerHTML;
+    /* 도구가 실제로 만드는 kind 목록 — 여기에 더할 때 렌더러도 함께 만들어야
+       합니다. 목록을 손으로 적지 않고 tools.js 소스에서 뽑습니다. */
+    return fetch("../assets/js/ai/tools.js").then(r => r.text()).then(function (src) {
+      const kinds = Array.from(new Set(
+        (src.match(/kind:\s*"[a-z-]+"/g) || []).map(s => s.replace(/.*"([a-z-]+)".*/, "$1"))
+      )).filter(k => k !== "string");      /* params 선언의 "string" 은 kind 가 아닙니다 */
+      T.add("도구가 만드는 kind 를 읽음", kinds.length > 3, kinds.join(","));
+
+      kinds.forEach(function (k) {
+        const fake = { kind: k, tool: "x", question: "q",
+                       data: { kind: k, secretPayload: "INTERNAL-DO-NOT-SHOW",
+                               design: "Box-Behnken", factors: ["pH (6.8~7.2)"],
+                               runs: 15, centers: 3, type: "massBalance",
+                               result: { a: 1 }, context: { pageKo: "테스트" },
+                               describe: "테스트 화면", items: [], query: "q",
+                               paper: { key: "k", title: "t", authors: "a", journal: "j",
+                                        year: "2020", doi: null, url: null, abstract: "" },
+                               tied: 1, total: 0, action: "filter", patch: {}, label: "L",
+                               style: "table", rows: [], stats: null },
+                       meta: { source: "테스트" } };
+        let html = "";
+        let threw = null;
+        try { html = String(render(fake)); } catch (e) { threw = (e && e.message) || "오류"; }
+        T.add("kind \"" + k + "\" · 렌더러가 예외를 던지지 않음", !threw, String(threw));
+        T.add("kind \"" + k + "\" · 내부 payload 가 화면에 안 나옴",
+          html.indexOf("INTERNAL-DO-NOT-SHOW") === -1,
+          "내부 값이 그대로 출력됩니다");
+        T.add("kind \"" + k + "\" · JSON 덩어리를 찍지 않음",
+          !/\{&quot;|\{"kind"/.test(html), html.slice(0, 90));
+      });
+      return T.out;
+    }).catch(function (e) {
+      T.add("kind 목록을 읽었는가", false, (e && e.message) || "오류");
+      return T.out;
+    });
+  }
+
   function run() {
     const t = window.AskTables.internal();
     const groups = [];
@@ -595,8 +645,9 @@ window.GlobalAITest = (function () {
       .then(r => { groups.push(["K. 이어지는 대화 · 순위 · 지시어", r]); return runLitFollowUp(); })
       .then(r => { groups.push(["L. 문헌 후속 · DOI", r]); return runToolFailure(); })
       .then(r => { groups.push(["M. 도구가 계약을 어길 때", r]); return runLitFailure(); })
+      .then(r => { groups.push(["N. 외부 문헌 API 장애", r]); return runNoRawPayload(); })
       .then(function (r) {
-        groups.push(["N. 외부 문헌 API 장애", r]);
+        groups.push(["O. 내부 payload 노출 없음", r]);
         const checks = groups.map(function (g) {
           const bad = g[1].filter(x => !x.pass);
           return { id: g[0], pass: !bad.length,
