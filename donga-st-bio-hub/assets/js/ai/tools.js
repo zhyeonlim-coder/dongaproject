@@ -277,9 +277,21 @@ window.AITools = (function () {
       { source: "화면 조작 제안" });
   }
 
+  /* ★ 화면이 그 동작을 실제로 할 수 있을 때만 제안합니다.
+     훅이 없는 화면에서도 [적용] 버튼이 뜨고, 눌러도 아무 일이 없었습니다.
+     사용자는 눌렀으니 됐다고 생각하고 표를 그대로 읽습니다 — 제안하지
+     않는 편이 낫습니다. 할 수 없으면 할 수 없다고 먼저 말합니다. */
+  function canDo(kind) {
+    try { return !!(window.AIContext && window.AIContext.hook(kind)); }
+    catch (e) { return false; }
+  }
+
   /* 정렬 제안 — 실행하지 않습니다 */
   function proposeSort(args) {
     if (!window.Scope || !window.Scope.setFilter) return no("이 화면에는 정렬이 없습니다.");
+    if (!canDo("sort")) {
+      return no("이 화면에서는 정렬을 대신 적용할 수 없습니다. 표 머리글을 눌러 정렬해 주세요.");
+    }
     const metric = String((args && args.metric) || "").trim();
     const dir = (args && args.order) === "asc" ? "asc" : "desc";
     if (!metric) return no("어떤 항목으로 정렬할지 알려 주세요.");
@@ -299,6 +311,10 @@ window.AITools = (function () {
   function proposeSelect(args) {
     const miss = ready();
     if (miss.length) return notReady(miss);
+    if (!canDo("select")) {
+      return no("이 화면에는 행을 선택하는 기능이 없습니다. " +
+        "데이터 탐색 화면에서는 배치를 골라 상세를 볼 수 있습니다.");
+    }
     const id = String((args && args.batch) || "").trim();
     if (!id) return no("어느 배치를 선택할지 알려 주세요.");
     const t = table();

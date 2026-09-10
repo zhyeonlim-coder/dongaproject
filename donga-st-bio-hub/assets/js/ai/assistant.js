@@ -497,14 +497,16 @@ window.GlobalAI = (function () {
       const h = window.AIContext.hook("sort");
       if (!h) return { ok: false, why: "이 화면에서는 정렬을 대신 적용할 수 없습니다. 표 머리글을 눌러 주세요." };
       try { h(proposal.patch); return { ok: true }; }
-      catch (e) { return { ok: false, why: "정렬을 적용하지 못했습니다." }; }
+      catch (e) { return { ok: false, why: "정렬을 적용하지 못했습니다 — " +
+        ((e && e.message) || "알 수 없는 이유") + "." }; }
     }
 
     if (proposal.action === "select") {
       const h = window.AIContext.hook("select");
       if (!h) return { ok: false, why: "이 화면에서는 배치를 대신 선택할 수 없습니다." };
       try { h(proposal.patch); return { ok: true }; }
-      catch (e) { return { ok: false, why: "선택하지 못했습니다." }; }
+      catch (e) { return { ok: false, why: "선택하지 못했습니다 — " +
+        ((e && e.message) || "알 수 없는 이유") + "." }; }
     }
 
     return { ok: false, why: "알 수 없는 동작입니다: " + proposal.action };

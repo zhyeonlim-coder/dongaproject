@@ -543,8 +543,12 @@ window.GlobalAIUI = (function () {
     if (ap) {
       ap.addEventListener("click", function () {
         const res = window.GlobalAI.applyAction(lastProposal);
+        /* 무엇을 적용했는지 그대로 적습니다 — 정렬을 눌렀는데 "필터를
+           적용했습니다" 라고 나오면 화면에서 일어난 일과 글이 어긋납니다. */
+        const did = { filter: "필터", sort: "정렬", select: "배치 선택" }[
+          lastProposal && lastProposal.action] || "요청한 변경";
         slot.querySelector(".gai-action").outerHTML = res.ok
-          ? '<div class="gai-note">필터를 적용했습니다. 화면이 갱신됩니다.</div>'
+          ? '<div class="gai-note">' + esc(did) + "을(를) 적용했습니다. 화면이 갱신됩니다.</div>"
           : '<div class="gai-warn">' + esc(res.why) + "</div>";
       });
     }

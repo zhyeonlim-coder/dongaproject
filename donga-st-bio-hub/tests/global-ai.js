@@ -240,7 +240,25 @@ window.GlobalAITest = (function () {
   /* ── 9. 화면 조작 3종 — 제안만 하고 실행하지 않는가 ─────────────────── */
   function runActions() {
     const T = mk();
+
+    /* ★ 훅이 없는 화면에서는 제안 자체가 나오지 않아야 합니다. 예전에는
+       어느 화면에서든 [적용] 버튼이 떴고, 눌러도 아무 일이 없었습니다.
+       먼저 훅 없는 상태를 확인하고, 그 다음에 훅을 걸고 제안을 봅니다. */
+    const sorted = [], picked = [];
     return window.GlobalAI.ask("Titer 높은 순으로 정렬해줘").then(function (a) {
+      T.add("훅 없으면 정렬 제안을 만들지 않음",
+        a.kind === "no-data" && /정렬/.test(String(a.headline || "")),
+        "kind=" + a.kind + " head=" + String(a.headline || "").slice(0, 60));
+      return window.GlobalAI.ask("B123-7 선택해줘");
+    }).then(function (a) {
+      T.add("훅 없으면 선택 제안을 만들지 않음",
+        a.kind === "no-data" && /선택/.test(String(a.headline || "")),
+        "kind=" + a.kind + " head=" + String(a.headline || "").slice(0, 60));
+
+      window.AIContext.registerHook("sort", p => sorted.push(p));
+      window.AIContext.registerHook("select", p => picked.push(p));
+      return window.GlobalAI.ask("Titer 높은 순으로 정렬해줘");
+    }).then(function (a) {
       T.add("정렬 · 제안 생성", a.kind === "action-proposal" && a.data.action === "sort",
         "kind=" + a.kind);
       T.add("정렬 · 항목을 실제 컬럼에서 찾음",
@@ -253,12 +271,24 @@ window.GlobalAITest = (function () {
     }).then(function (a) {
       T.add("선택 · 없는 배치는 거절",
         a.kind === "no-data" || (a.kind === "engine"), "kind=" + a.kind);
-      /* 훅이 없는 화면에서는 대신 해 주지 않고 그렇게 말해야 합니다 */
-      const r = window.GlobalAI.applyAction({ action: "sort", patch: { key: "titerHCCF", dir: -1 } });
-      T.add("훅 없는 화면에서는 정렬을 대신 하지 않음",
-        r.ok === false && /없습니다|눌러/.test(r.why || ""), JSON.stringify(r));
+
+      /* 훅이 걸린 화면에서는 [적용] 이 실제로 그 훅을 부릅니다 */
+      const r1 = window.GlobalAI.applyAction({ action: "sort", patch: { key: "titerHCCF", dir: -1 } });
+      T.add("정렬 [적용] 이 화면 훅을 부름",
+        r1.ok === true && sorted.length === 1 && sorted[0].key === "titerHCCF",
+        JSON.stringify(r1) + " calls=" + JSON.stringify(sorted));
+      const r2 = window.GlobalAI.applyAction({ action: "select", patch: { batchId: "x", label: "B123-7" } });
+      T.add("선택 [적용] 이 화면 훅을 부름",
+        r2.ok === true && picked.length === 1, JSON.stringify(r2));
+
       T.add("알 수 없는 동작은 거절",
         window.GlobalAI.applyAction({ action: "deleteAll" }).ok === false, "실행됨");
+
+      /* 뒤 그룹이 훅을 물려받지 않도록 되돌립니다 */
+      window.AIContext.registerHook("sort", null);
+      window.AIContext.registerHook("select", null);
+      T.add("훅 해제됨", !window.AIContext.hook("sort") && !window.AIContext.hook("select"),
+        "남아 있음");
       return T.out;
     });
   }

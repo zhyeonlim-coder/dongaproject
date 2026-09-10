@@ -54,7 +54,7 @@
       { ko: "EBR 입력", href: "ebr.html" },
       { ko: "Troubleshooting", href: "hub.html#wiki" }
     ]}
-  ], k => { groupBy = k; render(); });
+  ], k => { groupBy = k; syncSelectHook(); render(); });
 
   /* ══════════════════════════════════════════════════════════════════════
      배치 비교 — "이 배치만 왜 달랐나"
@@ -342,6 +342,32 @@
     window.AIContext.registerHook("sort", function (patch) {
       if (!patch || !patch.key) throw new Error("정렬 대상이 없습니다");
       sorts = [{ key: patch.key, dir: patch.dir === 1 ? 1 : -1 }];
+      render();
+    });
+  }
+
+  /* 배치 선택은 "배치 비교" 화면에서만 뜻이 있습니다 — 거기서만 배치를
+     골라 넣는 자리가 있기 때문입니다. 다른 조회 단위에서는 훅을 걸지
+     않고, 그러면 AI 도 선택을 제안하지 않습니다. 할 수 없는 일에
+     [적용] 버튼을 띄우면 눌러도 아무 일이 없고, 사용자는 됐다고
+     생각한 채 표를 읽습니다. */
+  function syncSelectHook() {
+    if (!window.AIContext || !window.AIContext.registerHook) return;
+    if (groupBy !== "compare") { window.AIContext.registerHook("select", null); return; }
+    window.AIContext.registerHook("select", function (patch) {
+      const id = patch && (patch.batchId || patch.label);
+      if (!id) throw new Error("선택할 배치가 없습니다");
+      /* 화면에 실제로 그려진 후보 칩에 대고 확인합니다. Scope.batches() 는
+         Promise 라 여기서는 쓸 수 없고, 무엇보다 "이 화면에서 선택" 은
+         지금 보이는 것 기준이어야 합니다. */
+      const shown = $$("[data-cmp]").map(b => b.dataset.cmp);
+      if (shown.indexOf(id) === -1) {
+        throw new Error(id + " 은(는) 지금 화면 범위에 없습니다");
+      }
+      if (cmpPicked.indexOf(id) === -1) {
+        if (cmpPicked.length >= CMP_MAX) cmpPicked.shift();
+        cmpPicked.push(id);
+      }
       render();
     });
   }
@@ -689,5 +715,6 @@
   window.Entries.subscribe(render);
   $("#export").addEventListener("click", exportCSV);
   paintClassFilter();
+  syncSelectHook();
   render();
 })();
