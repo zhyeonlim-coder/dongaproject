@@ -52,19 +52,20 @@ const MAX_PER_WINDOW = 30;
 /* ── 도구 allowlist ──────────────────────────────────────────────────────
    클라이언트가 보낸 정의를 그대로 쓰지 않습니다. 이름이 여기 없으면
    모델에게 보여 주지도 않고, 모델이 돌려줘도 실행 지시를 만들지 않습니다.
-   ai/tools.js 의 SPEC 과 같아야 합니다 — 둘이 어긋나면 도구가 조용히
-   빠지므로, 클라이언트가 보낸 목록과 대조해 빠진 것을 응답에 적습니다. */
-/* 클라이언트의 AITools.SPEC 과 이름이 맞아야 합니다. 여기 없는 이름은
-   모델에게 주지도 않고 돌려받아도 버립니다. 클라이언트에 도구를 더하고
+   ai/tools.js 의 SPEC 과 이름이 맞아야 합니다. 클라이언트에 도구를 더하고
    이 목록을 잊으면, 규칙이 놓친 질문에서 그 도구만 조용히 못 쓰게 됩니다 —
-   화면에서는 "LLM 이 이해하지 못했다" 처럼 보입니다. 실제로 화면 조작
-   3종 중 proposeFilter 만 여기 있었습니다. */
+   화면에서는 "LLM 이 이해하지 못했다" 처럼 보여 원인을 찾기 어렵습니다.
+   실제로 화면 조작 3종 중 proposeFilter 만 여기 있었습니다.
+
+   /api/health 가 이 목록을 이름째로 돌려주고, tests/phase-b.js 가 클라이언트
+   목록과 집합으로 대조합니다 — 하나라도 어긋나면 그 검사가 실패합니다. */
 const ALLOWED = [
   "searchExperimentData", "getExperiment", "calculateStatistics", "calculateCV",
   "compareExperiments", "runDoE", "runRegression", "runANOVA",
   "optimizeExperiment", "searchLiterature", "calculateProcess",
   "getCurrentPageContext",
-  "proposeFilter", "proposeSort", "proposeSelect", "formatResult"
+  "proposeFilter", "proposeSort", "proposeSelect", "formatResult",
+  "literatureFollowUp"
 ];
 
 const SYSTEM_PLAN = [
