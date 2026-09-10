@@ -268,8 +268,9 @@ window.AITools = (function () {
     const wantIdx = Number(args && args.index);
     if (wantIdx >= 1 && wantIdx <= items.length) focus = items[wantIdx - 1];
 
-    /* 최신 — 연도가 같은 논문이 여럿이면 하나만 지목하지 않습니다 */
-    if (aspect === "latest" || aspect === "cited") {
+    /* 최신 · 최고 인용 · 가장 오래된 것 — 같은 값인 논문이 여럿이면
+       하나만 지목하지 않고 그 사실을 말합니다 */
+    if (aspect === "latest" || aspect === "cited" || aspect === "oldest") {
       const num = p => aspect === "cited"
         ? (typeof p.cites === "number" ? p.cites : -1)
         : (parseInt(p.year, 10) || -1);
@@ -280,7 +281,9 @@ window.AITools = (function () {
           : "검색 결과에 발행연도가 기록된 논문이 없습니다.",
           { source: "직전 문헌 검색 결과", rows: items.length });
       }
-      const best = Math.max.apply(null, usable.map(num));
+      const nums = usable.map(num);
+      const best = aspect === "oldest"
+        ? Math.min.apply(null, nums) : Math.max.apply(null, nums);
       const tied = usable.filter(p => num(p) === best);
       return ok({ kind: "literature-one", query: cache.query,
                   aspect: aspect, paper: tied[0], tied: tied.length,
@@ -322,10 +325,35 @@ window.AITools = (function () {
           { source: "직전 문헌 검색 결과", rows: items.length });
       }
     }
+    /* 서지 항목은 검색 결과에 그대로 있는 값입니다. 없으면 없다고 말합니다 —
+       "확인할 수 없습니다" 가 지어낸 값보다 낫습니다. */
+    const FIELD = { authors: "authors", journal: "journal",
+                    published: "year", title: "title" };
+    if (FIELD[aspect]) {
+      const v = focus[FIELD[aspect]];
+      if (!v) {
+        return no("이 논문은 검색 결과에 " +
+          ({ authors: "저자", journal: "저널", published: "발행연도", title: "제목" })[aspect] +
+          " 가 들어 있지 않습니다. 만들어 넣지 않았습니다 — 원문 링크에서 확인해 주세요.",
+          { source: "직전 문헌 검색 결과", rows: items.length });
+      }
+      return ok({ kind: "literature-one", query: cache.query, aspect: aspect,
+                  paper: focus, tied: 1, total: items.length, litFocus: focus.key },
+        { source: "직전 문헌 검색 결과 (재검색 없음)", rows: items.length, external: true });
+    }
     if (aspect === "doi") {
       return ok({ kind: "literature-one", query: cache.query, aspect: "doi",
                   paper: focus, tied: 1, total: items.length, litFocus: focus.key },
         { source: "직전 문헌 검색 결과 (재검색 없음)", rows: items.length, external: true });
+    }
+    /* ★ 초록이 없으면 내용을 만들지 않습니다. 본문을 읽은 적이 없으므로
+       "주요 결과" 를 쓸 근거가 없습니다. */
+    if (!focus.abstract) {
+      return no("이 논문의 초록이 검색 결과에 포함되어 있지 않아, 주요 결과를 " +
+        "현재 검색 결과에서 확인할 수 없습니다. 본문을 읽지 않았으므로 내용을 " +
+        "지어내지 않았습니다 — 원문 링크에서 확인해 주세요." +
+        (focus.url ? " (" + focus.url + ")" : ""),
+        { source: "직전 문헌 검색 결과", rows: items.length });
     }
     return ok({ kind: "literature-one", query: cache.query, aspect: "abstract",
                 paper: focus, tied: 1, total: items.length, litFocus: focus.key },
@@ -539,6 +567,35 @@ window.AITools = (function () {
   SPEC.forEach(s => { BY_NAME[s.name] = s; });
 
   /* 도구 하나 실행 — 항상 Promise 를 돌려줍니다 (비동기 도구가 섞여 있음) */
+  /* ── 도구 결과의 모양을 확인합니다 ────────────────────────────────────
+     도구가 { ok, data, meta } 를 돌려주지 않으면 화면은 그것을 그리려다
+     빈 칸이나 "undefined" 를 보여 줍니다. 사용자는 그 화면을 "데이터가
+     그렇다" 로 읽습니다. 모양이 어긋나면 그리지 않고 실패로 바꿉니다.
+
+     ok: true 인데 data 가 없는 것이 가장 위험합니다 — 성공이라고 말하면서
+     내용이 없는 상태이기 때문입니다. */
+  function shapeOk(r) {
+    if (!r || typeof r !== "object") return "결과가 객체가 아닙니다";
+    if (typeof r.ok !== "boolean") return "ok 값이 없습니다";
+    if (r.ok === false) {
+      return typeof r.error === "string" && r.error ? null : "실패인데 사유가 없습니다";
+    }
+    if (r.data === undefined || r.data === null) return "성공인데 data 가 없습니다";
+    if (typeof r.data !== "object") return "data 가 객체가 아닙니다";
+    return null;
+  }
+  function guardShape(name, r) {
+    const bad = shapeOk(r);
+    if (!bad) return r;
+    /* 내부 payload 를 화면에 그대로 흘리지 않습니다 — 사용자에게는 무엇이
+       안 됐는지만, 자세한 것은 콘솔에만 남깁니다. */
+    if (window.console && console.warn) {
+      console.warn("[AITools] " + name + " 결과 모양이 계약과 다릅니다: " + bad, r);
+    }
+    return no("도구(" + name + ") 결과를 신뢰할 수 없어 표시하지 않았습니다 — " + bad +
+      ". 값을 추측해서 채우지 않았습니다.");
+  }
+
   function run(name, args, ctx) {
     const s = BY_NAME[name];
     if (!s) return Promise.resolve(no("알 수 없는 도구입니다: " + name));
@@ -547,7 +604,13 @@ window.AITools = (function () {
     }
     try {
       const out = s.run(args || {}, ctx || window.AIContext.get());
-      return Promise.resolve(out);
+      /* 비동기 도구도 같은 계약을 지켜야 합니다 */
+      if (out && typeof out.then === "function") {
+        return out.then(r => guardShape(name, r),
+                        e => no("도구 실행 중 오류가 났습니다 — " +
+                                ((e && e.message) || "알 수 없는 오류")));
+      }
+      return Promise.resolve(guardShape(name, out));
     } catch (e) {
       return Promise.resolve(no("도구 실행 중 오류가 났습니다 — " +
         ((e && e.message) || "알 수 없는 오류")));

@@ -479,6 +479,105 @@ window.GlobalAITest = (function () {
     });
   }
 
+  /* ── 13. 도구가 무너질 때 ────────────────────────────────────────────
+     도구가 계약을 어기면 화면은 그것을 그리려다 빈 칸이나 "undefined" 를
+     보여 주고, 사용자는 그 화면을 "데이터가 그렇다" 로 읽습니다. 모양이
+     어긋나면 그리지 않고 실패로 바꾸는지 봅니다.
+
+     ★ 여기서 손대는 것은 SPEC 의 run 함수 하나이고, 검사가 끝나면
+       반드시 되돌립니다. 되돌리지 않으면 뒤 검사가 전부 거짓이 됩니다. */
+  function runToolFailure() {
+    const T = mk();
+    const spec = window.AITools.SPEC.find(s => s.name === "calculateStatistics");
+    const real = spec.run;
+    const cases = [
+      ["결과가 undefined", () => undefined],
+      ["결과가 문자열", () => "그냥 문자열"],
+      ["ok 없음", () => ({ data: { kind: "x" } })],
+      ["ok:true 인데 data 없음", () => ({ ok: true, meta: {} })],
+      ["ok:true 인데 data 가 숫자", () => ({ ok: true, data: 42 })],
+      ["ok:false 인데 사유 없음", () => ({ ok: false })],
+      ["도구가 throw", () => { throw new Error("터졌습니다"); }],
+      ["비동기 도구가 reject", () => Promise.reject(new Error("네트워크 오류"))],
+      ["비동기 도구가 깨진 모양", () => Promise.resolve({ ok: true })]
+    ];
+    let chain = Promise.resolve();
+    cases.forEach(function (c) {
+      chain = chain.then(function () {
+        spec.run = c[1];
+        return window.AITools.run("calculateStatistics", { metric: "Titer HCCF" });
+      }).then(function (r) {
+        T.add("도구 실패 · " + c[0] + " → 안전하게 실패",
+          !!r && r.ok === false && typeof r.error === "string" && r.error.length > 0,
+          JSON.stringify(r).slice(0, 100));
+        /* 내부 payload 를 사용자 문구에 흘리지 않습니다 */
+        T.add("도구 실패 · " + c[0] + " → 내부 값이 문구에 없음",
+          !/undefined|\[object Object\]/.test(String(r && r.error)),
+          String(r && r.error).slice(0, 90));
+      });
+    });
+    return chain.then(function () {
+      spec.run = real;
+      /* 되돌렸는지 확인합니다 — 이 줄이 없으면 뒤 검사가 조용히 거짓이 됩니다 */
+      return window.AITools.run("calculateStatistics", { metric: "Titer HCCF" });
+    }).then(function (r) {
+      T.add("도구 원상복구됨", !!r && r.ok === true, JSON.stringify(r).slice(0, 80));
+      return T.out;
+    }).catch(function (e) {
+      spec.run = real;
+      T.add("도구 실패 검사가 끝까지 돌았는가", false, (e && e.message) || "오류");
+      return T.out;
+    });
+  }
+
+  /* ── 14. 문헌 API 가 죽었을 때 ───────────────────────────────────────
+     외부가 죽어도 사내 조회는 계속 되어야 하고, 논문을 지어내면 안 됩니다. */
+  function runLitFailure() {
+    const T = mk();
+    const real = window.LitAPI.search;
+    const cases = [
+      ["네트워크 실패", () => Promise.reject(new Error("Failed to fetch"))],
+      ["타임아웃", () => Promise.reject(new Error("응답이 12초 안에 오지 않았습니다"))],
+      ["빈 결과", () => Promise.resolve({ items: [] })],
+      ["깨진 응답", () => Promise.resolve(null)]
+    ];
+    let chain = Promise.resolve();
+    cases.forEach(function (c) {
+      chain = chain.then(function () {
+        window.LitAPI.search = c[1];
+        window.GlobalAI.reset();
+        window.GlobalAI._setLlmState(false);
+        return window.GlobalAI.ask("EGFR 관련 논문 찾아줘");
+      }).then(function (a) {
+        const txt = JSON.stringify(a);
+        T.add("문헌 실패 · " + c[0] + " → 논문을 지어내지 않음",
+          !/10\.\d{4}/.test(txt), "DOI 모양의 문자열이 답에 있습니다");
+        T.add("문헌 실패 · " + c[0] + " → 오류로 답하거나 없다고 답함",
+          a.kind === "no-data" || a.kind === "error" ||
+          (a.kind === "literature" && (a.data.items || []).length === 0),
+          a.kind + " / " + String(a.headline || "").slice(0, 60));
+      });
+    });
+    return chain.then(function () {
+      window.LitAPI.search = real;
+      window.GlobalAI.reset();
+      /* 외부가 죽어도 사내 조회는 살아 있어야 합니다 */
+      window.LitAPI.search = () => Promise.reject(new Error("Failed to fetch"));
+      return window.GlobalAI.ask("Titer HCCF 평균은?");
+    }).then(function (a) {
+      T.add("문헌 실패 중에도 사내 조회는 정상",
+        a.kind === "engine" && !!(a.answer && a.answer.verified && a.answer.verified.ok),
+        a.kind + " / " + JSON.stringify(a.answer && a.answer.verified));
+      window.LitAPI.search = real;
+      window.GlobalAI.reset();
+      return T.out;
+    }).catch(function (e) {
+      window.LitAPI.search = real;
+      T.add("문헌 실패 검사가 끝까지 돌았는가", false, (e && e.message) || "오류");
+      return T.out;
+    });
+  }
+
   function run() {
     const t = window.AskTables.internal();
     const groups = [];
@@ -494,8 +593,10 @@ window.GlobalAITest = (function () {
       .then(r => { groups.push(["I. 화면 조작 3종", r]); return runContextFields(); })
       .then(r => { groups.push(["J. Context 표준 필드", r]); return runConversation(t); })
       .then(r => { groups.push(["K. 이어지는 대화 · 순위 · 지시어", r]); return runLitFollowUp(); })
+      .then(r => { groups.push(["L. 문헌 후속 · DOI", r]); return runToolFailure(); })
+      .then(r => { groups.push(["M. 도구가 계약을 어길 때", r]); return runLitFailure(); })
       .then(function (r) {
-        groups.push(["L. 문헌 후속 · DOI", r]);
+        groups.push(["N. 외부 문헌 API 장애", r]);
         const checks = groups.map(function (g) {
           const bad = g[1].filter(x => !x.pass);
           return { id: g[0], pass: !bad.length,

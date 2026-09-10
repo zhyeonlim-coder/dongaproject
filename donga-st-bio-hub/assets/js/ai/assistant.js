@@ -108,9 +108,18 @@ window.GlobalAI = (function () {
   /* 문헌 후속 질문에서 무엇을 묻는지 — 없으면 null */
   function litAspect(t) {
     if (/doi/i.test(t)) return "doi";
+    /* 서지 항목은 검색 결과에 그대로 들어 있습니다 — 저자·저널·발행연도.
+       초록보다 먼저 봅니다. "저자가 누구야" 를 초록 요청으로 읽으면
+       초록이 없는 논문에서 엉뚱하게 "확인할 수 없습니다" 가 나옵니다. */
+    if (/저자|authors?|누가 (썼|쓴)|필자/.test(t)) return "authors";
+    if (/저널|journal|학술지|어디에 실/.test(t)) return "journal";
+    if (/발행|출판|연도|몇 년|언제 나온|published/.test(t)) return "published";
+    if (/제목|title/.test(t)) return "title";
     if (/초록|abstract|주요\s*결과|결론|무슨 내용|어떤 내용|정리해|요약/.test(t)) return "abstract";
     if (/인용|cited|많이 인용/.test(t)) return "cited";
     if (/최신|최근|가장 새|제일 새|newest|latest/.test(t)) return "latest";
+    /* 가장 오래된 것도 순위 질문입니다 — 최신의 반대편입니다 */
+    if (/가장 오래|제일 오래|oldest|가장 예전/.test(t)) return "oldest";
     return null;
   }
   /* ── 문헌 후속인가, 새 검색인가 ───────────────────────────────────────
@@ -355,7 +364,7 @@ window.GlobalAI = (function () {
         const out = shape(question, plan, res, ctx, Date.now() - started);
         out.via = plan.via || "rule";
         remember(question, out, res);
-        log(question, plan, res, Date.now() - started);
+        log(question, plan, res, Date.now() - started, out.via);
         return out;
       });
     }).catch(function (e) {
@@ -519,7 +528,48 @@ window.GlobalAI = (function () {
   }
   function reset() { history.length = 0; litFocusKey = null; litCache = null; }
 
-  function log(q, plan, res, ms) {
+  /* ── 진단 기록 ────────────────────────────────────────────────────────
+     운영에서 "왜 이 답이 나왔는가" 를 되짚을 수 있어야 합니다. 다만
+     되짚기 위해 남기는 것이 사고의 원인이 되면 안 됩니다.
+
+     남기는 것   요청 id · 화면 · 의도 · 도구 · 성공여부 · 경로 · 소요시간 ·
+                 오류 분류 · 결과 행 수
+     남기지 않는 것  API key · 측정값 · 표 내용 · 개인정보 · 오류 원문
+
+     오류는 분류만 적습니다. 원문에는 URL·경로·응답 조각이 섞여 들어옵니다. */
+  let seq = 0;
+  const trace = [];               /* 최근 진단 기록 (메모리에만) */
+  const TRACE_MAX = 50;
+
+  function errCategory(res) {
+    if (!res || res.ok !== false) return null;
+    const e = String(res.error || "");
+    if (/모듈이 로드되지|준비되지 않았/.test(e)) return "module-missing";
+    if (/네트워크|요청 실패|응답이 .*초/.test(e)) return "network";
+    if (/신뢰할 수 없어/.test(e)) return "bad-tool-shape";
+    if (/화면에는|이 화면에서는|없습니다\.$/.test(e)) return "not-available-here";
+    if (/찾지 못|없습니다/.test(e)) return "no-data";
+    if (/오류가 났습니다/.test(e)) return "tool-threw";
+    return "other";
+  }
+
+  function log(q, plan, res, ms, via) {
+    const rec = {
+      id: "gai-" + Date.now().toString(36) + "-" + (++seq),
+      at: Date.now(),
+      page: (function () { try { return window.AIContext.get().page; } catch (e) { return null; } })(),
+      intent: plan.tool,          /* 규칙·모델이 고른 도구가 곧 의도입니다 */
+      tool: plan.tool,
+      providerPath: via || "rule",
+      ok: !!(res && res.ok),
+      errorCategory: errCategory(res),
+      rows: (res && res.meta && res.meta.rows != null) ? res.meta.rows : null,
+      ms: ms,
+      qLen: String(q || "").length   /* 질문 길이만 — 문장은 남기지 않습니다 */
+    };
+    trace.push(rec);
+    while (trace.length > TRACE_MAX) trace.shift();
+
     if (!window.AskLog || !window.AskLog.record) return;
     try {
       window.AskLog.record({
@@ -621,6 +671,9 @@ window.GlobalAI = (function () {
               정상 동작이라, 단계별 계약을 따로 보려면 되돌릴 수 있어야
               합니다. 제품 코드에서는 부르지 않습니다. */
            _setLlmState: v => { llmAvailable = v; },
+           /* 운영 진단 — 최근 요청의 경로와 결과만. 질문 문장·측정값은
+              들어 있지 않습니다. */
+           trace: () => trace.slice(),
            _route: route, _filterFromText: filterFromText, _litQuery: litQuery,
            _collectNumbers: collectNumbers, _slimResult: slimResult,
            _ruleMissed: ruleMissed };

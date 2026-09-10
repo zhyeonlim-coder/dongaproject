@@ -284,6 +284,18 @@ window.GlobalAIUI = (function () {
       box.innerHTML = '<div class="gai-narr-text">' + esc(r.text) + "</div>" +
         '<div class="gai-narr-tag">AI 해설 — 위 표와 수치는 엔진이 데이터에서 계산하고 ' +
         '대조한 값이고, 이 문단은 그것을 설명한 것입니다.</div>';
+      /* 경로 요약에도 "해설은 Claude" 를 더합니다. 해설이 실제로 붙은
+         뒤에만 더해야 합니다 — 미리 적어 두면 해설이 실패했을 때
+         있지도 않은 문장을 Claude 가 썼다고 표시하게 됩니다. */
+      const srcRows = slot.querySelectorAll(".gai-src");
+      const last = srcRows[srcRows.length - 1];
+      if (last && !last.querySelector("[data-narr-tag]")) {
+        const s = document.createElement("span");
+        s.className = "gai-src-tag is-external";
+        s.setAttribute("data-narr-tag", "");
+        s.textContent = "🤖 해설 문장 · Claude";
+        last.appendChild(s);
+      }
       scroll();
     }).catch(function () { box.remove(); });
   }
@@ -336,6 +348,14 @@ window.GlobalAIUI = (function () {
     /* 가리키는 대상이 여럿일 때 — 아무거나 고르지 않고 누르게 합니다.
        버튼은 그 배치명으로 다시 묻는 것이므로, 눌러도 새로운 해석이
        끼어들지 않습니다. */
+    /* 순위 방향·항목이 불분명할 때 — 후보 문장을 그대로 다시 묻습니다 */
+    if (r.kind === "ambiguous-rank" && r.choices && r.choices.length) {
+      h += '<div class="gai-sugg">' +
+        r.choices.map(function (c) {
+          return '<button type="button" data-q="' + esc(c + "은?") + '">' + esc(c) + "</button>";
+        }).join("") + "</div>";
+    }
+
     if (r.kind === "ambiguous-ref" && r.choices && r.choices.length) {
       const metricLabel = r.metric ? r.metric.label : null;
       h += '<div class="gai-sugg">' +
@@ -427,14 +447,47 @@ window.GlobalAIUI = (function () {
      수치는 이 브라우저가 계산하고 대조하지만, 도구 선택을 외부 모델이
      했다는 사실은 사용자가 알아야 합니다 — 답이 어긋났을 때 어디를
      의심해야 하는지가 달라집니다. */
+  /* 세 칸으로 나눠 보여 줍니다 — 도구를 고른 것, 값을 만든 것, 문장을 쓴 것.
+     사용자가 알아야 하는 것은 "이 숫자를 누가 만들었나" 입니다. 조회한
+     값인지, 계산한 값인지, 모델이 해석만 한 것인지 구분되지 않으면
+     연구원은 해석 문장의 숫자도 실측처럼 인용합니다. */
+  const TOOL_ROLE = {
+    searchExperimentData: "조회", getExperiment: "조회",
+    calculateStatistics: "계산", calculateCV: "계산", compareExperiments: "계산",
+    calculateProcess: "계산", runDoE: "분석", runRegression: "분석",
+    runANOVA: "분석", optimizeExperiment: "분석",
+    searchLiterature: "외부 검색", literatureFollowUp: "직전 검색 재사용",
+    getCurrentPageContext: "화면 상태", formatResult: "재정리",
+    proposeFilter: "화면 제안", proposeSort: "화면 제안", proposeSelect: "화면 제안"
+  };
   function pathHTML(out) {
     if (!out || out.kind === "empty") return "";
+    const parts = [];
     const llm = out.via === "llm";
-    if (!llm && !out.sawLlm) return "";
-    return '<div class="gai-src"><span class="gai-src-tag' + (llm ? " is-external" : "") + '">' +
-      (llm ? "🤖 Claude 가 도구를 골랐습니다 — 수치는 이 브라우저가 계산·대조했습니다"
-           : "규칙이 읽지 못해 Claude 에게 물었지만, 결국 규칙 경로로 답했습니다") +
-      "</span></div>";
+
+    /* 1) 도구를 고른 주체 */
+    parts.push('<span class="gai-src-tag' + (llm ? " is-external" : "") + '">' +
+      (llm ? "🤖 도구 선택 · Claude" : "도구 선택 · 규칙") + "</span>");
+
+    /* 2) 값을 만든 주체 */
+    const role = TOOL_ROLE[out.tool] || null;
+    const rows = (out.meta && out.meta.rows != null) ? out.meta.rows
+               : (out.answer && out.answer.scopeRows != null) ? out.answer.scopeRows : null;
+    if (role) {
+      parts.push('<span class="gai-src-tag">' + esc(role) + " · " +
+        (out.kind === "literature" || out.kind === "literature-one"
+          ? "논문 " + esc(rows == null ? "?" : rows) + "건"
+          : rows == null ? "이 브라우저" : esc(rows) + "건 · 이 브라우저") + "</span>");
+    }
+
+    /* 3) 해설 문장은 실제로 붙은 뒤 streamNarration 이 여기에 더합니다.
+          미리 적으면 해설이 실패했을 때 없는 문장을 표시하게 됩니다. */
+
+    if (out.sawLlm && !llm) {
+      parts.push('<span class="gai-src-tag">규칙이 읽지 못해 Claude 에게 물었지만, ' +
+        "결국 규칙 경로로 답했습니다</span>");
+    }
+    return '<div class="gai-src">' + parts.join("") + "</div>";
   }
 
   /* 화면 조작 — 제안만 하고 사용자가 누를 때만 실행 */
@@ -478,13 +531,24 @@ window.GlobalAIUI = (function () {
      그렇다고 밝힙니다 — 우리가 읽고 요약한 것이 아닙니다. */
   function litOneHTML(out) {
     const d = out.data, p = d.paper;
-    const head = d.aspect === "doi" ? "DOI"
-      : d.aspect === "abstract" ? "초록 (출처 원문)"
-      : d.aspect === "cited" ? "가장 많이 인용된 논문"
-      : d.aspect === "select" ? "선택한 논문" : "가장 최근 논문";
+    const head = ({
+      doi: "DOI", abstract: "초록 (출처 원문)", cited: "가장 많이 인용된 논문",
+      select: "선택한 논문", latest: "가장 최근 논문", oldest: "가장 오래된 논문",
+      authors: "저자", journal: "저널", published: "발행연도", title: "제목"
+    })[d.aspect] || "선택한 논문";
 
     let h = '<div class="gai-headline">' + esc(head) +
       (d.query ? ' · "' + esc(d.query) + '" 검색 결과 ' + esc(d.total) + "건 중" : "") + "</div>";
+
+    /* 물어본 항목을 맨 위에 그대로 놓습니다 — 카드에서 찾게 하지 않습니다 */
+    const FIELD = { authors: ["저자", p.authors], journal: ["저널", p.journal],
+                    published: ["발행연도", p.year], title: ["제목", p.title],
+                    doi: ["DOI", p.doi] };
+    if (FIELD[d.aspect] && FIELD[d.aspect][1]) {
+      h += '<div class="gai-stat"><div class="gai-stat-k">' + esc(FIELD[d.aspect][0]) +
+        "</div>" + '<div class="gai-stat-v" style="font-size:15px;line-height:1.5">' +
+        esc(FIELD[d.aspect][1]) + "</div></div>";
+    }
 
     if (d.tied > 1) {
       h += '<div class="gai-warn">같은 조건인 논문이 ' + esc(d.tied) +

@@ -193,6 +193,27 @@ window.AskEngine = (function () {
     "pass/fail", "pass fail", "일탈", "oos", "실패한 배치", "실패 배치", "벗어난", "벗어나"];
   function detectSpecAsk(text) { return SPEC_WORDS.some(w => has(text, w)); }
 
+  /* 질문에서 항목 이름을 공백으로 바꿉니다. 긴 이름부터 지워야
+     "Max VCD" 를 지우기 전에 "VCD" 가 먼저 지워지는 일이 없습니다.
+     별칭(사전)은 건드리지 않습니다 — 별칭에 의도어가 섞인 경우는 없고,
+     여기서 과하게 지우면 의도를 아예 못 읽습니다. */
+  function maskLabels(text, table) {
+    let t = String(text);
+    const labels = (table && table.columns ? table.columns : [])
+      .map(c => String(c.label || ""))
+      .filter(s => s.length > 2 && /[a-z]/i.test(s))
+      .sort((a, b) => b.length - a.length);
+    labels.forEach(function (lab) {
+      const low = lab.toLowerCase();
+      let i = t.toLowerCase().indexOf(low);
+      while (i > -1) {
+        t = t.slice(0, i) + " ".repeat(lab.length) + t.slice(i + lab.length);
+        i = t.toLowerCase().indexOf(low, i + lab.length);
+      }
+    });
+    return t;
+  }
+
   function detectIntent(text) {
     /* 규격 판정이 먼저입니다 — "스펙 벗어난 항목" 의 "항목" 이 다른 의도로
        읽히면 판정 대신 목록이 나갑니다 */
@@ -1054,7 +1075,12 @@ window.AskEngine = (function () {
       }, null, table);
     }
 
-    let intent = detectIntent(text);
+    /* ★ 의도를 읽기 전에 항목 이름을 가립니다.
+       "Max VCD 평균은?" 은 평균을 물은 것인데, 항목 이름 안의 "max" 가
+       최고값 의도로 읽혀 최고 배치를 답하고 있었습니다. 답에 평균도 함께
+       적혀 있어서 화면만 봐서는 틀린 줄 알기 어렵습니다.
+       항목 이름은 무엇을 볼지 정하는 말이고, 의도를 정하는 말이 아닙니다. */
+    let intent = detectIntent(maskLabels(text, table));
     let metrics = detectMetrics(text, table);
     const missingAsked = table.kind === "internal" ? detectNotRecorded(text) : [];
     const askedCondition = CONDITION_WORDS.some(t => has(text, t));
@@ -1125,6 +1151,7 @@ window.AskEngine = (function () {
     const ordinal = looksOrdinal(text);
     const deictic = ordinal ? null : looksDeictic(text);
     let ambiguousRef = null;       /* 한 건을 가리키는 말인데 후보가 여럿일 때 */
+    let metricInherited = false;   /* 항목을 이번 질문이 아니라 앞에서 물려받았는가 */
     /* 슬롯이 "앞 질문을 가리킨다"고 했는데 지시어가 없으면 생략형으로 봅니다 —
        "그 중에" 는 앞 답변의 한 건이 아니라 앞 범위를 가리킵니다. */
     const elliptic = looksFollowUp(text) || !!ordinal ||
@@ -1163,7 +1190,10 @@ window.AskEngine = (function () {
       if (prev && !metrics.length && !groups.length && !dateCols.length && !isMeta) {
         if (prev.metricKeys && prev.metricKeys.length) {
           metrics = prev.metricKeys.map(k => table.columns.find(c => c.key === k)).filter(Boolean);
-          if (metrics.length) inherited.push("직전 질의의 항목(" + metrics[0].label + ")을 이어받았습니다");
+          if (metrics.length) {
+            metricInherited = true;
+            inherited.push("직전 질의의 항목(" + metrics[0].label + ")을 이어받았습니다");
+          }
         }
       }
     }
@@ -1172,18 +1202,52 @@ window.AskEngine = (function () {
        "두 번째로 높은" 은 그 자체로 순위를 말합니다. "다음으로 높은" 은
        앞에서 몇 위를 봤는지에 달려 있으므로 carry 의 rank 에 1을 더합니다.
        "가장 높은" → "다음" → "그 다음" 이면 1 → 2 → 3 이 됩니다. */
+    /* ★ 순위 문맥은 직전 한 턴이 아니라 "마지막 순위 질문" 을 따릅니다.
+       예전에는 prev.intent 를 봤는데, 그 값은 직전 질문의 의도입니다.
+         최저 Titer → 평균 Titer는? → 그 다음은?
+       이러면 직전 의도가 stat 이라 방향이 max 로 돌아가, 최저를 묻던
+       대화가 갑자기 최고를 답합니다. 값이 그럴듯해서 알아채기 어렵습니다.
+       그래서 순위 질문만 갱신하고 그 밖의 질문은 그대로 물려주는
+       rankCtx 를 따로 둡니다. */
+    const prevRank = prev && prev.rankCtx ? prev.rankCtx : null;
     let rank = 1;
+    let rankCtx = prevRank;          /* 순위 질문이 아니면 그대로 물려줍니다 */
+    let rankAsk = null;              /* 방향을 알 수 없어 되물어야 할 때 */
+
     if (ordinal) {
-      rank = ordinal.kind === "abs" ? ordinal.n : (Number(prev && prev.rank) || 1) + 1;
-      if (intent !== "max" && intent !== "min") {
-        /* 방향은 이번 질문에 적힌 말이 먼저이고, 없으면 앞 질문을 따릅니다 */
-        intent = /낮|적은|작은|최소|worst|나쁘/.test(text) ? "min"
-               : /높|많|큰|최대|best|좋/.test(text) ? "max"
-               : (prev && prev.intent === "min") ? "min" : "max";
+      const said = /낮|적은|작은|최소|worst|나쁘/.test(text) ? "min"
+                 : /높|많|큰|최대|best|좋/.test(text) ? "max" : null;
+      const dir = (intent === "max" || intent === "min") ? intent
+                : said ? said
+                : (prevRank && prevRank.intent) ? prevRank.intent : null;
+
+      /* 순위 문맥의 항목과 지금 보려는 항목이 다르고, 이번 질문이 항목을
+         직접 말하지 않았으면 어느 쪽 순위를 묻는지 알 수 없습니다.
+           최저 Titer → 평균 Max VCD는? → 그 다음은?
+         "그 다음" 이 Titer 인지 Max VCD 인지는 사람만 압니다. */
+      const ctxKey = prevRank && prevRank.metricKeys && prevRank.metricKeys[0];
+      const nowKey = metrics[0] && metrics[0].key;
+      const drifted = !!(ctxKey && nowKey && ctxKey !== nowKey && metricInherited);
+
+      if (!dir || drifted) {
+        rankAsk = { n: ordinal.kind === "abs" ? ordinal.n : 2,
+                    why: drifted ? "metric" : "direction",
+                    ctxKey: ctxKey || null, nowKey: nowKey || null,
+                    ctxIntent: prevRank ? prevRank.intent : null };
+      } else {
+        intent = dir;
+        rank = ordinal.kind === "abs" ? ordinal.n
+             : (prevRank && Number(prevRank.rank) || 1) + 1;
+        inherited.push(ordinal.kind === "abs"
+          ? rank + "번째 순위로 읽었습니다"
+          : "\"다음\" 을 " + rank + "번째 순위로 읽었습니다 (앞 순위 질문은 " +
+            (rank - 1) + "위" + (said ? "" : " · 방향도 그때를 따랐습니다") + ")");
       }
-      inherited.push(ordinal.kind === "abs"
-        ? rank + "번째 순위로 읽었습니다"
-        : "\"다음\" 을 " + rank + "번째 순위로 읽었습니다 (앞 질문은 " + (rank - 1) + "위)");
+    }
+    /* 최고·최저·순위 질문일 때만 순위 문맥을 새로 씁니다 */
+    if (!rankAsk && (intent === "max" || intent === "min")) {
+      rankCtx = { intent: intent, rank: rank,
+                  metricKeys: metrics.map(c => c.key) };
     }
 
     /* ── 정성어("제일 좋았어") → 팀 기본 지표 ─────────────────────────── */
@@ -1273,11 +1337,39 @@ window.AskEngine = (function () {
                groupIds: groups.map(g => g.id), rowIds: [],
                /* 순위 질문이 이어질 수 있도록 지금 몇 위를 봤는지와 방향을
                   남깁니다 — "다음" 은 이 값에 1을 더한 것입니다 */
-               rank: rank, intent: intent,
+               rank: rank, intent: intent, rankCtx: rankCtx,
                /* 지목한 배치는 새로 지목할 때까지 유지합니다. 목록을 한 번
                   보여 줬다고 "그거" 의 대상이 사라지지는 않습니다. */
                focus: (prev && prev.focus) ? prev.focus : null }
     };
+
+    /* ── 순위 문맥이 분명하지 않으면 되묻습니다 ────────────────────────
+       "다음" 이 무엇의 다음인지 모르는 채로 답하면, 값은 정확한데 질문과
+       다른 것을 답하게 됩니다. 그게 가장 잡기 어려운 오답입니다. */
+    if (rankAsk) {
+      const label = k => { const c = table.columns.find(x => x.key === k); return c ? c.label : k; };
+      const ord = rankAsk.n + "번째";
+      const isDir = rankAsk.why === "direction";
+      const opts = isDir
+        ? [(metrics[0] ? metrics[0].label + " " : "") + ord + "로 높은 것",
+           (metrics[0] ? metrics[0].label + " " : "") + ord + "로 낮은 것"]
+        : [label(rankAsk.ctxKey) + " " + ord +
+             (rankAsk.ctxIntent === "min" ? "로 낮은 것" : "로 높은 것"),
+           label(rankAsk.nowKey) + " " + ord + "로 높은 것",
+           label(rankAsk.nowKey) + " " + ord + "로 낮은 것"];
+      return decorate(Object.assign(base, {
+        ok: false, kind: "ambiguous-rank",
+        headline: isDir
+          ? "\"" + ord + "\" 가 높은 쪽인지 낮은 쪽인지 알 수 없습니다 — 알려 주세요."
+          : "\"" + ord + "\" 가 " + label(rankAsk.ctxKey) + " 순위인지 " +
+            label(rankAsk.nowKey) + " 순위인지 알 수 없습니다 — 알려 주세요.",
+        choices: opts,
+        note: isDir
+          ? "앞에 순위를 물어본 질문이 없어 이어받을 방향이 없습니다. 추측하지 않았습니다."
+          : "중간에 다른 항목을 조회해서 순위 문맥과 어긋납니다. 추측하지 않았습니다.",
+        suggestions: opts.map(o => o + "은?")
+      }), cond, table);
+    }
 
     /* ── 가리키는 대상이 하나로 좁혀지지 않으면 되묻습니다 ────────────── */
     if (ambiguousRef) {
