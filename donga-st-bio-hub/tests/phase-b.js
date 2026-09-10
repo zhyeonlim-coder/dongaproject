@@ -504,6 +504,105 @@ window.PhaseBTest = (function () {
     return T.out;
   }
 
+  /* ── Claude 경로를 끝까지 —  /api/chat 을 가짜로 세우고 봅니다 ────────
+     키가 없어도 계약은 검사할 수 있어야 합니다. 실제 Claude 응답이 아니라
+     "모델이 이렇게 답했다면 우리 코드가 어떻게 하는가" 를 봅니다.
+
+     여기서 지키려는 것
+       · 규칙이 읽은 질문에는 서버를 부르지 않는다
+       · 규칙이 놓친 질문에서만 서버를 부른다
+       · 모델이 목록 밖 도구를 고르면 실행하지 않는다
+       · 모델이 준 숫자는 답에 실리지 않는다 — 수치는 도구가 만든다
+       · narrate OFF 면 해설 호출이 아예 없다 */
+  function claudePathContract() {
+    const T = mk();
+    const real = window.fetch;
+    const seen = [];
+    let reply = null;                    /* 가짜 모델 응답 */
+    window.fetch = function (url, opt) {
+      if (String(url).indexOf("/api/chat") === -1) return real.apply(this, arguments);
+      let body = null;
+      try { body = JSON.parse(opt.body); } catch (e) { body = { parse: "fail" }; }
+      seen.push(body);
+      return Promise.resolve({ ok: true, status: 200,
+        json: () => Promise.resolve(reply) });
+    };
+    function restore() { window.fetch = real; }
+
+    const VAGUE = "이번 실험에서 뭔가 특이한 점이 있어?";
+    const CLEAR = "Titer 평균이랑 편차";
+
+    /* 1. 규칙이 읽은 질문 — 서버를 부르지 않습니다 */
+    seen.length = 0;
+    window.GlobalAI.setNarrate(false);
+    window.GlobalAI._setLlmState(null);
+    reply = { tool: "searchExperimentData", args: { question: CLEAR } };
+    return window.GlobalAI.ask(CLEAR).then(function (a) {
+      T.add("규칙 경로 · Claude 를 부르지 않음", seen.length === 0,
+        "/api/chat 을 " + seen.length + "번 불렀습니다");
+      T.add("규칙 경로 · 답이 엔진에서 나옴",
+        a.kind === "engine" && a.via === "rule", a.kind + " / via=" + a.via);
+
+      /* 2. 규칙이 놓친 질문 — 서버를 부르고, 모델이 고른 도구를 씁니다 */
+      seen.length = 0;
+      window.GlobalAI._setLlmState(null);
+      reply = { tool: "calculateStatistics", args: { metric: "Titer HCCF" } };
+      return window.GlobalAI.ask(VAGUE);
+    }).then(function (a) {
+      const plan = seen.filter(x => x.mode === "plan");
+      T.add("폴백 · Claude 에게 도구 선택을 물음", plan.length === 1,
+        "plan 호출 " + plan.length + "건");
+      T.add("폴백 · 모델이 고른 도구로 실행됨", a.via === "llm",
+        "via=" + a.via + " kind=" + a.kind);
+      T.add("폴백 · 수치는 엔진이 만든 것",
+        a.kind === "engine" && !!(a.answer && a.answer.verified && a.answer.verified.ok),
+        JSON.stringify(a.answer && a.answer.verified));
+
+      /* 3. 목록 밖 도구는 실행하지 않습니다 */
+      seen.length = 0;
+      window.GlobalAI._setLlmState(null);
+      reply = { tool: "deleteEverything", args: {} };
+      return window.GlobalAI.ask(VAGUE);
+    }).then(function (a) {
+      T.add("가드 · 목록 밖 도구는 버리고 규칙으로 돌아감",
+        a.via !== "llm" && a.kind !== "error", "via=" + a.via + " kind=" + a.kind);
+      T.add("가드 · 그런 도구를 실제로 부르지 않음",
+        window.AITools.names().indexOf("deleteEverything") === -1, "도구가 존재합니다");
+
+      /* 4. 모델이 숫자를 끼워 넣어도 답에 실리지 않습니다 */
+      seen.length = 0;
+      window.GlobalAI._setLlmState(null);
+      reply = { tool: "calculateStatistics", args: { metric: "Titer HCCF" },
+                answer: "평균은 99999 입니다", value: 99999 };
+      return window.GlobalAI.ask(VAGUE);
+    }).then(function (a) {
+      const txt = JSON.stringify(a);
+      T.add("모델 수치 · 모델이 준 값이 답에 없음",
+        txt.indexOf("99999") === -1, "99999 가 답에 실렸습니다");
+
+      /* 5. narrate OFF — 해설 호출이 아예 없습니다 */
+      seen.length = 0;
+      window.GlobalAI.setNarrate(false);
+      window.GlobalAI._setLlmState(null);
+      reply = { tool: "searchExperimentData", args: { question: CLEAR } };
+      return window.GlobalAI.ask(CLEAR).then(function (out) {
+        return window.GlobalAI.narrate(CLEAR, out, function () {});
+      });
+    }).then(function (n) {
+      T.add("narrate OFF · 해설 호출 0건",
+        seen.filter(x => x.mode === "narrate").length === 0,
+        "narrate 를 불렀습니다");
+      T.add("narrate OFF · 해설 결과가 없음", !n || n === null, JSON.stringify(n));
+      restore();
+      window.GlobalAI._setLlmState(null);
+      return T.out;
+    }).catch(function (e) {
+      restore();
+      T.add("Claude 경로 검사가 끝까지 돌았는가", false, (e && e.message) || "오류");
+      return T.out;
+    });
+  }
+
   /* ── 서버 allowlist 와 클라이언트 도구 목록이 어긋나지 않는가 ─────────
      api/chat.js 의 ALLOWED 에 없는 도구는 모델에게 주지도 않고 돌려받아도
      버립니다. 클라이언트에 도구를 더하고 그 목록을 잊으면, 규칙이 놓친
@@ -514,18 +613,36 @@ window.PhaseBTest = (function () {
      없는 환경(정적 파일 서버로 열어 본 경우)에서는 건너뜁니다. */
   function allowlistParity() {
     const T = mk();
-    const mine = window.AITools.names().length;
+    const mine = window.AITools.names();
     return fetch("/api/health").then(r => r.json()).then(function (j) {
+      const srv = j.allowedTools;
+      if (!Array.isArray(srv) || !srv.length) {
+        T.add("서버 allowlist 를 읽음", false,
+          "/api/health 가 allowedTools 를 주지 않았습니다 — 개수만으로는 " +
+          "\"16 대 16 인데 이름이 하나 다르다\" 를 잡을 수 없습니다");
+        return T.out;
+      }
+      T.add("서버 allowlist 를 읽음", true, srv.length + "개");
+      const missing = mine.filter(n => srv.indexOf(n) === -1);
+      const extra = srv.filter(n => mine.indexOf(n) === -1);
+      T.add("서버 allowlist == 클라이언트 도구 목록",
+        missing.length === 0 && extra.length === 0,
+        "서버에 없는 도구 [" + missing.join(", ") + "] · 클라이언트에 없는 이름 [" +
+        extra.join(", ") + "] — api/chat.js 의 ALLOWED 를 맞춰 주세요");
+      /* health 가 보고한 개수까지 셋이 맞는지 봅니다 */
       const c = (j.checks || []).find(x => x.id === "chatRoute");
       const m = c && String(c.note || "").match(/(\d+)\s*개/);
-      if (!m) { T.add("서버 allowlist 개수를 읽음", false, JSON.stringify(c || j).slice(0, 120)); return T.out; }
-      T.add("서버 allowlist 개수를 읽음", true, c.note);
-      T.add("서버 allowlist == 클라이언트 도구 수", Number(m[1]) === mine,
-        "서버 " + m[1] + "개 vs 클라이언트 " + mine + "개 — api/chat.js 의 ALLOWED 를 맞춰 주세요");
+      T.add("health 가 보고한 개수도 같음", !!m && Number(m[1]) === srv.length,
+        c ? c.note : "chatRoute 점검이 없습니다");
       return T.out;
     }).catch(function () {
-      T.add("건너뜀 · /api/health 없음 (정적 서버)", true,
-        "서버 없이 열었으므로 allowlist 대조를 하지 않았습니다");
+      /* ★ 서버가 없을 때 조용히 통과시키면, 목록이 어긋난 채 배포되어도
+         검사는 초록으로 남습니다. 통과시키지 않고 실패로 둡니다 —
+         "확인하지 못했다" 와 "맞다" 는 다릅니다. 정적 서버로 열었다면
+         배포된 주소에서 이 검사를 돌려 주세요. */
+      T.add("서버·클라이언트 도구 목록 대조", false,
+        "/api/health 에 닿지 못해 대조하지 못했습니다. 통과로 넘기지 않습니다 — " +
+        "배포된 주소(=/api 가 있는 곳)에서 이 검사를 실행해 주세요.");
       return T.out;
     });
   }
@@ -539,9 +656,10 @@ window.PhaseBTest = (function () {
       .then(r => { groups.push(["D. 스트리밍 순서", r]); return payloadCheck(); })
       .then(r => { groups.push(["E. 단계별 전송 계약", r]); return narrateContract(); })
       .then(r => { groups.push(["F. 해설 OFF/ON 계약", r]); return Promise.resolve(fallbackOnly()); })
-      .then(r => { groups.push(["G. Claude 는 폴백으로만", r]); return allowlistParity(); })
+      .then(r => { groups.push(["G. Claude 는 폴백으로만", r]); return claudePathContract(); })
+      .then(r => { groups.push(["H. Claude 경로 계약 (가짜 서버)", r]); return allowlistParity(); })
       .then(function (r) {
-        groups.push(["H. 서버·클라이언트 도구 목록 일치", r]);
+        groups.push(["I. 서버·클라이언트 도구 목록 일치", r]);
         const checks = groups.map(function (g) {
           const bad = g[1].filter(x => !x.pass);
           return { id: g[0], pass: !bad.length,

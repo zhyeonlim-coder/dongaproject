@@ -210,16 +210,26 @@ window.GlobalAIUI = (function () {
     scroll();
 
     const slot = msg.querySelector("[data-slot]");
-    /* 도구 실행 단계를 알려 줍니다 — 무엇을 하고 있는지 보여야 기다립니다 */
-    const plan = window.GlobalAI._route(question, window.AIContext.get());
-    const toolKo = (window.AITools.SPEC.find(s => s.name === plan.tool) || {}).ko || plan.tool;
-    slot.innerHTML = statusHTML(toolKo + " 실행 중…");
-
-    window.GlobalAI.ask(question).then(function (out) {
+    /* 도구 실행 단계를 알려 줍니다 — 무엇을 하고 있는지 보여야 기다립니다.
+       단계는 GlobalAI 가 알려 줍니다. 화면에서 route() 를 다시 부르면
+       실제로 실행되는 도구와 어긋납니다 (문헌 후속처럼 안에서 계획이
+       바뀌는 경우가 있습니다). */
+    let sawLlm = false;
+    window.GlobalAI.ask(question, function (info) {
+      if (info.stage === "llm") {
+        sawLlm = true;
+        slot.innerHTML = statusHTML("규칙으로 읽지 못해 Claude 에게 도구 선택을 묻는 중…");
+      } else if (info.stage === "tool") {
+        slot.innerHTML = statusHTML(info.ko + " 실행 중…" +
+          (info.via === "llm" ? " (Claude 가 고른 도구)" : ""));
+      }
+      scroll();
+    }).then(function (out) {
+      if (sawLlm && out) out.sawLlm = true;
       /* ★ 여기서 그리는 수치는 전부 검증을 통과한 것입니다.
          표·통계·핵심 결과를 먼저 확정 표시하고, 그 다음에야 해설을
          흘려보냅니다. 순서가 뒤집히면 검증 안 된 숫자가 먼저 보입니다. */
-      slot.innerHTML = answerHTML(out);
+      slot.innerHTML = answerHTML(out) + pathHTML(out);
       wireAnswer(slot, out);
       busy = false; scroll();
       streamNarration(slot, question, out);
@@ -246,7 +256,7 @@ window.GlobalAIUI = (function () {
     if (!window.GlobalAI.narrate) return;
     if (out.kind === "error" || out.kind === "empty" ||
         out.kind === "action-proposal" || out.kind === "no-data" ||
-        out.kind === "unsupported") return;
+        out.kind === "unsupported" || out.kind === "literature-one") return;
 
     const box = document.createElement("div");
     box.className = "gai-narr";
@@ -299,6 +309,7 @@ window.GlobalAIUI = (function () {
     if (out.kind === "action-proposal") return actionHTML(out);
     if (out.kind === "formatted") return formattedHTML(out);
     if (out.kind === "literature") return litHTML(out);
+    if (out.kind === "literature-one") return litOneHTML(out);
     if (out.kind === "compare-rows") return compareHTML(out);
     if (out.kind === "doe-anova") return anovaHTML(out);
     if (out.kind === "doe-fit") return fitHTML(out);
@@ -321,6 +332,22 @@ window.GlobalAIUI = (function () {
     if (chips.length) h += '<div class="gai-cond">' + chips.join("") + "</div>";
 
     h += '<div class="gai-headline">' + esc(r.headline) + "</div>";
+
+    /* 가리키는 대상이 여럿일 때 — 아무거나 고르지 않고 누르게 합니다.
+       버튼은 그 배치명으로 다시 묻는 것이므로, 눌러도 새로운 해석이
+       끼어들지 않습니다. */
+    if (r.kind === "ambiguous-ref" && r.choices && r.choices.length) {
+      const metricLabel = r.metric ? r.metric.label : null;
+      h += '<div class="gai-sugg">' +
+        r.choices.slice(0, 8).map(function (c) {
+          const q = metricLabel ? c + " 의 " + metricLabel + "은?" : c + " 알려줘";
+          return '<button type="button" data-q="' + esc(q) + '">' + esc(c) + "</button>";
+        }).join("") +
+        (r.choices.length > 8
+          ? '<button type="button" data-q="그 중 전부 알려줘">전부 ' + esc(r.choices.length) + "건</button>"
+          : "") +
+        "</div>";
+    }
 
     if (r.stats && r.metric) {
       h += '<div class="gai-stat"><div class="gai-stat-k">' + esc(r.metric.label) + " 평균</div>" +
@@ -395,6 +422,21 @@ window.GlobalAIUI = (function () {
     return '<div class="gai-src">' + tags.join("") + "</div>";
   }
 
+  /* ── 어느 경로로 답했는가 ─────────────────────────────────────────────
+     규칙이 읽었는지, Claude 가 도구를 골랐는지 밝힙니다. 어느 쪽이든
+     수치는 이 브라우저가 계산하고 대조하지만, 도구 선택을 외부 모델이
+     했다는 사실은 사용자가 알아야 합니다 — 답이 어긋났을 때 어디를
+     의심해야 하는지가 달라집니다. */
+  function pathHTML(out) {
+    if (!out || out.kind === "empty") return "";
+    const llm = out.via === "llm";
+    if (!llm && !out.sawLlm) return "";
+    return '<div class="gai-src"><span class="gai-src-tag' + (llm ? " is-external" : "") + '">' +
+      (llm ? "🤖 Claude 가 도구를 골랐습니다 — 수치는 이 브라우저가 계산·대조했습니다"
+           : "규칙이 읽지 못해 Claude 에게 물었지만, 결국 규칙 경로로 답했습니다") +
+      "</span></div>";
+  }
+
   /* 화면 조작 — 제안만 하고 사용자가 누를 때만 실행 */
   const ACTION_KO = { filter: "필터를 적용", sort: "정렬을 적용", select: "배치를 선택" };
   function actionHTML(out) {
@@ -429,6 +471,52 @@ window.GlobalAIUI = (function () {
     if (d.source) h += '<div class="gai-note">' + esc(d.source) + "</div>";
     h += srcHTML(out.meta);
     return h;
+  }
+
+  /* 문헌 후속 답변 — 논문 한 편.
+     DOI 가 없으면 없다고 적습니다. 초록은 출처가 준 문장을 그대로 옮기고,
+     그렇다고 밝힙니다 — 우리가 읽고 요약한 것이 아닙니다. */
+  function litOneHTML(out) {
+    const d = out.data, p = d.paper;
+    const head = d.aspect === "doi" ? "DOI"
+      : d.aspect === "abstract" ? "초록 (출처 원문)"
+      : d.aspect === "cited" ? "가장 많이 인용된 논문"
+      : d.aspect === "select" ? "선택한 논문" : "가장 최근 논문";
+
+    let h = '<div class="gai-headline">' + esc(head) +
+      (d.query ? ' · "' + esc(d.query) + '" 검색 결과 ' + esc(d.total) + "건 중" : "") + "</div>";
+
+    if (d.tied > 1) {
+      h += '<div class="gai-warn">같은 조건인 논문이 ' + esc(d.tied) +
+        "편입니다 — 한 편만 지목하지 않고 첫 편을 보여 드립니다. " +
+        "번호로 골라 주시면 그 논문으로 이어서 답합니다.</div>";
+    }
+
+    h += '<div class="gai-stat" style="padding:var(--s-3)">' +
+      '<div style="font-weight:600;font-size:12.5px">' + esc(p.title) + "</div>" +
+      '<div class="gai-stat-sub">' +
+        esc([p.authors, p.journal, p.year].filter(Boolean).join(" · ")) + "</div>" +
+      (p.doi
+        ? '<div class="gai-stat-sub">DOI: <a href="https://doi.org/' + esc(p.doi) +
+          '" target="_blank" rel="noopener">' + esc(p.doi) + "</a></div>"
+        : '<div class="gai-stat-sub">DOI 가 검색 결과에 없습니다 — 만들지 않았습니다. ' +
+          "원문 링크로 확인하세요.</div>") +
+      (p.url ? '<div class="gai-stat-sub"><a href="' + esc(p.url) +
+        '" target="_blank" rel="noopener">원문 보기</a></div>' : "") +
+      (typeof p.cites === "number" ? '<div class="gai-stat-sub">인용 ' + esc(p.cites) + "회</div>" : "") +
+      "</div>";
+
+    if (d.aspect === "abstract") {
+      h += p.abstract
+        ? '<div class="gai-a" style="white-space:pre-wrap">' + esc(p.abstract) + "</div>" +
+          '<div class="gai-note">출처가 제공한 초록을 그대로 옮긴 것입니다. ' +
+          "우리가 읽고 요약한 것이 아니며, 본문의 결론은 원문에서 확인하세요.</div>"
+        : '<div class="gai-note">이 논문은 검색 결과에 초록이 포함되어 있지 않습니다. ' +
+          "내용을 지어내지 않았습니다 — 원문 링크에서 확인해 주세요.</div>";
+    }
+
+    h += '<div class="gai-note">직전 검색 결과 안에서만 답했습니다 — 다시 검색하지 않았습니다.</div>';
+    return h + srcHTML(out.meta);
   }
 
   function litHTML(out) {

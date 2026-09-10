@@ -119,7 +119,10 @@ window.AIContext = (function () {
       currentDateRange: s && s.raw && (s.raw.from || s.raw.to)
         ? { from: s.raw.from || null, to: s.raw.to || null } : null,
       currentLiteratureQuery: null,
-      currentLiteratureResults: null
+      currentLiteratureResults: null,
+      selectedLiterature: null,     /* 지금 가리키는 논문 한 편 */
+      selectedLiteratureId: null,
+      selectedDOI: null             /* 그 논문의 실제 DOI (없으면 null) */
     };
 
     Object.keys(providers).forEach(function (k) {
@@ -133,6 +136,19 @@ window.AIContext = (function () {
     if (out.literature) {
       out.currentLiteratureQuery = out.literature.query || null;
       out.currentLiteratureResults = out.literature.items || null;
+    }
+    /* 봇이 자기 대화에서 검색한 문헌과 그 안에서 지목한 논문. 화면 검색
+       (ask.js)과 자리를 나눠 둡니다 — 한 자리에 섞으면 어느 쪽 목록을
+       가리키는지 알 수 없게 되고, "그 논문" 이 엉뚱한 것을 가리킵니다.
+       결과 배열을 여기서 복사해 두지는 않습니다 — GlobalAI 가 들고 있는
+       것을 그대로 읽습니다. */
+    if (out.aiLiterature) {
+      const L = out.aiLiterature;
+      if (!out.currentLiteratureQuery) out.currentLiteratureQuery = L.query || null;
+      if (!out.currentLiteratureResults) out.currentLiteratureResults = L.items || null;
+      out.selectedLiterature = L.selected || null;
+      out.selectedLiteratureId = L.selected ? L.selected.key : null;
+      out.selectedDOI = L.selected ? (L.selected.doi || null) : null;
     }
     if (out.doe) {
       out.selectedFactors = out.doe.factorDefs || null;

@@ -50,6 +50,7 @@ module.exports = async function handler(req, res) {
   }
 
   const checks = [];
+  let allowedTools = [];          /* 서버 allowlist — 클라이언트와 대조용 */
   const add = (id, ok, note) => checks.push({ id: id, ok: !!ok, note: note || "" });
 
   /* 1. 라우트 */
@@ -67,8 +68,13 @@ module.exports = async function handler(req, res) {
   let chatMod = null;
   try {
     chatMod = require("./chat.js");
+    /* 개수만 알려 주면 "16 대 16 인데 이름이 하나 다르다" 를 잡지 못합니다.
+       이름을 그대로 내보내 클라이언트 목록과 집합으로 대조하게 합니다.
+       도구 이름은 비밀이 아닙니다 — 이미 클라이언트 자산에 들어 있습니다. */
+    const allowed = chatMod.ALLOWED || [];
     add("chatRoute", typeof chatMod === "function",
-      "chat.js 로드됨 · 허용 도구 " + (chatMod.ALLOWED || []).length + "개");
+      "chat.js 로드됨 · 허용 도구 " + allowed.length + "개");
+    allowedTools = allowed.slice();
   } catch (e) {
     /* ★ 예외 원문을 응답에 넣지 않습니다.
        require 실패 메시지에는 서버의 파일 경로가 들어갑니다. 점검 도구가
@@ -94,6 +100,7 @@ module.exports = async function handler(req, res) {
       ok: checks.every(c => c.ok),
       mode: "shallow",
       checks: checks,
+      allowedTools: allowedTools,
       hint: key.ok
         ? "실제 Claude 호출까지 확인하려면 /api/health?deep=1 (요금이 발생합니다)"
         : "Vercel 프로젝트 설정 → Environment Variables 에 ANTHROPIC_API_KEY 를 넣고 재배포하세요.",
@@ -105,6 +112,7 @@ module.exports = async function handler(req, res) {
 
   if (!key.ok) {
     return res.status(503).json({ ok: false, mode: "deep", checks: checks,
+      allowedTools: allowedTools,
       message: "키가 없어 실제 호출은 건너뛰었습니다." });
   }
 

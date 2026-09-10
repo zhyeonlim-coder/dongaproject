@@ -500,14 +500,60 @@ window.AskEngine = (function () {
      표시가 없는데도 이어받으면 사용자가 전체를 물었는데 조용히 좁아집니다. */
   /* 생략형 후속 질문 — 범위를 그대로 두고 보는 항목만 바꿉니다 */
   const FOLLOWUP = ["그럼", "그러면", "그건", "이어서", "위에서", "앞에서",
-    "같은 범위", "동일 범위", "계속"];
+    "같은 범위", "동일 범위", "계속", "그 중", "그중", "이 중", "나머지"];
   /* 지시어 — 직전 답변이 지목한 그 배치를 가리킵니다 */
   /* 연구원은 배치를 "배치" 라고만 부르지 않습니다 — DoE 화면에서는 "조건",
      실험 얘기 중에는 "실험", "런" 이라고 부릅니다. "그 조건의 Titer 는?" 이
      승계되지 않아 전체 28건 통계를 되돌려 주고 있었습니다. */
   const DEICTIC = ["그거", "그것", "저거", "그 배치", "이 배치", "해당 배치", "방금 그", "아까 그",
-    "그 조건", "이 조건", "해당 조건", "그 실험", "이 실험", "해당 실험", "그 런", "해당 런"];
+    "그 조건", "이 조건", "해당 조건", "그 실험", "이 실험", "해당 실험", "그 런", "해당 런",
+    "그 결과", "해당 결과", "그 데이터", "해당 데이터", "그 케이스", "해당 케이스"];
+  /* 복수·집합을 가리키는 말 — 이쪽은 여러 건을 가리켜도 모호하지 않습니다.
+     "그 중에" 는 앞 범위 전체를 뜻하고, "그 배치들" 은 여러 건을 뜻합니다. */
+  const PLURAL_REF = ["그 중", "그중", "이 중", "그것들", "그거들", "배치들", "전부", "모두", "다들"];
+  function looksPlural(text) { return PLURAL_REF.some(w => has(text, w)); }
   function looksFollowUp(text) { return FOLLOWUP.some(f => has(text, f)); }
+
+  /* ── 순위 참조 — "다음으로 높은" · "두 번째로 낮은" ───────────────────
+     기존 최고·최저 경로를 그대로 씁니다. 정렬은 이미 extremeAnswer 가
+     하고 있으므로, 여기서는 "몇 번째 순위인가" 만 읽어 넘깁니다.
+     별도 랭킹 엔진을 만들면 정렬 기준·동점 처리가 두 벌이 됩니다.
+
+     ★ 순위는 값 단위로 셉니다. 최고값이 공동 3건이면 "다음으로 높은" 은
+       그 3건 중 하나가 아니라 그보다 낮은 다음 값입니다. 행 단위로 세면
+       사용자는 새 값을 기대했는데 같은 값을 다시 받습니다. */
+  const ORD_WORDS = ["다음으로", "다음 으로", "그 다음", "그다음", "다음은", "다음 것",
+    "다음거", "그 뒤", "차순위", "차 순위", "그 아래"];
+  const ORD_NUM = [
+    [/(첫|1)\s*번째/, 1], [/(둘|두|2)\s*번째/, 2], [/(셋|세|3)\s*번째/, 3],
+    [/(넷|네|4)\s*번째/, 4], [/(다섯|5)\s*번째/, 5], [/(여섯|6)\s*번째/, 6],
+    [/(일곱|7)\s*번째/, 7], [/(여덟|8)\s*번째/, 8], [/(아홉|9)\s*번째/, 9],
+    [/(열|10)\s*번째/, 10]
+  ];
+  /* 반환: { kind: "abs", n } 명시 순위 · { kind: "next" } 이어지는 다음 순위 · null */
+  function looksOrdinal(text) {
+    const t = String(text || "");
+    /* ★ 숫자를 먼저 봅니다. 한글 수사 표를 먼저 훑으면 "999번째" 안의
+       "9번째" 가 걸려 9위로 읽습니다 — 물어본 것과 다른 순위를 답하면서
+       그럴듯한 값을 내놓게 됩니다. 숫자는 통째로 읽어야 합니다. */
+    const d = t.match(/(\d+)\s*번째/);
+    if (d) return { kind: "abs", n: +d[1] };
+    for (let i = 0; i < ORD_NUM.length; i++) {
+      if (ORD_NUM[i][0].test(t)) return { kind: "abs", n: ORD_NUM[i][1] };
+    }
+    if (ORD_WORDS.some(w => has(t, w))) return { kind: "next" };
+    return null;
+  }
+  /* 같은 값끼리 묶은 순위 그룹 — [[값이 같은 행들], …] */
+  function rankGroups(sorted, key) {
+    const out = [];
+    sorted.forEach(function (r) {
+      const last = out[out.length - 1];
+      if (last && last[0][key] === r[key]) last.push(r);
+      else out.push([r]);
+    });
+    return out;
+  }
   function looksDeictic(text) {
     let hit = null;
     DEICTIC.forEach(function (d) { if (!hit && has(text, d)) hit = d; });
@@ -589,7 +635,10 @@ window.AskEngine = (function () {
       dayRef: null, applied: [], unhandled: [], warnings: [], clarify: null,
       ignoredTokens: []
     };
-    let t = " " + text + " ";
+    /* 순위 표현은 위에서 이미 읽었습니다. 여기서 다시 보면 "30번째" 의
+       30 이 "조건으로 읽지 못한 숫자" 로 남아, 제대로 답한 질문에 거짓
+       경고가 붙습니다. 읽은 만큼 지워서 넘깁니다. */
+    let t = " " + String(text).replace(/\d+\s*번째/g, " ") + " ";
     const eat = (re, fn) => {
       let m;
       while ((m = re.exec(t)) !== null) {
@@ -1069,18 +1118,41 @@ window.AskEngine = (function () {
        줍니다 — 사용자가 가리킨 것은 한 건인데도. */
     const prev = o.prev && o.prev.carry ? o.prev.carry : null;
     const inherited = [];
-    const deictic = looksDeictic(text);
+    /* ★ 순위 질문("다음으로 높은 건?")은 지시어처럼 보이더라도 앞 답변이
+       지목한 한 건으로 좁히면 안 됩니다. 좁히면 그 한 건 안에서 다시
+       1위를 찾아 같은 배치를 되돌려 줍니다. 순위는 앞 질문의 <b>범위</b>를
+       이어받아 그 안에서 다음 값을 찾는 일입니다. */
+    const ordinal = looksOrdinal(text);
+    const deictic = ordinal ? null : looksDeictic(text);
+    let ambiguousRef = null;       /* 한 건을 가리키는 말인데 후보가 여럿일 때 */
     /* 슬롯이 "앞 질문을 가리킨다"고 했는데 지시어가 없으면 생략형으로 봅니다 —
        "그 중에" 는 앞 답변의 한 건이 아니라 앞 범위를 가리킵니다. */
-    const elliptic = looksFollowUp(text) || (!!plan && plan.refersToPrevious && !deictic);
+    const elliptic = looksFollowUp(text) || !!ordinal ||
+                     (!!plan && plan.refersToPrevious && !deictic);
     if (deictic || elliptic) {
       if (!prev) {
         inherited.push("이어받을 앞 질문이 없어 이번 질문만으로 조회했습니다");
       } else if (deictic && prev.focus && prev.focus.ids && prev.focus.ids.length && specIsEmpty(scope.spec)) {
+        /* ★ 한 건을 가리키는 말인데 후보가 여럿이면 아무거나 고르지 않습니다.
+           동점이라 25건이 지목된 뒤 "그 배치의 Titer 는?" 이라고 물으면,
+           사용자는 한 건을 가리켰다고 생각합니다. 25건 평균을 그 한 건의
+           값처럼 읽게 두는 것이 여기서 가장 위험한 실패입니다. */
+        if (prev.focus.ids.length > 1 && !looksPlural(text)) {
+          ambiguousRef = { word: deictic, labels: prev.focus.labels.slice() };
+        } else {
+          scope.spec = { projects: [], studies: [], batchIds: prev.focus.ids.slice() };
+          finishScope(scope, table);
+          inherited.push("\"" + deictic + "\" 는 직전 답변이 지목한 " +
+            prev.focus.labels.join(", ") + " 를 가리키는 것으로 봤습니다");
+        }
+      } else if (looksPlural(text) && prev.focus && prev.focus.ids &&
+                 prev.focus.ids.length > 1 && specIsEmpty(scope.spec)) {
+        /* "그 중 전부" — 앞에서 지목된 여러 건을 그대로 이어받습니다.
+           여기를 빼면 앞 답이 25건을 지목했는데 다음 답이 28건 전체를
+           돌려주고, 사용자는 그 숫자를 25건의 값으로 읽습니다. */
         scope.spec = { projects: [], studies: [], batchIds: prev.focus.ids.slice() };
         finishScope(scope, table);
-        inherited.push("\"" + deictic + "\" 는 직전 답변이 지목한 " +
-          prev.focus.labels.join(", ") + " 를 가리키는 것으로 봤습니다");
+        inherited.push("직전 답변이 지목한 " + prev.focus.ids.length + "건을 그대로 이어받았습니다");
       } else if (!specIsEmpty(prev.spec) && specIsEmpty(scope.spec)) {
         scope.spec = { projects: prev.spec.projects.slice(), studies: prev.spec.studies.slice(),
                        batchIds: prev.spec.batchIds.slice() };
@@ -1094,6 +1166,24 @@ window.AskEngine = (function () {
           if (metrics.length) inherited.push("직전 질의의 항목(" + metrics[0].label + ")을 이어받았습니다");
         }
       }
+    }
+
+    /* ── 순위 해석 ─────────────────────────────────────────────────────
+       "두 번째로 높은" 은 그 자체로 순위를 말합니다. "다음으로 높은" 은
+       앞에서 몇 위를 봤는지에 달려 있으므로 carry 의 rank 에 1을 더합니다.
+       "가장 높은" → "다음" → "그 다음" 이면 1 → 2 → 3 이 됩니다. */
+    let rank = 1;
+    if (ordinal) {
+      rank = ordinal.kind === "abs" ? ordinal.n : (Number(prev && prev.rank) || 1) + 1;
+      if (intent !== "max" && intent !== "min") {
+        /* 방향은 이번 질문에 적힌 말이 먼저이고, 없으면 앞 질문을 따릅니다 */
+        intent = /낮|적은|작은|최소|worst|나쁘/.test(text) ? "min"
+               : /높|많|큰|최대|best|좋/.test(text) ? "max"
+               : (prev && prev.intent === "min") ? "min" : "max";
+      }
+      inherited.push(ordinal.kind === "abs"
+        ? rank + "번째 순위로 읽었습니다"
+        : "\"다음\" 을 " + rank + "번째 순위로 읽었습니다 (앞 질문은 " + (rank - 1) + "위)");
     }
 
     /* ── 정성어("제일 좋았어") → 팀 기본 지표 ─────────────────────────── */
@@ -1181,10 +1271,33 @@ window.AskEngine = (function () {
          spec(범위) 과 focus(지목한 배치) 를 나눠 둡니다. */
       carry: { spec: scope.spec, metricKeys: metrics.map(c => c.key),
                groupIds: groups.map(g => g.id), rowIds: [],
+               /* 순위 질문이 이어질 수 있도록 지금 몇 위를 봤는지와 방향을
+                  남깁니다 — "다음" 은 이 값에 1을 더한 것입니다 */
+               rank: rank, intent: intent,
                /* 지목한 배치는 새로 지목할 때까지 유지합니다. 목록을 한 번
                   보여 줬다고 "그거" 의 대상이 사라지지는 않습니다. */
                focus: (prev && prev.focus) ? prev.focus : null }
     };
+
+    /* ── 가리키는 대상이 하나로 좁혀지지 않으면 되묻습니다 ────────────── */
+    if (ambiguousRef) {
+      const L = ambiguousRef.labels;
+      const shown = L.slice(0, 5);
+      return decorate(Object.assign(base, {
+        ok: false, kind: "ambiguous-ref",
+        headline: "\"" + ambiguousRef.word + "\" 가 가리킬 수 있는 배치가 " + L.length +
+          "건입니다 — 어느 것인지 알려 주세요.",
+        facts: shown.map(x => ({ k: "후보", v: x })),
+        choices: L,
+        metric: metrics[0]
+          ? { key: metrics[0].key, label: metrics[0].label, unit: metrics[0].unit } : null,
+        note: (L.length > shown.length ? "후보 " + L.length + "건 중 " + shown.length + "건만 적었습니다. " : "") +
+          "배치명을 그대로 적어 주시면 그 배치로 답합니다. " +
+          "" + L.length + "건 전부를 함께 보시려면 \"그 중 전부\" 라고 해 주세요.",
+        suggestions: shown.slice(0, 3).map(x => x + " 의 " +
+          (metrics[0] ? metrics[0].label : "값") + "은?")
+      }), cond, table);
+    }
 
     /* ── 단위가 분명하지 않으면 답하기 전에 되묻습니다 ────────────────── */
     if (cond.clarify) return decorate(clarifyAnswer(base, table, scoped, cond), cond, table);
@@ -1301,7 +1414,7 @@ window.AskEngine = (function () {
     else if (intent === "count") out = countAnswer(base, table, rows, metric);
     else if (intent === "stat") out = statAnswer(base, table, rows, metric, alt);
     else if (intent === "max" || intent === "min")
-      out = extremeAnswer(base, table, rows, metric, intent, alt, askedCondition, missingAsked, scope);
+      out = extremeAnswer(base, table, rows, metric, intent, alt, askedCondition, missingAsked, scope, rank);
     else out = listAnswer(base, table, rows, metric, alt, scope, cond);
 
     /* 상위/하위 N — list 이외의 의도에서도 개수를 실제로 반영합니다 */
@@ -1818,7 +1931,7 @@ window.AskEngine = (function () {
   }
 
   /* ── 최고 / 최저 ─────────────────────────────────────────────────────── */
-  function extremeAnswer(base, table, rows, metric, intent, alt, askedCondition, missingAsked, scope) {
+  function extremeAnswer(base, table, rows, metric, intent, alt, askedCondition, missingAsked, scope, rank) {
     const withVal = rows.filter(r => typeof r[metric.key] === "number" && isFinite(r[metric.key]));
     if (!withVal.length) {
       return Object.assign(base, {
@@ -1831,9 +1944,32 @@ window.AskEngine = (function () {
     }
     const sorted = withVal.slice().sort((a, b) =>
       intent === "max" ? b[metric.key] - a[metric.key] : a[metric.key] - b[metric.key]);
-    const top = sorted[0];
+
+    /* ── 순위 ──────────────────────────────────────────────────────────
+       값이 같은 행은 한 순위로 묶습니다. 최고값이 공동 3건일 때 "다음으로
+       높은" 은 그 3건 중 하나가 아니라 그보다 낮은 다음 값입니다.
+       요청한 순위가 없으면 지어내지 않고 없다고 말합니다. */
+    const n = Math.max(1, Math.round(Number(rank) || 1));
+    const groupsByVal = rankGroups(sorted, metric.key);
+    if (n > groupsByVal.length) {
+      return Object.assign(base, {
+        ok: false, kind: "no-rank",
+        headline: metric.label + " 의 " + n + "번째 순위 값이 없습니다 — " +
+          base.scopeLabel + " 범위에 서로 다른 값이 " + groupsByVal.length + "개뿐입니다.",
+        stats: stats(values(withVal, metric.key)),
+        metric: { key: metric.key, label: metric.label, unit: metric.unit },
+        rows: sorted.slice(0, 8).map(r => evidence(r, table, metric)),
+        evidenceCols: evidenceCols(table, metric),
+        note: "순위를 채우려고 없는 값을 만들지 않았습니다.",
+        suggestions: suggestList(table)
+      });
+    }
+    const tier = groupsByVal[n - 1];
+    const top = tier[0];
     const s = stats(values(withVal, metric.key));
-    const word = intent === "max" ? "가장 높은" : "가장 낮은";
+    const word = intent === "max"
+      ? (n === 1 ? "가장 높은" : n + "번째로 높은")
+      : (n === 1 ? "가장 낮은" : n + "번째로 낮은");
 
     /* 동점 — 같은 값이 여럿이면 하나만 지목하는 것은 틀린 진술입니다.
        "배양 일수가 가장 높은 배치는 B045-1" 은 25건이 똑같이 13일일 때
@@ -1847,7 +1983,7 @@ window.AskEngine = (function () {
       : names.slice(0, 3).join(" · ") + " 외 " + (tieN - 3) + "건";
 
     const facts = [{ k: metric.label, v: fmt(topVal, metric) }]
-      .concat(tieN > 1 ? [{ k: "공동 " + word.replace("가장 ", "") + " 배치", v: tieN + "건" }] : [])
+      .concat(tieN > 1 ? [{ k: "공동 " + word.replace(/^가장 /, "") + " 배치", v: tieN + "건" }] : [])
       .concat(rowMeta(top, table));
     const ctx = table.kind === "internal" && tieN === 1 ? contextOf(top, table, metric.key) : [];
 

@@ -74,18 +74,80 @@ window.GlobalAI = (function () {
     } catch (e) { return null; }
   }
 
-  /* 직전 답이 문헌 목록이었는가 — 재가공물은 건너뜁니다 */
-  function lastWasLiterature() {
+  /* ── 문헌 대화 상태 ──────────────────────────────────────────────────
+     검색 결과 자체는 history 에 이미 있습니다. 여기서 따로 갖고 있는 것은
+     "그 중 어느 논문을 가리키는가" 하나뿐입니다 — 결과를 복사해 두면
+     history 와 어긋나서, 화면에 보이는 목록과 다른 논문을 답하게 됩니다. */
+  let litFocusKey = null;
+  /* 직전 문헌 검색 결과. history 는 MAX_TURNS 만큼만 남으므로 "검색 → 최신 →
+     DOI → 주요 결과" 네 턴을 가면 원본 목록이 밀려 사라집니다. 대화가 아직
+     문헌을 향해 있는 동안은 그 목록을 여기서 붙잡습니다 — ask.js 화면 검색과
+     별개인, 봇이 자기가 받은 결과입니다. */
+  let litCache = null;             /* { query, items } */
+
+  function lastLiterature() {
+    if (!litCache || !litCache.items || !litCache.items.length) return null;
+    /* 사내 데이터 조회가 끼면 "그 논문" 의 대상이 흐려집니다 — 그때는 문맥을
+       끊고 사내 조회 쪽으로 답합니다. */
     for (let i = history.length - 1; i >= 0; i--) {
       const a = history[i].answer;
-      if (!a || a.kind === "formatted" || a.kind === "action-proposal") continue;
-      return a.kind === "literature";
+      if (!a) continue;
+      if (a.kind === "literature" || a.kind === "literature-one") break;
+      if (a.kind === "formatted" || a.kind === "action-proposal" ||
+          a.kind === "unsupported" || a.kind === "empty") continue;
+      return null;
     }
-    return false;
+    return { query: litCache.query, items: litCache.items, focusKey: litFocusKey };
   }
+  function lastWasLiterature() { return !!lastLiterature(); }
+
   const CARRY_WORDS = ["그 중", "그중", "이 중", "그것", "그거", "그 논문", "이 논문",
     "그 결과", "방금", "아까", "그럼", "그러면", "다음으로", "나머지"];
   function looksLikeFollowUp(t) { return CARRY_WORDS.some(w => has(t, w)); }
+
+  /* 문헌 후속 질문에서 무엇을 묻는지 — 없으면 null */
+  function litAspect(t) {
+    if (/doi/i.test(t)) return "doi";
+    if (/초록|abstract|주요\s*결과|결론|무슨 내용|어떤 내용|정리해|요약/.test(t)) return "abstract";
+    if (/인용|cited|많이 인용/.test(t)) return "cited";
+    if (/최신|최근|가장 새|제일 새|newest|latest/.test(t)) return "latest";
+    return null;
+  }
+  /* ── 문헌 후속인가, 새 검색인가 ───────────────────────────────────────
+     "가장 최근 논문은?" 에도 "논문" 이 들어 있어서, 규칙만 보면 새 검색으로
+     갑니다. 그러면 같은 질의라도 순위가 달라져 화면의 목록과 다른 논문을
+     "그 논문" 이라고 답하게 됩니다.
+
+     가르는 기준은 "새 주제어를 가져왔는가" 입니다. EGFR · HER2 처럼 라틴
+     문자 토큰이 새로 나오면 새 검색으로 봅니다. 지금 질의에 이미 있는
+     낱말이면 후속으로 봅니다 — "EGFR 논문 중 최신 것은?" 이 그렇습니다. */
+  function litNewSubject(t, cache) {
+    const q = String((cache && cache.query) || "").toLowerCase();
+    const toks = String(t).match(/[A-Za-z][A-Za-z0-9\-]{1,}/g) || [];
+    return toks.some(function (x) {
+      const low = x.toLowerCase();
+      if (low === "doi") return false;            /* 후속 질문에 자주 나오는 말 */
+      return q.indexOf(low) === -1;
+    });
+  }
+  function isLitFollowUp(t, cache) {
+    if (!cache) return false;
+    if (litNewSubject(t, cache)) return false;
+    return !!(litAspect(t) || litIndex(t) || looksLikeFollowUp(t));
+  }
+
+  /* "세 번째 논문" · "2번 논문" — 목록에서 골라 달라는 말 */
+  function litIndex(t) {
+    /* 숫자를 먼저 통째로 읽습니다 — 한글 수사 표를 먼저 훑으면 "12번째" 의
+       "2번째" 가 걸려 다른 논문을 가리킵니다. */
+    const d = t.match(/(\d+)\s*(?:번째|번)/);
+    if (d) return +d[1];
+    const ko = [["첫", 1], ["둘|두", 2], ["셋|세", 3], ["넷|네", 4], ["다섯", 5]];
+    for (let i = 0; i < ko.length; i++) {
+      if (new RegExp("(" + ko[i][0] + ")\\s*(번째|번)").test(t)) return ko[i][1];
+    }
+    return null;
+  }
 
   function route(q, ctx) {
     const t = String(q || "");
@@ -236,7 +298,11 @@ window.GlobalAI = (function () {
   /* ── 실행 ────────────────────────────────────────────────────────────
      반환은 화면이 그대로 그릴 수 있는 모양입니다. 수치는 이 시점에 이미
      검증을 통과했습니다 — 화면은 검증 여부를 다시 따지지 않아도 됩니다. */
-  function ask(q) {
+  /* onStage(info) — 어느 도구를 어떤 경로로 부르는지 화면에 알려 줍니다.
+     화면이 직접 route() 를 다시 부르면 실제로 실행되는 도구와 어긋납니다
+     (문헌 후속처럼 여기서 계획을 바꾸는 경우가 있습니다). */
+  function ask(q, onStage) {
+    const stage = typeof onStage === "function" ? onStage : function () {};
     const question = String(q || "").trim();
     if (!question) {
       return Promise.resolve({ kind: "empty",
@@ -250,27 +316,41 @@ window.GlobalAI = (function () {
     /* ★ 직전 답이 문헌 목록이었는데 "그 중 최신 것은?" 처럼 이어 물으면,
        규칙은 그 말에서 문헌 신호를 못 찾아 사내 배치 데이터 조회로 보냈고
        화면에는 논문 대신 배치 28건이 나왔습니다. 사용자는 논문 목록을 보고
-       물었으므로 그 표를 논문의 답으로 읽습니다. 문헌 후속 질문은 아직
-       지원하지 않으므로, 다른 것을 답하는 대신 못 한다고 말합니다. */
-    if (rulePlan.tool === "searchExperimentData" && lastWasLiterature() &&
-        looksLikeFollowUp(question)) {
-      return Promise.resolve({ kind: "unsupported", tool: "searchLiterature",
-        question: question,
-        headline: "문헌 검색 결과에 이어서 묻는 것은 아직 지원하지 않습니다.",
-        note: "사내 실험 데이터를 대신 조회하면 논문에 대한 답으로 보일 수 있어 그렇게 하지 않았습니다. " +
-              "찾으시는 주제를 한 번 더 적어 주시면 문헌을 다시 검색합니다.",
-        suggestions: suggestions() });
+       물었으므로 그 표를 논문의 답으로 읽습니다. 그래서 문헌 문맥이 살아
+       있는 동안에는 후속 질문을 문헌 쪽으로 돌립니다 — 다시 검색하지 않고
+       그때 받은 목록 안에서만 답합니다. */
+    const lit = lastLiterature();
+    if (lit && isLitFollowUp(question, lit) &&
+        (rulePlan.tool === "searchExperimentData" || rulePlan.tool === "searchLiterature")) {
+      const idx = litIndex(question);
+      const asp = litAspect(question);
+      rulePlan.tool = "literatureFollowUp";
+      rulePlan.args = idx && !asp
+        ? { aspect: "select", index: idx }
+        : { aspect: asp || (litFocusKey ? "abstract" : "latest"), index: idx || null };
     }
 
     const started = Date.now();
+    const koOf = n => ((window.AITools.SPEC.find(s => s.name === n) || {}).ko || n);
 
-    const decide = ruleMissed(question, rulePlan)
+    const willAsk = ruleMissed(question, rulePlan);
+    if (willAsk) stage({ stage: "llm", tool: null, ko: null, via: "llm" });
+    else stage({ stage: "tool", tool: rulePlan.tool, ko: koOf(rulePlan.tool), via: "rule" });
+
+    const decide = willAsk
       ? askServer(question, ctx).then(p => (p && p.tool) ? p : rulePlan)
       : Promise.resolve(rulePlan);
 
     return decide.then(function (plan) {
+      if (willAsk) {
+        stage({ stage: "tool", tool: plan.tool, ko: koOf(plan.tool),
+                via: plan.via || "rule" });
+      }
       return window.AITools.run(plan.tool, Object.assign({}, plan.args, {
-        prev: history.length ? history[history.length - 1].carry : null
+        prev: history.length ? history[history.length - 1].carry : null,
+        /* 문헌 후속 도구는 직전 검색 결과를 그대로 받습니다 — 다시 검색하면
+           같은 질의라도 순위가 달라져 화면의 목록과 다른 논문을 답합니다. */
+        lit: plan.tool === "literatureFollowUp" ? lit : null
       }), ctx).then(function (res) {
         const out = shape(question, plan, res, ctx, Date.now() - started);
         out.via = plan.via || "rule";
@@ -424,10 +504,20 @@ window.GlobalAI = (function () {
   function remember(q, out, res) {
     const carry = out.answer && out.answer.carry
       ? { carry: out.answer.carry, question: q } : null;
+
+    /* 어느 논문을 가리키는지 갱신합니다. 새 검색이 오면 지목은 풀립니다 —
+       앞 검색의 논문을 새 목록의 "그 논문" 으로 계속 가리키면 안 됩니다. */
+    if (out.kind === "literature") {
+      litCache = { query: out.data.query, items: out.data.items || [] };
+      litFocusKey = null;
+    } else if (out.data && out.data.litFocus) {
+      litFocusKey = out.data.litFocus;
+    }
+
     history.push({ q: q, answer: out, carry: carry, at: Date.now() });
     while (history.length > MAX_TURNS) history.shift();
   }
-  function reset() { history.length = 0; }
+  function reset() { history.length = 0; litFocusKey = null; litCache = null; }
 
   function log(q, plan, res, ms) {
     if (!window.AskLog || !window.AskLog.record) return;
@@ -510,6 +600,17 @@ window.GlobalAI = (function () {
     }
 
     return { ok: false, why: "알 수 없는 동작입니다: " + proposal.action };
+  }
+
+  /* 봇의 문헌 대화 상태를 AIContext 표준 자리에 올립니다. 값을 복사해
+     넘기지 않고 함수를 넘겨, 물어볼 때마다 지금 상태를 읽게 합니다. */
+  if (window.AIContext && window.AIContext.provide) {
+    window.AIContext.provide("aiLiterature", function () {
+      if (!litCache) return null;
+      const sel = litFocusKey
+        ? (litCache.items || []).find(p => p.key === litFocusKey) || null : null;
+      return { query: litCache.query, items: litCache.items || [], selected: sel };
+    });
   }
 
   return { ask: ask, reset: reset, suggestions: suggestions, narrate: narrate,

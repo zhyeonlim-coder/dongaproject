@@ -300,7 +300,8 @@ window.GlobalAITest = (function () {
     const T = mk();
     const c = window.AIContext.get();
     ["currentExperiment", "selectedRows", "selectedFilters", "currentDateRange",
-     "currentLiteratureQuery", "currentLiteratureResults"].forEach(function (k) {
+     "currentLiteratureQuery", "currentLiteratureResults",
+     "selectedLiterature", "selectedLiteratureId", "selectedDOI"].forEach(function (k) {
       T.add("Context 필드 존재 · " + k, k in c, "없음");
     });
     T.add("Context 훅 등록 API", typeof window.AIContext.registerHook === "function", "없음");
@@ -308,6 +309,174 @@ window.GlobalAITest = (function () {
     T.add("훅은 등록한 화면에서만", window.AIContext.hook("sort") === null,
       "검사 페이지에 정렬 훅이 있습니다");
     return Promise.resolve(T.out);
+  }
+
+  /* ── 11. 이어지는 대화 ───────────────────────────────────────────────
+     순위 · 지시어 · 문헌 후속. 여기서 지키려는 것은 하나입니다 —
+     사용자가 앞 답을 보고 이어 물었을 때, 답이 <b>그것</b>에 대한 것이어야
+     합니다. 다른 것을 답하면서 그럴듯한 숫자를 붙이는 것이 최악입니다. */
+  function runConversation(t) {
+    const T = mk();
+    const E = window.AskEngine;
+
+    /* 엔진 계약 그대로 씁니다 — prev 는 { carry, question } */
+    function chain(qs) {
+      let prev = null; const outs = [];
+      qs.forEach(function (q) {
+        const r = E.answer(q, { table: t, prev: prev });
+        outs.push(r);
+        if (r.carry) prev = { carry: r.carry, question: q };
+      });
+      return outs;
+    }
+
+    /* 순위 — "다음" 이 실제로 다음 값을 가리키는가 */
+    const asc = t.columns.find(c => c.key === "titerHCCF");
+    const r1 = chain(["Titer HCCF 가장 높은 배치는?", "다음으로 높은 건?", "그 다음은?"]);
+    const vals = r1.map(r => r.facts && r.facts[0] ? r.facts[0].v : null);
+    T.add("순위 · 1위 → 2위 → 3위 가 모두 다른 값",
+      vals[0] && vals[1] && vals[2] && vals[0] !== vals[1] && vals[1] !== vals[2],
+      JSON.stringify(vals));
+    T.add("순위 · carry.rank 가 1 → 2 → 3",
+      r1[0].carry.rank === 1 && r1[1].carry.rank === 2 && r1[2].carry.rank === 3,
+      r1.map(r => r.carry.rank).join(","));
+    const sortedDesc = t.rows.map(r => r[asc.key])
+      .filter(v => typeof v === "number" && isFinite(v)).sort((a, b) => b - a);
+    const distinct = sortedDesc.filter((v, i) => i === 0 || sortedDesc[i - 1] !== v);
+    T.add("순위 · 2위 값이 실제 2번째 서로 다른 값",
+      String(vals[1]).indexOf(String(distinct[1])) > -1,
+      "답=" + vals[1] + " 실제=" + distinct[1]);
+
+    /* 명시 순위 */
+    const r2 = E.answer("Titer HCCF 3번째로 높은 배치는?", { table: t, prev: null });
+    T.add("순위 · \"3번째로 높은\" 을 바로 읽음",
+      r2.carry.rank === 3 && String(r2.facts[0].v).indexOf(String(distinct[2])) > -1,
+      "rank=" + r2.carry.rank + " v=" + (r2.facts[0] || {}).v);
+    T.add("순위 · 순위 표현이 미처리 조건으로 남지 않음",
+      !(r2.conditions.unhandled || []).some(u => /번째/.test(u)),
+      JSON.stringify(r2.conditions.unhandled));
+
+    /* 범위 밖 순위는 지어내지 않습니다 */
+    const r3 = E.answer("Titer HCCF 999번째로 높은 배치는?", { table: t, prev: null });
+    T.add("순위 · 없는 순위는 없다고 답함",
+      r3.ok === false && r3.kind === "no-rank", r3.kind + " / " + (r3.headline || "").slice(0, 60));
+
+    /* 동점 순위는 값 단위로 셉니다 — 공동 1위 안에서 2위를 뽑으면 안 됩니다 */
+    const days = t.columns.find(c => c.key === "cultureDays");
+    if (days) {
+      const rr = chain(["배양 일수 가장 높은 배치는?", "다음으로 높은 건?"]);
+      const v0 = rr[0].tie ? rr[0].tie.value : null;
+      const v1 = rr[1].facts && rr[1].facts[0] ? rr[1].facts[0].v : null;
+      T.add("순위 · 공동 1위 다음은 더 낮은 값",
+        v0 !== null && v1 !== null && String(v1).indexOf(String(v0)) === -1,
+        "1위=" + v0 + " 2위=" + v1);
+    }
+
+    /* 지시어 — 배치를 뭐라고 부르든 같은 것을 가리켜야 합니다 */
+    ["그 배치", "그 조건", "그 실험", "그 결과"].forEach(function (w) {
+      const rr = chain(["Titer HCCF 가장 높은 배치는?", w + "의 Total Yield는?"]);
+      const top = rr[0].facts && rr[0].rows && rr[0].rows.length ? rr[0].focusLabels : null;
+      T.add("지시어 · \"" + w + "\" 가 한 건으로 좁혀짐",
+        rr[1].scopeRows === 1, "행 " + rr[1].scopeRows + "건");
+    });
+
+    /* 모호하면 되묻습니다 — 아무거나 고르지 않습니다 */
+    if (days) {
+      const rr = chain(["배양 일수 가장 높은 배치는?", "그 배치의 Titer는?"]);
+      T.add("모호 · 후보가 여럿이면 되물음",
+        rr[1].kind === "ambiguous-ref" && (rr[1].choices || []).length > 1,
+        rr[1].kind + " / choices=" + ((rr[1].choices || []).length));
+      T.add("모호 · 되물을 때 수치를 내놓지 않음",
+        rr[1].kind !== "ambiguous-ref" || !rr[1].stats,
+        "stats 가 함께 나왔습니다");
+      const rp = chain(["배양 일수 가장 높은 배치는?", "그 중 전부의 Titer는?"]);
+      T.add("모호 · \"그 중 전부\" 는 지목된 건수를 그대로 이어받음",
+        rp[1].scopeRows === (rp[0].tie ? rp[0].tie.count : -1),
+        "이어받은 " + rp[1].scopeRows + "건 vs 지목 " + (rp[0].tie ? rp[0].tie.count : "?") + "건");
+    }
+    return Promise.resolve(T.out);
+  }
+
+  /* ── 12. 문헌 후속 — 재검색 없이, DOI 는 지어내지 않고 ───────────────
+     실제 네트워크를 쓰지 않습니다. LitAPI.search 를 가짜로 바꿔 두고,
+     몇 번 불렸는지를 셉니다 — 후속 질문에서 다시 부르면 그게 결함입니다. */
+  function runLitFollowUp() {
+    const T = mk();
+    const real = window.LitAPI.search;
+    let calls = 0;
+    const FAKE = [
+      { key: "10.1/aaa", title: "Alpha EGFR study", authors: "Kim", journal: "J1",
+        year: "2020", doi: "10.1/aaa", url: "https://doi.org/10.1/aaa",
+        abstract: "Alpha abstract text.", cites: 5, type: "논문", from: "Europe PMC" },
+      { key: "np:2", title: "Beta EGFR study without doi", authors: "Lee", journal: "J2",
+        year: "2024", doi: null, url: "https://europepmc.org/article/MED/2",
+        abstract: "", cites: 40, type: "논문", from: "Europe PMC" },
+      { key: "10.1/ccc", title: "Gamma EGFR study", authors: "Park", journal: "J3",
+        year: "2022", doi: "10.1/ccc", url: "https://doi.org/10.1/ccc",
+        abstract: "Gamma abstract text.", cites: 1, type: "논문", from: "Crossref" }
+    ];
+    window.LitAPI.search = function () {
+      calls++;
+      return Promise.resolve({ items: FAKE.slice() });
+    };
+    window.GlobalAI.reset();
+    window.GlobalAI._setLlmState(false);
+
+    const seen = [];
+    function ask(q) {
+      return window.GlobalAI.ask(q).then(function (a) { seen.push(a); return a; });
+    }
+    return ask("EGFR 관련 논문 찾아줘").then(function (a) {
+      T.add("문헌 · 첫 질문은 실제로 검색함", a.kind === "literature" && calls === 1,
+        a.kind + " calls=" + calls);
+      return ask("가장 최근 논문은?");
+    }).then(function (a) {
+      T.add("문헌 · 최신은 재검색 없이 답함",
+        a.kind === "literature-one" && calls === 1, a.kind + " calls=" + calls);
+      T.add("문헌 · 최신 = 연도 최대(2024)",
+        a.data && a.data.paper && a.data.paper.year === "2024",
+        a.data && a.data.paper ? a.data.paper.year : "없음");
+      return ask("그 논문의 DOI는?");
+    }).then(function (a) {
+      T.add("문헌 · DOI 는 지목한 논문 그대로 (없으면 null)",
+        a.kind === "literature-one" && a.data.aspect === "doi" &&
+        a.data.paper.key === "np:2" && a.data.paper.doi === null,
+        JSON.stringify(a.data && { k: a.data.paper.key, d: a.data.paper.doi }));
+      T.add("문헌 · DOI 를 만들어 내지 않음", calls === 1, "calls=" + calls);
+      return ask("두 번째 논문은?");
+    }).then(function (a) {
+      T.add("문헌 · 번호로 고르기",
+        a.data && a.data.paper && a.data.paper.key === "np:2" && calls === 1,
+        a.data && a.data.paper ? a.data.paper.key : "없음");
+      return ask("첫 번째 논문의 DOI는?");
+    }).then(function (a) {
+      T.add("문헌 · 고른 논문의 실제 DOI",
+        a.data && a.data.paper && a.data.paper.doi === "10.1/aaa",
+        a.data && a.data.paper ? String(a.data.paper.doi) : "없음");
+      return ask("이 논문의 주요 결과를 정리해줘");
+    }).then(function (a) {
+      T.add("문헌 · 초록은 출처 원문을 그대로",
+        a.data && a.data.aspect === "abstract" &&
+        a.data.paper.abstract === "Alpha abstract text.",
+        JSON.stringify(a.data && a.data.paper && a.data.paper.abstract));
+      return ask("HER2 관련 논문 찾아줘");
+    }).then(function (a) {
+      T.add("문헌 · 새 주제어는 새로 검색함",
+        a.kind === "literature" && calls === 2, a.kind + " calls=" + calls);
+      /* 지목은 새 검색에서 풀려야 합니다 */
+      const c = window.AIContext.get();
+      T.add("문헌 · 새 검색이 오면 지목이 풀림", c.selectedLiteratureId === null,
+        String(c.selectedLiteratureId));
+      T.add("문헌 · Context 에 검색어가 올라감",
+        !!c.currentLiteratureQuery, String(c.currentLiteratureQuery));
+      window.LitAPI.search = real;
+      window.GlobalAI.reset();
+      return T.out;
+    }).catch(function (e) {
+      window.LitAPI.search = real;
+      T.add("문헌 후속 검사가 끝까지 돌았는가", false, (e && e.message) || "오류");
+      return T.out;
+    });
   }
 
   function run() {
@@ -323,8 +492,10 @@ window.GlobalAITest = (function () {
       .then(r => { groups.push(["G. 문헌 도구", r]); return runFormat(); })
       .then(r => { groups.push(["H. 결과 재가공", r]); return runActions(); })
       .then(r => { groups.push(["I. 화면 조작 3종", r]); return runContextFields(); })
+      .then(r => { groups.push(["J. Context 표준 필드", r]); return runConversation(t); })
+      .then(r => { groups.push(["K. 이어지는 대화 · 순위 · 지시어", r]); return runLitFollowUp(); })
       .then(function (r) {
-        groups.push(["J. Context 표준 필드", r]);
+        groups.push(["L. 문헌 후속 · DOI", r]);
         const checks = groups.map(function (g) {
           const bad = g[1].filter(x => !x.pass);
           return { id: g[0], pass: !bad.length,

@@ -240,6 +240,98 @@ window.AITools = (function () {
     });
   }
 
+  /* ── 13-b. 문헌 후속 질문 ────────────────────────────────────────────
+     "가장 최근 논문은?" · "그 논문의 DOI 는?" · "주요 결과 정리해 줘".
+
+     ★ 다시 검색하지 않습니다. 직전 검색 결과에 담긴 논문만 씁니다.
+       다시 검색하면 같은 질의라도 순위가 달라져, 사용자가 화면에서 본
+       목록과 다른 논문을 "그 논문" 이라고 답하게 됩니다.
+
+     ★ DOI 는 만들지 않습니다. 결과에 DOI 가 없으면 없다고 말하고 원문
+       링크를 줍니다. 지어낸 DOI 는 그럴듯해서 검증 없이 인용됩니다.
+
+     ★ 초록은 출처가 준 문장을 그대로 옮깁니다. 요약이 아니라 전재입니다 —
+       읽지 않은 논문의 결론을 우리가 쓰지 않습니다. */
+  function literatureFollowUp(args) {
+    const cache = (args && args.lit) || null;
+    const items = (cache && cache.items) || [];
+    if (!items.length) {
+      return no("이어서 볼 문헌 검색 결과가 없습니다. 찾으시는 주제를 먼저 검색해 주세요.");
+    }
+    const aspect = String((args && args.aspect) || "latest");
+    const byKey = k => items.find(p => p.key === k) || null;
+    let focus = cache.focusKey ? byKey(cache.focusKey) : null;
+
+    /* ★ "첫 번째 논문의 DOI 는?" 처럼 번호와 물음이 함께 오면 번호가
+       이깁니다. 앞서 지목해 둔 논문을 쓰면 물어본 것과 다른 논문의 DOI 를
+       돌려주고, 그 DOI 는 실재하므로 사용자가 알아채기 어렵습니다. */
+    const wantIdx = Number(args && args.index);
+    if (wantIdx >= 1 && wantIdx <= items.length) focus = items[wantIdx - 1];
+
+    /* 최신 — 연도가 같은 논문이 여럿이면 하나만 지목하지 않습니다 */
+    if (aspect === "latest" || aspect === "cited") {
+      const num = p => aspect === "cited"
+        ? (typeof p.cites === "number" ? p.cites : -1)
+        : (parseInt(p.year, 10) || -1);
+      const usable = items.filter(p => num(p) >= 0);
+      if (!usable.length) {
+        return no(aspect === "cited"
+          ? "검색 결과에 인용수가 기록된 논문이 없습니다."
+          : "검색 결과에 발행연도가 기록된 논문이 없습니다.",
+          { source: "직전 문헌 검색 결과", rows: items.length });
+      }
+      const best = Math.max.apply(null, usable.map(num));
+      const tied = usable.filter(p => num(p) === best);
+      return ok({ kind: "literature-one", query: cache.query,
+                  aspect: aspect, paper: tied[0], tied: tied.length,
+                  tiedPapers: tied.length > 1 ? tied.slice(0, 5) : null,
+                  total: items.length, litFocus: tied[0].key },
+        { source: "직전 문헌 검색 결과 (재검색 없음)", rows: items.length, external: true });
+    }
+
+    /* 순번·제목으로 고르기 — "세 번째 논문", "Prunasin 논문" */
+    if (aspect === "select") {
+      const n = Number(args && args.index);
+      let pick = (n >= 1 && n <= items.length) ? items[n - 1] : null;
+      const q = String((args && args.match) || "").trim().toLowerCase();
+      if (!pick && q) {
+        const hits = items.filter(p => String(p.title).toLowerCase().indexOf(q) > -1);
+        if (hits.length > 1) {
+          return no("\"" + q + "\" 로 " + hits.length + "건이 걸립니다. 몇 번째 논문인지 알려 주세요 — " +
+            hits.slice(0, 3).map((p, i) => (items.indexOf(p) + 1) + ") " + p.title.slice(0, 40)).join(" · "),
+            { source: "직전 문헌 검색 결과", rows: items.length });
+        }
+        pick = hits[0] || null;
+      }
+      if (!pick) {
+        return no("검색 결과 " + items.length + "건 중 어느 논문인지 특정하지 못했습니다. " +
+          "번호(예: 두 번째 논문)나 제목의 일부를 알려 주세요.",
+          { source: "직전 문헌 검색 결과", rows: items.length });
+      }
+      return ok({ kind: "literature-one", query: cache.query, aspect: "select",
+                  paper: pick, tied: 1, total: items.length, litFocus: pick.key },
+        { source: "직전 문헌 검색 결과 (재검색 없음)", rows: items.length, external: true });
+    }
+
+    /* DOI · 초록 — 지목한 논문이 있어야 답할 수 있습니다 */
+    if (!focus) {
+      if (items.length === 1) focus = items[0];
+      else {
+        return no("어느 논문인지 먼저 골라 주세요 — 검색 결과가 " + items.length + "건입니다. " +
+          "\"가장 최근 논문\" 처럼 물어보시거나 번호를 알려 주세요.",
+          { source: "직전 문헌 검색 결과", rows: items.length });
+      }
+    }
+    if (aspect === "doi") {
+      return ok({ kind: "literature-one", query: cache.query, aspect: "doi",
+                  paper: focus, tied: 1, total: items.length, litFocus: focus.key },
+        { source: "직전 문헌 검색 결과 (재검색 없음)", rows: items.length, external: true });
+    }
+    return ok({ kind: "literature-one", query: cache.query, aspect: "abstract",
+                paper: focus, tied: 1, total: items.length, litFocus: focus.key },
+      { source: "직전 문헌 검색 결과 (재검색 없음)", rows: items.length, external: true });
+  }
+
   /* ── 14. 공정 계산 — 기존 Calc 그대로 ──────────────────────────────── */
   function calculateProcess(args) {
     if (!window.Calc) return no("공정 계산 모듈이 로드되지 않았습니다.");
@@ -418,6 +510,10 @@ window.AITools = (function () {
     { name: "searchLiterature", ko: "문헌 검색",
       description: "Europe PMC · Crossref 에서 실제 논문을 검색합니다. 검색 결과에 없는 논문·DOI 는 만들지 않습니다.",
       params: { query: "string", limit: "number" }, run: searchLiterature, async: true },
+    { name: "literatureFollowUp", ko: "문헌 후속",
+      description: "직전 문헌 검색 결과 안에서 최신 논문·DOI·초록을 돌려줍니다. " +
+        "다시 검색하지 않고, 결과에 없는 논문이나 DOI 는 만들지 않습니다.",
+      params: { aspect: "string", index: "number", match: "string" }, run: literatureFollowUp },
     { name: "calculateProcess", ko: "공정 계산",
       description: "물질수지 · Feed · Seed · 희석 계산을 수행합니다.",
       params: { kind: "string", input: "object" }, run: calculateProcess },
