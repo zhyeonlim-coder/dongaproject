@@ -59,14 +59,11 @@ const MAX_PER_WINDOW = 30;
 
    /api/health 가 이 목록을 이름째로 돌려주고, tests/phase-b.js 가 클라이언트
    목록과 집합으로 대조합니다 — 하나라도 어긋나면 그 검사가 실패합니다. */
-const ALLOWED = [
-  "searchExperimentData", "getExperiment", "calculateStatistics", "calculateCV",
-  "compareExperiments", "runDoE", "runRegression", "runANOVA",
-  "optimizeExperiment", "searchLiterature", "calculateProcess",
-  "getCurrentPageContext",
-  "proposeFilter", "proposeSort", "proposeSelect", "formatResult",
-  "literatureFollowUp"
-];
+/* 이름 목록은 한 파일에만 적습니다. 서버가 여기서 읽고, 브라우저 검사도
+   같은 파일을 읽어 클라이언트 SPEC 과 대조합니다. 목록을 두 곳에 적으면
+   한쪽만 고쳐지고, 그 어긋남은 증상이 없어서 오래 남습니다.
+   배포 시점에 함수 번들에 포함되므로 요청으로는 바꿀 수 없습니다. */
+const ALLOWED = require("../donga-st-bio-hub/assets/js/ai/tool-allowlist.json").tools;
 
 const SYSTEM_PLAN = [
   "당신은 동아에스티 Bio Knowledge Hub 의 연구지원 AI 입니다.",

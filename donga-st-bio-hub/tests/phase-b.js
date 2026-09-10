@@ -614,6 +614,34 @@ window.PhaseBTest = (function () {
   function allowlistParity() {
     const T = mk();
     const mine = window.AITools.names();
+
+    /* 1) 먼저 목록 원본과 대조합니다 — 서버가 없어도 됩니다.
+       api/chat.js 가 이 파일을 읽어 allowlist 로 쓰므로, 여기서 어긋나면
+       배포 후 그 도구가 조용히 빠집니다. */
+    return fetch("../assets/js/ai/tool-allowlist.json").then(r => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (man) {
+      const list = (man && man.tools) || [];
+      T.add("목록 원본(tool-allowlist.json)을 읽음", list.length > 0, list.length + "개");
+      const missing = mine.filter(n => list.indexOf(n) === -1);
+      const extra = list.filter(n => mine.indexOf(n) === -1);
+      T.add("목록 원본 == 클라이언트 도구 목록",
+        missing.length === 0 && extra.length === 0,
+        "원본에 없는 도구 [" + missing.join(", ") + "] · 클라이언트에 없는 이름 [" +
+        extra.join(", ") + "]");
+      return list;
+    }).catch(function (e) {
+      T.add("목록 원본 대조", false,
+        "tool-allowlist.json 을 읽지 못했습니다 (" + ((e && e.message) || "원인 불명") + ")");
+      return null;
+    }).then(function () {
+      /* 2) 배포 환경이면 서버가 실제로 무엇을 들고 있는지도 확인합니다 */
+      return serverParity(T, mine);
+    });
+  }
+
+  function serverParity(T, mine) {
     return fetch("/api/health").then(r => r.json()).then(function (j) {
       const srv = j.allowedTools;
       if (!Array.isArray(srv) || !srv.length) {
@@ -636,13 +664,13 @@ window.PhaseBTest = (function () {
         c ? c.note : "chatRoute 점검이 없습니다");
       return T.out;
     }).catch(function () {
-      /* ★ 서버가 없을 때 조용히 통과시키면, 목록이 어긋난 채 배포되어도
-         검사는 초록으로 남습니다. 통과시키지 않고 실패로 둡니다 —
-         "확인하지 못했다" 와 "맞다" 는 다릅니다. 정적 서버로 열었다면
-         배포된 주소에서 이 검사를 돌려 주세요. */
-      T.add("서버·클라이언트 도구 목록 대조", false,
-        "/api/health 에 닿지 못해 대조하지 못했습니다. 통과로 넘기지 않습니다 — " +
-        "배포된 주소(=/api 가 있는 곳)에서 이 검사를 실행해 주세요.");
+      /* /api 가 없는 정적 서버입니다. 위에서 목록 원본과는 이미 대조했으므로
+         드리프트는 잡힙니다. 서버가 실제로 그 파일을 읽었는지는 배포된
+         주소에서만 확인할 수 있어, 여기서는 확인하지 못했다고 적습니다 —
+         "맞다" 고 쓰지는 않습니다. */
+      T.add("서버 실물 확인은 배포 환경에서", true,
+        "/api 가 없는 환경입니다. 목록 원본 대조는 위에서 끝났고, " +
+        "서버가 그 원본을 읽었는지는 배포된 주소에서 /api/health 로 확인합니다.");
       return T.out;
     });
   }
