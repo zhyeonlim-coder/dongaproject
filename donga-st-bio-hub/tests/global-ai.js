@@ -251,9 +251,11 @@ window.GlobalAITest = (function () {
         "kind=" + a.kind + " head=" + String(a.headline || "").slice(0, 60));
       return window.GlobalAI.ask("B123-7 선택해줘");
     }).then(function (a) {
+      /* 거절만 하고 끝내면 사용자는 어디서 되는지 모릅니다 — 되는 곳을
+         함께 알려 주는지까지 봅니다. 문구가 아니라 그 계약을 봅니다. */
       T.add("훅 없으면 선택 제안을 만들지 않음",
-        a.kind === "no-data" && /선택/.test(String(a.headline || "")),
-        "kind=" + a.kind + " head=" + String(a.headline || "").slice(0, 60));
+        a.kind === "no-data" && /배치 비교/.test(String(a.headline || "")),
+        "kind=" + a.kind + " head=" + String(a.headline || "").slice(0, 70));
 
       window.AIContext.registerHook("sort", p => sorted.push(p));
       window.AIContext.registerHook("select", p => picked.push(p));

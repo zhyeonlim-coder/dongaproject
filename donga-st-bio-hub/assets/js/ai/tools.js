@@ -312,8 +312,8 @@ window.AITools = (function () {
     const miss = ready();
     if (miss.length) return notReady(miss);
     if (!canDo("select")) {
-      return no("이 화면에는 행을 선택하는 기능이 없습니다. " +
-        "데이터 탐색 화면에서는 배치를 골라 상세를 볼 수 있습니다.");
+      return no("이 화면에는 배치를 골라 넣는 자리가 없습니다. " +
+        "데이터 조회의 \"배치 비교\" 에서는 배치를 골라 나란히 볼 수 있습니다.");
     }
     const id = String((args && args.batch) || "").trim();
     if (!id) return no("어느 배치를 선택할지 알려 주세요.");
