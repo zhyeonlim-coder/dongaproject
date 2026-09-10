@@ -504,6 +504,32 @@ window.PhaseBTest = (function () {
     return T.out;
   }
 
+  /* ── 서버 allowlist 와 클라이언트 도구 목록이 어긋나지 않는가 ─────────
+     api/chat.js 의 ALLOWED 에 없는 도구는 모델에게 주지도 않고 돌려받아도
+     버립니다. 클라이언트에 도구를 더하고 그 목록을 잊으면, 규칙이 놓친
+     질문에서 그 도구만 조용히 못 쓰게 됩니다 — 화면에서는 "LLM 이 이해를
+     못 했다" 처럼 보여서 원인을 찾기 어렵습니다. 실제로 화면 조작 3종 중
+     proposeFilter 만 서버 목록에 있었습니다.
+     /api/health 가 그 개수를 알려 주므로 거기에 대고 비교합니다. 서버가
+     없는 환경(정적 파일 서버로 열어 본 경우)에서는 건너뜁니다. */
+  function allowlistParity() {
+    const T = mk();
+    const mine = window.AITools.names().length;
+    return fetch("/api/health").then(r => r.json()).then(function (j) {
+      const c = (j.checks || []).find(x => x.id === "chatRoute");
+      const m = c && String(c.note || "").match(/(\d+)\s*개/);
+      if (!m) { T.add("서버 allowlist 개수를 읽음", false, JSON.stringify(c || j).slice(0, 120)); return T.out; }
+      T.add("서버 allowlist 개수를 읽음", true, c.note);
+      T.add("서버 allowlist == 클라이언트 도구 수", Number(m[1]) === mine,
+        "서버 " + m[1] + "개 vs 클라이언트 " + mine + "개 — api/chat.js 의 ALLOWED 를 맞춰 주세요");
+      return T.out;
+    }).catch(function () {
+      T.add("건너뜀 · /api/health 없음 (정적 서버)", true,
+        "서버 없이 열었으므로 allowlist 대조를 하지 않았습니다");
+      return T.out;
+    });
+  }
+
   function run() {
     const groups = [];
     groups.push(["A. 클라이언트 가드", guardChecks()]);
@@ -513,8 +539,9 @@ window.PhaseBTest = (function () {
       .then(r => { groups.push(["D. 스트리밍 순서", r]); return payloadCheck(); })
       .then(r => { groups.push(["E. 단계별 전송 계약", r]); return narrateContract(); })
       .then(r => { groups.push(["F. 해설 OFF/ON 계약", r]); return Promise.resolve(fallbackOnly()); })
+      .then(r => { groups.push(["G. Claude 는 폴백으로만", r]); return allowlistParity(); })
       .then(function (r) {
-        groups.push(["G. Claude 는 폴백으로만", r]);
+        groups.push(["H. 서버·클라이언트 도구 목록 일치", r]);
         const checks = groups.map(function (g) {
           const bad = g[1].filter(x => !x.pass);
           return { id: g[0], pass: !bad.length,
