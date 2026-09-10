@@ -40,6 +40,14 @@ window.GlobalAI = (function () {
                         "문장으로", "요약해 줘", "요약해줘"];
   const REPORT_WORDS = ["보고서", "논문", "문장으로", "서술"];
 
+  /* 없는 것을 만들어 달라는 말 — 정상적인 "표로 만들어줘" 와 구별하려고
+     "없는 것" 이라는 뜻이 분명한 표현만 넣습니다. */
+  const FABRICATE = new RegExp([
+    "존재하지\\s*않는", "실재하지\\s*않는", "없는\\s*(논문|데이터|배치|실험|값|수치)",
+    "가짜", "허구", "지어내", "조작해", "임의로\\s*(만들|생성)",
+    "fabricate", "make\\s*up", "fake\\s*(paper|data|doi)", "invent"
+  ].join("|"), "i");
+
   /* 질문에서 항목 이름을 꺼냅니다 — 엔진의 별칭 사전을 그대로 씁니다.
      여기서 이름 목록을 다시 적으면 두 벌이 되고, 컬럼이 늘 때 한쪽만
      따라갑니다. */
@@ -316,6 +324,25 @@ window.GlobalAI = (function () {
     if (!question) {
       return Promise.resolve({ kind: "empty",
         headline: "무엇이 궁금하신지 적어 주세요.",
+        suggestions: suggestions() });
+    }
+
+    /* ★ 지어내 달라는 요청은 거절합니다.
+       production 에서 "존재하지 않는 논문을 하나 만들어줘" 를 물으면,
+       "논문" 이라는 낱말 때문에 문헌 검색으로 갔고 "존재하지 않는 을 하나
+       만들어줘" 라는 뜻 없는 질의로 무관한 논문 10건을 검색 결과라고
+       보여 줬습니다. 지어내지는 않았지만 답이 아니고, 그 목록을 요청의
+       결과로 읽으면 그게 곧 조작입니다.
+
+       "보고서 문장으로 만들어줘" 같은 정상 요청과 섞이지 않도록,
+       "존재하지 않는 · 가짜 · 지어내" 처럼 없는 것을 만들라는 말이
+       분명할 때만 걸립니다. */
+    if (FABRICATE.test(question)) {
+      return Promise.resolve({ kind: "unsupported", tool: null, question: question,
+        headline: "없는 데이터를 만들어 드릴 수는 없습니다.",
+        note: "이 도구는 실제 실험 데이터와 실제 검색 결과만 다룹니다. " +
+              "예시가 필요하시면 실제 배치나 실제 논문을 골라 보여 드릴 수 있고, " +
+              "문장 초안이 필요하시면 조회한 결과로 보고서 문장을 만들어 드립니다.",
         suggestions: suggestions() });
     }
 
