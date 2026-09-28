@@ -224,12 +224,31 @@
           window.Calc.panel(sel.team) +
           lotStrip(batch) +
 
-          groups.map(function (grp) {
-            return '<div class="card-body" style="padding-bottom:var(--s-4)">' +
-              '<div class="eyebrow" style="margin-bottom:var(--s-3)">' + esc(grp.g) + '</div>' +
-              '<div class="ebr-grid">' + grp.items.map(f => fieldMarkup(batch, f)).join("") + '</div>' +
-            '</div>';
-          }).join("") +
+          /* 그룹은 표 하나로 묶습니다. 그룹마다 표를 나누면 열 너비가
+             그룹마다 달라져 숫자 열이 세로로 안 맞습니다 — 표의 이점이
+             바로 그 정렬이라 한 표에 담고 그룹은 머리글 행으로 둡니다. */
+          '<div class="card-body" style="padding-bottom:var(--s-4)">' +
+            '<div class="ebr-tbl-wrap">' +
+            '<table class="ebr-tbl">' +
+              '<thead><tr>' +
+                '<th scope="col">항목</th>' +
+                '<th scope="col">입력값</th>' +
+                '<th scope="col">단위</th>' +
+                '<th scope="col">이력 · 출처</th>' +
+              '</tr></thead>' +
+              groups.map(function (grp) {
+                return '<tbody>' +
+                  '<tr class="ebr-grp"><th colspan="4" scope="colgroup">' +
+                    esc(grp.g) + '</th></tr>' +
+                  grp.items.map(f => rowMarkup(batch, f)).join("") +
+                '</tbody>';
+              }).join("") +
+            '</table></div>' +
+            '<p class="ebr-keyhint">' +
+              '<b>↑ ↓</b> 위아래 셀 · <b>Tab</b> 다음 셀 · <b>Enter</b> 확정하고 아래로 · ' +
+              '<b>Shift+Enter</b> 위로 · <b>Esc</b> 되돌리기' +
+            '</p>' +
+          '</div>' +
 
           '<div class="card-body" style="border-top:1px solid var(--c-border);display:flex;' +
             'gap:var(--s-3);align-items:center;flex-wrap:wrap">' +
@@ -389,7 +408,24 @@
       (list.length > 1 ? " " + list.length : "") + '</span> ';
   }
 
-  function fieldMarkup(batch, f) {
+  /* ══════════════════════════════════════════════════════════════════════
+     입력 표 (Data Grid)
+
+     왜 표인가
+       연구원이 옮겨 적는 원본이 엑셀 표입니다. 화면이 카드로 흩어져 있으면
+       눈이 원본의 행과 화면의 카드를 계속 짝지어야 하고, 그 과정에서 한 칸씩
+       밀려 적는 실수가 납니다. 같은 배열로 두면 그 대조가 사라집니다.
+
+     열 구성
+       항목 · 입력값 · 단위 · 이력/출처
+       단위를 값과 같은 칸에 넣지 않습니다. 숫자만 세로로 정렬되어야
+       자릿수가 눈에 들어옵니다.
+
+     한 행이 한 셀입니다 — data-cell 이 행에 붙습니다. setMsg · openReason ·
+     revert · closeReason 이 모두 cellOf(k) 로 이 행을 찾으므로, 기존 저장
+     경로는 그대로 둔 채 겉모양만 바뀝니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function rowMarkup(batch, f) {
     const eff = effective(batch, f);
     const v = eff.value;
     const rec = eff.rec;
@@ -399,36 +435,48 @@
     const measure = isMeasure(f);
     const cur = measure ? window.VAL.coerce(v) : null;
     const miss = measure ? window.VAL.missingInfo(cur) : null;
+    const edited = !!(rec && E.hasHistory(rec));
 
-    return '<div class="ebr-field" data-cell="' + esc(f.k) + '">' +
-      '<label class="ebr-cell">' +
-        '<span>' + esc(f.label) + (f.unit ? ' <span style="font-weight:400;color:var(--c-text-soft)">(' +
-          esc(f.unit) + ')</span>' : "") + '</span>' +
-        '<input class="ebr-input' + (miss ? " is-missing" : "") +
-          (measure && window.VAL.isBounded(cur) ? " is-bounded" : "") + '" ' +
-          'data-f="' + esc(f.k) + '" ' +
-          (measure
-            ? 'type="text" inputmode="decimal" autocomplete="off" list="val-tokens" ' +
-              'placeholder="숫자 · <1 · ND"'
-            : 'type="' + (f.type === "date" ? "date" : "text") + '" ') +
-          ' value="' + esc(displayValue(f, v)) + '">' +
-      '</label>' +
-      '<span class="audit">' +
-        pinMark(batch, f) +
+    return '<tr class="ebr-row' + (edited ? " is-edited" : "") + '" data-cell="' + esc(f.k) + '">' +
+      '<th scope="row" class="ebr-th">' + esc(f.label) + pinMark(batch, f) + '</th>' +
+
+      '<td class="ebr-td-in">' +
+        '<div class="ebr-cellbox">' +
+          '<label class="sr-only" for="in-' + esc(f.k) + '">' + esc(f.label) +
+            (f.unit ? " (" + esc(f.unit) + ")" : "") + '</label>' +
+          '<input class="ebr-gin' + (miss ? " is-missing" : "") +
+            (measure && window.VAL.isBounded(cur) ? " is-bounded" : "") + '" ' +
+            'id="in-' + esc(f.k) + '" data-f="' + esc(f.k) + '" ' +
+            (measure
+              ? 'type="text" inputmode="decimal" autocomplete="off" list="val-tokens" ' +
+                'placeholder="숫자 · <1 · ND"'
+              : 'type="' + (f.type === "date" ? "date" : "text") + '" ') +
+            ' value="' + esc(displayValue(f, v)) + '">' +
+          /* ★ 수정 표시는 셀 우측 상단에 붙입니다. 값 옆에 나란히 두면
+             숫자 정렬이 흐트러지고, 값이 길 때 가려집니다. */
+          (edited
+            ? '<button class="ebr-mark" data-hist="' + esc(f.k) + '" type="button" ' +
+              'aria-label="' + esc(f.label) + ' 변경 이력 ' + rec.history.length + '건 보기">' +
+              '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+              'stroke-width="3"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/></svg></button>'
+            : "") +
+        '</div>' +
+        '<p class="field-msg" data-msg="' + esc(f.k) + '" role="alert"></p>' +
+      '</td>' +
+
+      '<td class="ebr-td-unit">' + (f.unit ? esc(f.unit) : "") + '</td>' +
+
+      '<td class="ebr-td-audit">' +
+        /* 결측 꼬리표가 이미 "미측정" 이라고 말하면 또 적지 않습니다 —
+           예전에는 "미측정미측정" 으로 두 번 나왔습니다. */
         (miss ? '<span class="miss-tag miss-' + miss.code + '" title="' + esc(miss.hint) + '">' +
-                esc(miss.label) + '</span> ' : "") +
-        (cap ? esc(cap) : '<span class="audit-none">미측정</span>') +
-        (rec && E.hasHistory(rec)
-          ? '<button class="audit-hist" data-hist="' + esc(f.k) + '" ' +
-            'aria-label="' + esc(f.label) + ' 변경 이력 보기" title="변경 이력 ' +
-            rec.history.length + '건">' +
-            '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-            'stroke-width="2.6"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/></svg></button>'
-          : "") +
-      '</span>' +
-      '<p class="field-msg" data-msg="' + esc(f.k) + '" role="alert"></p>' +
-      '<div class="reason-row" data-reason="' + esc(f.k) + '" hidden></div>' +
-    '</div>';
+                esc(miss.label) + '</span>' : "") +
+        (cap ? '<span class="ebr-origin">' + esc(cap) + '</span>'
+             : (miss ? "" : '<span class="audit-none">미측정</span>')) +
+        (edited ? '<span class="ebr-editcount" data-hist="' + esc(f.k) + '">수정 ' +
+                  rec.history.length + '회</span>' : "") +
+      '</td>' +
+    '</tr>';
   }
 
   /* 이 배치가 쓴 자재 — 이상이 생겼을 때 첫 질문에 바로 답하도록
@@ -561,11 +609,100 @@
       if (saved && !asking && !bad) render();
     });
 
+    /* ── 이력 보기 — 올려도 뜨고 눌러도 뜹니다 ────────────────────────
+       올리면 뜨는 것만 두면 태블릿에서는 볼 방법이 없고, 키보드로도
+       닿지 않습니다. 실험실에서 태블릿을 쓰므로 둘 다 둡니다.
+         hover / focus  → 떠 있다가 벗어나면 닫힙니다 (가볍게 확인)
+         click          → 고정됩니다. 안의 글을 고르거나 읽을 수 있습니다. */
+    let hoverTimer = null;
     $$("[data-hist]", host).forEach(function (b) {
+      const key = b.dataset.hist;
+      const fld = all.find(x => x.k === key) || {};
+      const open = sticky => showHistory(b, E.getValue(scopeKey(), key), fld, sticky);
+
       b.addEventListener("click", function (e) {
-        e.preventDefault();
-        showHistory(b, E.getValue(scopeKey(), b.dataset.hist),
-          (all.find(x => x.k === b.dataset.hist) || {}));
+        e.preventDefault(); e.stopPropagation();
+        clearTimeout(hoverTimer);
+        open(true);
+      });
+      b.addEventListener("mouseenter", function () {
+        clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(() => open(false), 120);   /* 지나가는 마우스에 뜨지 않게 */
+      });
+      b.addEventListener("mouseleave", function () {
+        clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(closeHoverHistory, 160);   /* 팝오버로 옮겨 갈 틈 */
+      });
+      b.addEventListener("focus", () => open(false));
+      b.addEventListener("blur", closeHoverHistory);
+    });
+
+    wireGrid(batch, all, host);
+  }
+
+  /* ── 표 안에서의 키보드 이동 ──────────────────────────────────────────
+     엑셀에서 옮겨 적는 사람이 손을 마우스로 옮기지 않아야 합니다. 한 칸
+     적고 마우스를 잡는 순간 리듬이 끊기고, 그때 줄이 밀립니다.
+
+       ↑ ↓        위아래 셀 (같은 열)
+       Enter      확정하고 아래로 · Shift+Enter 위로
+       Esc        이번 입력을 버리고 저장된 값으로 되돌림
+       Tab        브라우저 기본 순서를 그대로 씁니다 — 표의 행 순서와 같습니다
+
+     ★ Enter 로 확정했을 때 사유가 필요하면 아래로 옮기지 않습니다.
+       옮겨 버리면 사유 창은 위 셀에 떠 있고 커서는 다른 셀에 있어, 무엇에
+       대한 사유인지 알 수 없게 됩니다. */
+  function wireGrid(batch, all, host) {
+    const inputs = () => $$(".ebr-gin", host);
+
+    function move(from, delta) {
+      const list = inputs();
+      const i = list.indexOf(from);
+      if (i === -1) return;
+      const next = list[i + delta];
+      if (!next) return;
+      next.focus();
+      if (next.select) { try { next.select(); } catch (e) { /* date 입력 */ } }
+    }
+
+    inputs().forEach(function (inp) {
+      inp.addEventListener("keydown", function (e) {
+        const f = all.find(x => x.k === inp.dataset.f);
+
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          /* 날짜 칸에서는 위아래가 값 증감입니다 — 가로채지 않습니다 */
+          if (f && f.type === "date") return;
+          e.preventDefault();
+          move(inp, e.key === "ArrowDown" ? 1 : -1);
+          return;
+        }
+
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const r = commit(batch, f, inp.value);
+          if (r === "needReason" || r === "error") return;   /* 그 자리에 머무릅니다 */
+          const delta = e.shiftKey ? -1 : 1;
+          if (r === "saved") {
+            /* render() 가 표를 다시 그리므로, 다시 그린 뒤의 같은 자리에서
+               옮깁니다. 지금 노드를 붙잡고 있으면 사라진 노드를 가리킵니다. */
+            const key = inp.dataset.f;
+            render();
+            setTimeout(function () {
+              const list = $$(".ebr-gin", $("#form-host"));
+              const i = list.findIndex(x => x.dataset.f === key);
+              const next = list[i + delta];
+              if (next) { next.focus(); if (next.select) { try { next.select(); } catch (er) {} } }
+            }, 0);
+            return;
+          }
+          move(inp, delta);
+          return;
+        }
+
+        if (e.key === "Escape") {
+          e.preventDefault();
+          revert(batch, f);
+        }
       });
     });
   }
@@ -1027,21 +1164,38 @@
   /* ── 변경 사유 입력 ─────────────────────────────────────────────────────
      값이 바뀌는 저장은 사유 없이 통과시키지 않습니다. 팝업 대신 그 필드
      아래에 열어, 무엇을 왜 바꾸는지가 한 화면에 보이게 했습니다. */
+  /* ── 변경 사유 입력 (셀에 붙는 popover) ───────────────────────────────
+     표 안에 행을 펼치면 아래 행들이 밀려 내려가고, 방금 고친 셀이 화면
+     밖으로 나가기도 합니다. 그래서 그 셀에 붙는 떠 있는 창으로 둡니다.
+
+     사유를 저장할 때까지 값은 반영되지 않습니다 — commit() 이 Repo 에서
+     needReason 을 받아 여기로 오고, 여기서 사유와 함께 다시 commit 합니다. */
   function openReason(batch, f, raw, note) {
     const cell = cellOf(f.k);
     if (!cell) return;
-    const row = cell.querySelector("[data-reason]");
+    closeReason(f.k);
     cell.classList.add("is-asking");
-    row.hidden = false;
+
+    const anchor = cell.querySelector(".ebr-cellbox") || cell;
+    const row = document.createElement("div");
+    row.className = "pop reason-pop";
+    row.id = "reason-pop";
+    row.setAttribute("data-reason-for", f.k);
     row.innerHTML =
-      '<div class="reason-head">' + esc(note || "변경 사유를 입력하세요") + '</div>' +
+      '<div class="reason-head">' + esc(f.label) + ' — ' +
+        esc(note || "변경 사유를 입력하세요") + '</div>' +
       '<div class="reason-ctl">' +
         '<label class="sr-only" for="rsn-' + esc(f.k) + '">' + esc(f.label) + ' 변경 사유</label>' +
         '<input class="ebr-input" id="rsn-' + esc(f.k) + '" list="reason-presets" ' +
           'placeholder="예: 오기 정정 (전사 오류)">' +
         '<button class="btn btn-accent btn-sm" data-rsave="' + esc(f.k) + '">사유 저장</button>' +
         '<button class="btn btn-ghost btn-sm" data-rcancel="' + esc(f.k) + '">취소</button>' +
-      '</div>';
+      '</div>' +
+      '<div class="reason-foot">사유를 저장해야 값이 반영됩니다. ' +
+        '취소하면(Esc) 저장된 값으로 되돌립니다.</div>';
+
+    document.body.appendChild(row);
+    placePop(row, anchor);
 
     const input = row.querySelector("input");
     setTimeout(() => input.focus(), 0);
@@ -1077,16 +1231,36 @@
 
   function closeReason(k) {
     const cell = cellOf(k);
-    if (!cell) return;
-    cell.classList.remove("is-asking");
-    const row = cell.querySelector("[data-reason]");
-    row.hidden = true;
-    row.innerHTML = "";
+    if (cell) cell.classList.remove("is-asking");
+    const row = document.getElementById("reason-pop");
+    if (row) row.remove();
+  }
+
+  /* 떠 있는 창을 기준 요소 옆에 둡니다. 화면 밖으로 나가지 않게 접어 넣되,
+     기준 요소를 가리지는 않도록 아래를 먼저 시도합니다. */
+  function placePop(pop, anchor) {
+    const r = anchor.getBoundingClientRect();
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    let top = r.bottom + 6;
+    if (top + h > window.innerHeight - 10) {
+      const above = r.top - h - 6;
+      top = above > 10 ? above : Math.max(10, window.innerHeight - h - 10);
+    }
+    pop.style.top = top + "px";
+    pop.style.left = Math.max(10, Math.min(r.left, window.innerWidth - w - 10)) + "px";
   }
 
   /* ── 변경 이력 팝오버 ───────────────────────────────────────────────── */
-  function showHistory(anchor, rec, f) {
+  /* 올려서 본 팝오버만 닫습니다 — 눌러서 고정한 것은 그대로 둡니다 */
+  function closeHoverHistory() {
+    const p = document.getElementById("hist-pop");
+    if (p && p.dataset.sticky !== "1") p.remove();
+  }
+
+  function showHistory(anchor, rec, f, sticky) {
     const old = document.getElementById("hist-pop");
+    /* 이미 고정된 창이 있으면 스쳐 지나가는 마우스로 갈아치우지 않습니다 */
+    if (old && old.dataset.sticky === "1" && !sticky) return;
     if (old) old.remove();
     if (!rec) return;
     const label = f && f.label;
@@ -1121,13 +1295,22 @@
       '<div style="font-size:10.5px;color:var(--c-text-mute);margin-top:var(--s-3);line-height:1.7">' +
         '원본 값은 삭제되지 않고 모두 보존됩니다. 값을 바꾸려면 사유가 필요합니다.</div>';
 
+    pop.dataset.sticky = sticky ? "1" : "0";
+    pop.classList.toggle("is-hover", !sticky);
     document.body.appendChild(pop);
-    const top = Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 10);
-    const left = Math.min(r.left, window.innerWidth - pop.offsetWidth - 10);
-    pop.style.top = Math.max(10, top) + "px";
-    pop.style.left = Math.max(10, left) + "px";
+    placePop(pop, anchor);
 
-    pop.querySelector("#hist-close").addEventListener("click", () => pop.remove());
+    /* 올려서 본 창은 닫기 버튼도 필요 없고, 창 위로 마우스를 옮기면
+       읽는 중이라는 뜻이므로 닫지 않습니다. */
+    const closeBtn = pop.querySelector("#hist-close");
+    if (!sticky) {
+      if (closeBtn) closeBtn.remove();
+      pop.addEventListener("mouseenter", function () { pop.dataset.hoverIn = "1"; });
+      pop.addEventListener("mouseleave", function () { pop.remove(); });
+      return;
+    }
+
+    if (closeBtn) closeBtn.addEventListener("click", () => pop.remove());
     setTimeout(() => {
       document.addEventListener("click", function h(e) {
         if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener("click", h); }
