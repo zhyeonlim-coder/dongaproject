@@ -1160,7 +1160,16 @@
     });
   }
 
-  window.StudySelector.mount($("#selector"));
+  /* ★ 조회 바가 아니라 기록 대상 선택만 둡니다.
+     여기는 데이터를 찾는 화면이 아니라 기록하는 화면입니다. 검색어 ·
+     기간 · 정렬 · 진행 상태 · 조회/초기화 · 조건 태그는 이 화면에서 할
+     일이 없는데도 자리를 차지하고, 입력 폼을 화면 아래로 밀어냅니다.
+
+     그래도 선택기를 완전히 없애지는 못합니다 — render() 가 studyId 와
+     팀이 정해져야 폼을 그리기 때문입니다(위 169행 부근). 통째로 없애면
+     폼이 영구히 "Study 를 선택하세요" 에서 멈춥니다. 엑셀형 입력으로
+     재설계할 때 이 선택기까지 함께 교체하면 됩니다. */
+  window.StudySelector.mount($("#selector"), { mode: "pick" });
   window.Scope.subscribe(function () { batchId = null; sampleId = null; render(); });
   window.Entries.subscribe(render);
   window.Requests.subscribe(render);

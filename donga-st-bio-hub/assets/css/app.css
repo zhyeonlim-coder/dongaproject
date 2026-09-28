@@ -1036,6 +1036,26 @@ a { color: inherit; }
   grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
   margin-top: var(--s-4);
 }
+
+/* ── 기록 대상 선택 (EBR) ──────────────────────────────────────────────
+   조회 바가 아니라 "지금 무엇에 기록하는가" 를 정하는 자리입니다. 조회
+   화면과 같은 무게로 보이면 사용자가 또 검색 조건을 짜려고 합니다 —
+   두 칸만 두고 낮게 깔아 둡니다. */
+.selector.is-pick {
+  padding: var(--s-4) var(--s-5);
+  background: var(--c-paper);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+}
+.selector.is-pick .selector-filters {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  max-width: 620px;
+}
+.selector-pick-note {
+  margin-top: var(--s-3); font-size: 12px; line-height: 1.6;
+  color: var(--c-text-mute);
+}
+.selector-pick-note b { color: var(--c-text); }
 .selector-field { display: flex; flex-direction: column; gap: 5px; }
 .selector-field > span {
   font-size: 11px; font-weight: 600; color: var(--c-text-mute);

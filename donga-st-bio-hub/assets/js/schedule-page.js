@@ -365,7 +365,10 @@
     if (window.Shell.paintRail) window.Shell.paintRail();
   }
 
-  window.StudySelector.mount($("#selector"), { showResults: false });
+  /* 일정 관리는 Scope 를 읽기만 합니다 (get 1회 · subscribe 1회). 좁히는
+     조작을 여기서 하지 않으므로 조회 바를 두지 않습니다 — 상단 바의 과제
+     선택으로 충분하고, 조건을 바꾸고 싶으면 데이터 조회로 가면 됩니다.
+     과제가 바뀌면 아래 subscribe 가 그대로 받아 다시 그립니다. */
   window.Scope.subscribe(render);
   render();
 })();

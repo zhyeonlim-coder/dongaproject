@@ -33,9 +33,28 @@ window.StudySelector = (function () {
     return KEYS.some(k => String(a[k] || "") !== String(b[k] || ""));
   }
 
+  /* ── 역할 두 가지 ────────────────────────────────────────────────────
+     같은 컴포넌트가 화면에 따라 다른 일을 합니다. 두 벌로 나누지 않는
+     이유는 둘 다 같은 Scope 를 읽고 쓰기 때문입니다 — 나누면 두 화면이
+     같은 조건에 다르게 반응하기 시작합니다.
+
+       mode: "search"  조회용 전체 바. 검색어 · 6개 조건 · 조회/초기화 ·
+                       적용된 조건 태그 · Study 목록. 데이터 조회와
+                       대시보드처럼 "무엇을 볼지 좁히는" 화면에 둡니다.
+
+       mode: "pick"    기록 대상 선택만. Study · 팀 두 개와 팀별 제출
+                       현황뿐입니다. 검색어 · 기간 · 정렬 · 진행 상태 ·
+                       조회/초기화 · 조건 태그 · 목록은 그리지 않습니다.
+                       EBR 입력처럼 "지금 무엇에 기록하는가" 만 정해야
+                       하는 화면에 둡니다. 조회 버튼이 없으므로 고르는
+                       즉시 적용합니다.
+
+     일정 관리처럼 Scope 를 읽기만 하는 화면에는 아예 mount 하지 않습니다.
+     상단 바의 과제 선택으로 충분합니다. */
   function mount(host, opts) {
     const o = opts || {};
     if (!host) return null;
+    const pickOnly = o.mode === "pick";
     let unsub = null;
     let draft = pick(window.Scope.get());
 
@@ -59,8 +78,9 @@ window.StudySelector = (function () {
         const desc = window.Scope.describe();
         const dirty = differs(draft, pick(sel));
 
-        host.innerHTML =
-          '<div class="selector' + (dirty ? " is-dirty" : "") + '">' +
+        host.innerHTML = pickOnly
+          ? pickMarkup(studies, opt, teamSets, sel)
+          : '<div class="selector' + (dirty ? " is-dirty" : "") + '">' +
 
             '<div class="selector-top">' +
               '<div class="selector-search">' +
@@ -134,6 +154,28 @@ window.StudySelector = (function () {
 
         wire();
       });
+    }
+
+    /* ── 기록 대상 선택 (mode: "pick") ────────────────────────────────
+       조회 버튼이 없으므로 고르는 즉시 Scope 에 적용합니다. 여기서
+       "미적용 변경" 을 만들면, 사용자는 골랐는데 폼은 안 열리는 상태가
+       되고 그 이유를 화면에서 알 수 없습니다. */
+    function pickMarkup(studies, opt, teamSets, sel) {
+      const teams = (opt.team || []).map(t => ({ v: t.id, t: t.ko }));
+      return '<div class="selector is-pick">' +
+        '<div class="selector-filters" style="margin-top:0">' +
+          field("studyId", "Study", studies.map(s => ({ v: s.id, t: s.name })),
+                sel.studyId, studies.length ? null : "하위 Study 없음") +
+          field("team", "팀", teams, sel.team,
+                teams.length ? null : "데이터 있는 팀 없음") +
+        '</div>' +
+        '<div class="selector-pick-note">' +
+          (sel.studyId && sel.team
+            ? "이 Study · 팀에 기록합니다. 바꾸면 아래 입력 폼이 다시 그려집니다."
+            : "기록할 <b>Study</b> 와 <b>팀</b> 을 고르면 입력 폼이 열립니다.") +
+        '</div>' +
+        teamStrip(teamSets, sel) +
+      '</div>';
     }
 
     function field(key, label, list, val, emptyMsg) {
@@ -225,6 +267,16 @@ window.StudySelector = (function () {
       Array.prototype.forEach.call(host.querySelectorAll("[data-d]"), function (el) {
         el.addEventListener("change", function () {
           draft[el.dataset.d] = el.value;
+          /* 대상 선택 모드에는 조회 버튼이 없습니다 — 고르는 즉시 적용해야
+             합니다. Study 는 setStudy, 팀은 setTeam 을 씁니다. 조회 화면이
+             쓰는 경로를 그대로 타서, 두 화면이 같은 선택에 같이 반응합니다. */
+          if (pickOnly) {
+            if (el.dataset.d === "studyId") window.Scope.setStudy(el.value || null);
+            else if (el.dataset.d === "team") window.Scope.setTeam(el.value || null);
+            else window.Scope.apply(draft);
+            draft = pick(window.Scope.get());
+            return;
+          }
           markDirty();
         });
       });
