@@ -4,7 +4,7 @@
    · 선택한 과제의 데이터만 집계
    · 과제만 선택 → 소속 Study별 요약 카드
    · Study까지 선택 → 배양 / 정제 / 분석 팀별 요약 카드
-   · 팀 카드 클릭 → 선택 상태를 그대로 들고 EBR 입력으로 이동
+   · 팀 카드 클릭 → 선택 상태를 그대로 들고 Data 입력으로 이동
 
    ── 그래프는 팀마다 다릅니다 ────────────────────────────────────────────
    세 팀이 보는 지표(CQA/CPP)가 서로 달라서, 같은 그래프를 나란히 놓으면
@@ -47,7 +47,7 @@
       { label: "팀별 보기", items: window.DATA_TEAMS.map(t => ({
         key: t.id, ko: t.ko, active: sel.team === t.id, color: t.color })) },
       { label: "바로가기", items: [
-        { ko: "EBR 입력", href: "ebr.html" },
+        { ko: "Data 입력", href: "ebr.html" },
         { ko: "데이터 조회", href: "data.html" },
         { ko: "일정 관리", href: "schedule.html" }
       ]}
@@ -102,6 +102,30 @@
   }
 
   /* ── 과제만 선택 → Study 카드 ───────────────────────────────────────── */
+  /* ── Study 선택 ───────────────────────────────────────────────────────
+     카드 목록이 아니라 드롭다운입니다. 카드는 자리를 많이 쓰면서 정작
+     "전체로 되돌리는" 길이 없었습니다 — 한 번 Study 를 고르면 카드가
+     사라져, 다시 전체를 보려면 과제를 바꿨다 돌아와야 했습니다.
+
+     고르는 즉시 적용합니다. 이 화면에는 조회 버튼이 없고, 여기서 고르는
+     것은 "조건을 짜는 중" 이 아니라 "이걸 보겠다" 는 확정 동작입니다. */
+  function studyPicker(studies, sel) {
+    const n = studies.length;
+    return '<div class="dash-studybar">' +
+      '<label class="dash-studylab" for="dash-study">Study</label>' +
+      '<select class="input dash-studysel" id="dash-study">' +
+        '<option value="">전체 · Study ' + n + '개</option>' +
+        studies.map(s => '<option value="' + esc(s.id) + '"' +
+          (sel.studyId === s.id ? " selected" : "") + '>' + esc(s.name) +
+          (s.status ? " · " + esc(s.status) : "") + '</option>').join("") +
+      '</select>' +
+      '<span class="dash-studyhint">' +
+        (sel.studyId
+          ? "이 Study 의 배치만 집계합니다."
+          : "과제 전체를 집계합니다. Study 를 고르면 그 범위로 좁혀집니다.") +
+      '</span></div>';
+  }
+
   function studyCards(studies) {
     if (!studies.length) return '<div class="empty"><div class="empty-title">소속 Study가 없습니다</div></div>';
     return '<div class="study-grid">' + studies.map(function (s) {
@@ -143,7 +167,7 @@
         '</div>' +
         '<div class="card-body" style="padding-top:0;display:flex;gap:var(--s-2)">' +
           '<button class="btn btn-ghost btn-sm" data-viewteam="' + t.team + '" style="flex:1">그래프 보기</button>' +
-          '<button class="btn btn-ghost btn-sm" data-goteam="' + t.team + '" style="flex:1">EBR 입력 →</button>' +
+          '<button class="btn btn-ghost btn-sm" data-goteam="' + t.team + '" style="flex:1">Data 입력 →</button>' +
         '</div></section>';
     }).join("") + '</div>';
   }
@@ -459,25 +483,29 @@
       const showTeams = !!sel.studyId;
 
       /* ★ 이 화면은 그래프 전용입니다.
-         할 일 위젯 · 분석 의뢰 · 다가오는 일정 · 최근 EBR 입력 · 우측
+         할 일 위젯 · 분석 의뢰 · 다가오는 일정 · 최근 Data 입력 · 우측
          캘린더를 모두 뺐습니다. 한 화면에 여러 가지가 섞여 있으면 정작
          공정 간 비교를 하려고 들어온 사람이 스크롤부터 해야 합니다.
-         할 일과 의뢰는 각자의 화면에, 일정은 일정 관리 탭에 있습니다. */
+         할 일과 의뢰는 각자의 화면에, 일정은 일정 관리 탭에 있습니다.
+
+         Study 는 카드 목록 대신 드롭다운 하나로 고릅니다. 카드는 자리를
+         많이 쓰면서 "전체로 되돌리는 길" 이 없었습니다. */
       $("#body").innerHTML =
+        studyPicker(studies, sel) +
+
         (showTeams
           ? '<section style="margin-bottom:var(--s-4)"><div class="card-head" style="padding:0 0 var(--s-3)">' +
               '<div><h2 class="card-title">팀별 요약</h2>' +
-              '<p class="card-sub">그래프 보기를 누르면 그 팀 지표만 표시되고, EBR 입력은 선택을 그대로 들고 갑니다</p></div></div>' +
+              '<p class="card-sub">그래프 보기를 누르면 그 팀 지표만 표시되고, Data 입력은 선택을 그대로 들고 갑니다</p></div></div>' +
               teamCards(teamSets, batches) + '</section>'
-          : '<section style="margin-bottom:var(--s-4)"><div class="card-head" style="padding:0 0 var(--s-3)">' +
-              '<div><h2 class="card-title">Study 목록</h2>' +
-              '<p class="card-sub">Study를 선택하면 팀별 요약으로 전환됩니다</p></div></div>' +
-              studyCards(studies) + '</section>') +
+          : "") +
 
         chartSections(sel.team, batches, samples);
 
-      $$("[data-study]").forEach(b => b.addEventListener("click", () =>
-        window.Scope.setStudy(b.dataset.study)));
+      const sp = document.getElementById("dash-study");
+      if (sp) sp.addEventListener("change", function () {
+        window.Scope.setStudy(this.value || null);
+      });
       $$("[data-viewteam]").forEach(b => b.addEventListener("click", () =>
         window.Scope.setTeam(b.dataset.viewteam)));
       $$("[data-goteam]").forEach(b => b.addEventListener("click", function () {

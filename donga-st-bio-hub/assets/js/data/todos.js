@@ -182,7 +182,7 @@ window.Todos = (function () {
           id: "auto-empty-" + t.id, kind: "auto", action: "goto",
           href: "ebr.html", team: t.id,
           label: t.ko + " 미입력 " + missing + "건",
-          note: "EBR 입력에서 채우세요 (" + c.filled + "/" + c.total + " 완료)",
+          note: "Data 입력에서 채우세요 (" + c.filled + "/" + c.total + " 완료)",
           badge: null, tone: null, due: null
         });
       });

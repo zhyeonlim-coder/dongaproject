@@ -51,7 +51,7 @@
     ]},
     { label: "바로가기", items: [
       { ko: "대시보드", href: "dashboard.html" },
-      { ko: "EBR 입력", href: "ebr.html" },
+      { ko: "Data 입력", href: "ebr.html" },
       { ko: "Troubleshooting", href: "hub.html#wiki" }
     ]}
   ], k => { groupBy = k; syncSelectHook(); render(); });

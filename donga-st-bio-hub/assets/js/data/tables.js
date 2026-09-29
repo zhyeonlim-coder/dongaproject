@@ -4,7 +4,7 @@
    자연어 질의 엔진(ask.js)이 한 가지 모양만 알면 되도록, 두 출처를 같은
    형태로 정규화합니다.
 
-     1) 내부 데이터 — DATA_BATCHES + downstream + Sample 분석값 + EBR 입력값
+     1) 내부 데이터 — DATA_BATCHES + downstream + Sample 분석값 + Data 입력값
      2) 업로드 파일 — 사용자가 올린 .csv / .xlsx / .xls
 
    테이블 모양:
@@ -13,7 +13,7 @@
        rows:    [{ __id, __label, ...컬럼값 }] }
 
    내부 테이블의 값은 반드시 Repo.valueOf 를 거칩니다 — 분석 항목은 시료
-   귀속이고 EBR 입력값이 원본을 덮어쓰는 규칙이 이미 그 안에 있습니다.
+   귀속이고 Data 입력값이 원본을 덮어쓰는 규칙이 이미 그 안에 있습니다.
    여기서 배치 객체를 직접 들여다보면 그 규칙을 두 번 구현하게 됩니다.
 
    파싱은 브라우저에서만 일어나며 업로드한 파일은 이 브라우저를 벗어나지
@@ -162,7 +162,7 @@ window.AskTables = (function () {
   /* 임의의 배치 목록으로 같은 모양의 표를 만듭니다 (회의 모드 범위 질의용).
      캐시하지 않습니다 — 범위가 매번 다릅니다. */
   function build(list, label, note) { return buildInternal(list, label, note); }
-  /* EBR 입력이 바뀌면 내부 테이블을 다시 만들어야 합니다 */
+  /* Data 입력이 바뀌면 내부 테이블을 다시 만들어야 합니다 */
   function invalidate() { internalCache = null; emit(); }
 
   /* ★ 값이 바뀌면 캐시를 버립니다.

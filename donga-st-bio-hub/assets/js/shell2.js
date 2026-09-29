@@ -18,12 +18,12 @@ window.Shell = (function () {
   const NAV = [
     /* 오늘 할 일 · 분석 의뢰 · 연구 지식은 독립 메뉴에서 내렸습니다.
          오늘 할 일  → 대시보드의 Smart To-Do Card
-         분석 의뢰   → EBR 입력 > 분석 및 시료 관리 (+ 대시보드 요약 카드)
+         분석 의뢰   → Data 입력 > 분석 및 시료 관리 (+ 대시보드 요약 카드)
          연구 지식   → DoE & Intelligence > Troubleshooting & Wiki
        입력은 EBR 하나로 모으고, 조회·요약은 대시보드로 모으는 방향입니다. */
     { id: "dashboard", href: "dashboard.html", ko: "대시보드",
       icon: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>' },
-    { id: "ebr", href: "ebr.html", ko: "EBR 입력",
+    { id: "ebr", href: "ebr.html", ko: "Data 입력",
       icon: '<path d="M5 3h11l3 3v15H5z"/><path d="M9 9h7M9 13h7M9 17h4"/>' },
     { id: "data", href: "data.html", ko: "데이터 조회",
       icon: '<path d="M3 5h18v4H3zM3 11h18v4H3zM3 17h18v4H3z"/>' },

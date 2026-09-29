@@ -22,7 +22,7 @@ window.AIContext = (function () {
   const PAGES = {
     dashboard: { ko: "대시보드", what: "과제 현황과 요약" },
     data:      { ko: "데이터 조회", what: "실험 데이터 표와 필터" },
-    ebr:       { ko: "EBR 입력", what: "실험 기록 입력" },
+    ebr:       { ko: "Data 입력", what: "실험 기록 입력" },
     hub:       { ko: "DoE & Intelligence", what: "실험 설계 · AI 검색 · Wiki" },
     schedule:  { ko: "일정 관리", what: "실험 일정" },
     booking:   { ko: "장비 예약", what: "장비 예약 현황" },

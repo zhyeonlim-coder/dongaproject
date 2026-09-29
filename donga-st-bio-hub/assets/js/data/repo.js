@@ -76,7 +76,7 @@ window.Repo = (function () {
   }
 
   /* ── 완성도 집계 ────────────────────────────────────────────────────────
-     "몇 칸이 채워졌나"를 셀 때는 EBR 입력을 반영해야 합니다. 특히
+     "몇 칸이 채워졌나"를 셀 때는 Data 입력을 반영해야 합니다. 특히
      **해당 없음(NA)** 은 분모에서 빼야 맞습니다 — 존재하지 않는 항목을
      미입력으로 세면 완성도가 영원히 100%가 되지 않습니다.
      불검출(ND)은 시험을 수행한 결과이므로 채워진 것으로 셉니다.
@@ -281,7 +281,7 @@ window.Repo = (function () {
     return list.find(s => s.primary) || list[0] || null;
   }
 
-  /* 시료의 분석값. EBR 입력이 있으면 그쪽이 원본보다 우선합니다. */
+  /* 시료의 분석값. Data 입력이 있으면 그쪽이 원본보다 우선합니다. */
   function valueOfSample(sample, groupId, key) {
     if (!sample) return null;
     if (window.Entries && window.VAL) {
@@ -404,7 +404,46 @@ window.Repo = (function () {
        팀으로 배치를 필터링하면 분석팀 선택 시 결과가 0건이 됩니다.
        팀 선택은 "어떤 측정 항목을 볼지"를 정하는 축이며,
        컬럼 필터링은 getAnalyteGroups(team) 이 담당합니다. */
-    return ok(sortRows(clone(batches), s.sort, "batch"));
+    return ok(sortRows(overlay(clone(batches)), s.sort, "batch"));
+  }
+
+  /* ── 입력값을 배치 객체에 덮어씁니다 ──────────────────────────────────
+     ★ 이것이 없으면 Data 입력이 조용히 무시됩니다.
+
+     valueOf() 는 항목 하나를 물을 때 Entries 를 먼저 봅니다. 그런데 화면이
+     배치 객체를 받아 b.upstream.titerHCCF 처럼 직접 읽으면 그 경로를 지나지
+     않아 원본 값이 나옵니다. 대시보드 KPI 와 배양·정제 그래프가 그랬습니다 —
+     EBR 에서 고친 값이 저장은 되는데 대시보드는 예전 값을 계속 보여 줬고,
+     둘 다 그럴듯한 숫자라 화면만 봐서는 어느 쪽이 맞는지 알 수 없었습니다.
+
+     그래서 배치를 내보내는 자리에서 한 번 덮습니다. 여기를 지나면 누가
+     어떻게 읽든 같은 값을 봅니다. clone 된 사본에만 쓰므로 원본
+     DATA_BATCHES 는 그대로입니다 — 원본 보존이 이 프로젝트의 전제입니다. */
+  function overlay(list) {
+    (list || []).forEach(function (b) {
+      const scope = "batch:" + b.id;
+
+      if (b.upstream) {
+        Object.keys(b.upstream).forEach(function (k) {
+          if (k === "titer") return;            /* 일자별은 아래에서 따로 */
+          const v = store.read(scope, entryKey("upstream", k));
+          if (v !== undefined) b.upstream[k] = v;
+        });
+        if (b.upstream.titer) {
+          Object.keys(b.upstream.titer).forEach(function (d) {
+            const v = store.read(scope, entryKey("titer", d));
+            if (v !== undefined) b.upstream.titer[d] = v;
+          });
+        }
+      }
+      if (b.downstream) {
+        Object.keys(b.downstream).forEach(function (k) {
+          const v = store.read(scope, entryKey("downstream", k));
+          if (v !== undefined) b.downstream[k] = v;
+        });
+      }
+    });
+    return list;
   }
 
   /* ── 측정 항목 ──────────────────────────────────────────────────────── */

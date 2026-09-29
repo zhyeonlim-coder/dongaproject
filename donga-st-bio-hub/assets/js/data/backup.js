@@ -37,7 +37,7 @@ window.Backup = (function () {
 
   /* 화면에 뭐가 들어 있는지 사람 말로 보여 주기 위한 설명 */
   const AREAS = {
-    "hub.entries.v1": { ko: "EBR 입력값", parts: [["values", "칸"], ["samples", "시료"]] },
+    "hub.entries.v1": { ko: "Data 입력값", parts: [["values", "칸"], ["samples", "시료"]] },
     "hub.pins.v1":    { ko: "회의 기록",  parts: [["pins", "핀"], ["notes", "결정·조치"],
                                                   ["agenda", "안건"], ["meetings", "회의"]] },
     "hub.issues.v1":  { ko: "트러블슈팅 사례", parts: [["list", "건"]] },

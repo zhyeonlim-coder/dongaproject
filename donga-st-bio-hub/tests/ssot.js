@@ -4,7 +4,7 @@
    무엇을 증명하려는가
      EBR 에서 고친 값을 나머지 전부가 같이 본다는 것.
 
-       EBR 입력 ─→ Repo ─┬─→ 대시보드 · 데이터 조회
+       Data 입력 ─→ Repo ─┬─→ 대시보드 · 데이터 조회
                          ├─→ Global AI
                          ├─→ 통계 Tool
                          └─→ DoE / CSV
@@ -85,7 +85,7 @@ window.SSOTTest = (function () {
       /* ── 1) EBR 에서 값 입력 (EBR 이 쓰는 바로 그 경로) ────────────── */
       const w = R.setValue(scope, FIELD.entry, { num: TEST_VALUE }, "SSOT 검사", {
         baseValue: before, baseSource: "Excel 원본" });
-      T.add("① EBR 입력이 저장됨", !!(w && w.ok), JSON.stringify(w).slice(0, 90));
+      T.add("① Data 입력이 저장됨", !!(w && w.ok), JSON.stringify(w).slice(0, 90));
 
       /* ── 2) Repo 에 반영 ─────────────────────────────────────────── */
       T.add("② Repo.valueOf 가 새 값을 돌려줌",

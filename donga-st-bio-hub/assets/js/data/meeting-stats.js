@@ -13,7 +13,7 @@
      2) 회의 전 브리핑
         지난 회의가 끝난 뒤 이 시스템에서 실제로 바뀐 것만 모읍니다.
         원본 배치 데이터는 정적이라 "새 배치"는 생기지 않습니다. 대신 사람이
-        만든 변화(EBR 입력 · 조치 완료 · 새 사례 · 핀 붙은 값의 수정)를 봅니다.
+        만든 변화(Data 입력 · 조치 완료 · 새 사례 · 핀 붙은 값의 수정)를 봅니다.
 
         그중 가장 중요한 것은 **지난 회의에서 지적한 값이 그 뒤 수정됐는지**
         입니다. 회의의 지적이 반영됐는지를 사람이 기억으로 확인하고 있으면
@@ -125,7 +125,7 @@ window.MeetingStats = (function () {
       hasPrevious: !!prev
     };
 
-    /* ── EBR 입력 변화 ── */
+    /* ── Data 입력 변화 ── */
     const ev = (window.Entries && window.Entries.state && window.Entries.state().values) || {};
     Object.keys(ev).forEach(function (k) {
       const rec = ev[k];

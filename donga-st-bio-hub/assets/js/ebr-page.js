@@ -1,5 +1,5 @@
 /* ==========================================================================
-   EBR 입력  [지시서 §1 §3 §5]
+   Data 입력  [지시서 §1 §3 §5]
 
    대상 지정 순서: 과제 → Study → 팀 → Batch → Sample
      · 네 단계를 모두 지정해야 폼이 열립니다
@@ -224,31 +224,9 @@
           window.Calc.panel(sel.team) +
           lotStrip(batch) +
 
-          /* 그룹은 표 하나로 묶습니다. 그룹마다 표를 나누면 열 너비가
-             그룹마다 달라져 숫자 열이 세로로 안 맞습니다 — 표의 이점이
-             바로 그 정렬이라 한 표에 담고 그룹은 머리글 행으로 둡니다. */
-          '<div class="card-body" style="padding-bottom:var(--s-4)">' +
-            '<div class="ebr-tbl-wrap">' +
-            '<table class="ebr-tbl">' +
-              '<thead><tr>' +
-                '<th scope="col">항목</th>' +
-                '<th scope="col">입력값</th>' +
-                '<th scope="col">단위</th>' +
-                '<th scope="col">이력 · 출처</th>' +
-              '</tr></thead>' +
-              groups.map(function (grp) {
-                return '<tbody>' +
-                  '<tr class="ebr-grp"><th colspan="4" scope="colgroup">' +
-                    esc(grp.g) + '</th></tr>' +
-                  grp.items.map(f => rowMarkup(batch, f)).join("") +
-                '</tbody>';
-              }).join("") +
-            '</table></div>' +
-            '<p class="ebr-keyhint">' +
-              '<b>↑ ↓</b> 위아래 셀 · <b>Tab</b> 다음 셀 · <b>Enter</b> 확정하고 아래로 · ' +
-              '<b>Shift+Enter</b> 위로 · <b>Esc</b> 되돌리기' +
-            '</p>' +
-          '</div>' +
+          /* 표는 DataGrid 가 그립니다 — 어느 팀 서식이든 같은 모양이어야
+             하므로 여기서 직접 그리지 않습니다. 아래에서 mount 합니다. */
+          '<div class="card-body" style="padding-bottom:var(--s-4)" id="grid-host"></div>' +
 
           '<div class="card-body" style="border-top:1px solid var(--c-border);display:flex;' +
             'gap:var(--s-3);align-items:center;flex-wrap:wrap">' +
@@ -259,6 +237,7 @@
           '</div>' +
         '</section>';
 
+      mountGrid(batch, groups);
       wireForm(batch, groups, batches);
     });
   }
@@ -379,8 +358,24 @@
 
   /* 화면에 보이던 초기값 — 이걸 바꾸려면 사유가 필요하고,
      바뀌면 이 값이 이력 첫 항목으로 보존됩니다. */
+  /* ★ 화면이 "Excel 원본" 이라고 보여 준 값은 바꿀 때 사유를 받아야 합니다.
+
+     예전에는 시료를 고른 상태면 무조건 null 을 돌려줬습니다. 배양·정제
+     항목은 배치 속성이라 그게 맞지만, 분석 항목은 시료 속성이고 effective()
+     가 그 시료의 Excel 값을 보여 줍니다. 그래서 화면에는 0.2 가 "Excel 원본"
+     으로 떠 있는데, 고쳐도 사유를 묻지 않고 이력도 남지 않은 채 새 값으로
+     저장됐습니다 — 원본이 조용히 사라지는 경로였습니다.
+
+     effective() 와 같은 기준으로 판단합니다. 두 곳이 다른 기준을 쓰면
+     "보여 주는 값" 과 "지켜야 할 값" 이 어긋납니다. */
+  function isSampleScoped(f) {
+    return !!(f.src && ["upstream", "titer", "downstream", "meta"].indexOf(f.src[0]) === -1);
+  }
   function baseValueOf(batch, f) {
-    if (sampleId) return null;                    // Sample 은 Batch 값을 물려받지 않습니다
+    /* 시료를 골랐는데 배치 항목이면 물려받지 않습니다 */
+    if (sampleId && !isSampleScoped(f)) return null;
+    /* 시료를 안 골랐는데 시료 항목이면 볼 원본이 없습니다 */
+    if (!sampleId && isSampleScoped(f)) return null;
     const raw = excelValue(batch, f.src);
     if (raw === null || raw === undefined) return null;
     return isMeasure(f) ? window.VAL.coerce(raw) : raw;
@@ -408,75 +403,60 @@
       (list.length > 1 ? " " + list.length : "") + '</span> ';
   }
 
+
   /* ══════════════════════════════════════════════════════════════════════
-     입력 표 (Data Grid)
+     입력 표 — DataGrid 에 스키마와 콜백만 넘깁니다
 
-     왜 표인가
-       연구원이 옮겨 적는 원본이 엑셀 표입니다. 화면이 카드로 흩어져 있으면
-       눈이 원본의 행과 화면의 카드를 계속 짝지어야 하고, 그 과정에서 한 칸씩
-       밀려 적는 실수가 납니다. 같은 배열로 두면 그 대조가 사라집니다.
-
-     열 구성
-       항목 · 입력값 · 단위 · 이력/출처
-       단위를 값과 같은 칸에 넣지 않습니다. 숫자만 세로로 정렬되어야
-       자릿수가 눈에 들어옵니다.
+     표를 그리는 일과 값을 다루는 일을 나눠 둡니다. 그리는 쪽(DataGrid)은
+     어느 서식이든 같고, 값을 다루는 규칙(사유 필수 · 범위 검사 · 단위
+     해석 · 감사 이력)은 이 화면의 것입니다. 저장까지 DataGrid 안으로
+     넣으면 서식마다 다른 규칙이 그 안으로 새어 들어와 공통이 아니게
+     됩니다.
 
      한 행이 한 셀입니다 — data-cell 이 행에 붙습니다. setMsg · openReason ·
      revert · closeReason 이 모두 cellOf(k) 로 이 행을 찾으므로, 기존 저장
-     경로는 그대로 둔 채 겉모양만 바뀝니다.
+     경로는 그대로입니다.
      ══════════════════════════════════════════════════════════════════════ */
-  function rowMarkup(batch, f) {
-    const eff = effective(batch, f);
-    const v = eff.value;
-    const rec = eff.rec;
-    const cap = rec ? E.caption(rec)
-      : (eff.fromExcel && v !== null && v !== undefined ? originLabel(f) : null);
+  function mountGrid(batch, groups) {
+    const host = $("#grid-host");
+    if (!host || !window.DataGrid) return;
 
-    const measure = isMeasure(f);
-    const cur = measure ? window.VAL.coerce(v) : null;
-    const miss = measure ? window.VAL.missingInfo(cur) : null;
-    const edited = !!(rec && E.hasHistory(rec));
+    window.DataGrid.mount(host, {
+      groups: groups,
 
-    return '<tr class="ebr-row' + (edited ? " is-edited" : "") + '" data-cell="' + esc(f.k) + '">' +
-      '<th scope="row" class="ebr-th">' + esc(f.label) + pinMark(batch, f) + '</th>' +
+      /* 한 칸을 그리는 데 필요한 것만 넘깁니다 — 값·표시문자열·출처·결측·
+         수정 여부. 저장소 구조는 DataGrid 가 알 필요가 없습니다. */
+      cell: function (f) {
+        const eff = effective(batch, f);
+        const v = eff.value;
+        const rec = eff.rec;
+        const measure = isMeasure(f);
+        const cur = measure ? window.VAL.coerce(v) : null;
+        return {
+          display: displayValue(f, v),
+          origin: rec ? E.caption(rec)
+                : (eff.fromExcel && v !== null && v !== undefined ? originLabel(f) : null),
+          missing: measure ? window.VAL.missingInfo(cur) : null,
+          bounded: measure && window.VAL.isBounded(cur),
+          edited: !!(rec && E.hasHistory(rec)),
+          editCount: rec && rec.history ? rec.history.length : 0,
+          pin: pinMark(batch, f)
+        };
+      },
 
-      '<td class="ebr-td-in">' +
-        '<div class="ebr-cellbox">' +
-          '<label class="sr-only" for="in-' + esc(f.k) + '">' + esc(f.label) +
-            (f.unit ? " (" + esc(f.unit) + ")" : "") + '</label>' +
-          '<input class="ebr-gin' + (miss ? " is-missing" : "") +
-            (measure && window.VAL.isBounded(cur) ? " is-bounded" : "") + '" ' +
-            'id="in-' + esc(f.k) + '" data-f="' + esc(f.k) + '" ' +
-            (measure
-              ? 'type="text" inputmode="decimal" autocomplete="off" list="val-tokens" ' +
-                'placeholder="숫자 · <1 · ND"'
-              : 'type="' + (f.type === "date" ? "date" : "text") + '" ') +
-            ' value="' + esc(displayValue(f, v)) + '">' +
-          /* ★ 수정 표시는 셀 우측 상단에 붙입니다. 값 옆에 나란히 두면
-             숫자 정렬이 흐트러지고, 값이 길 때 가려집니다. */
-          (edited
-            ? '<button class="ebr-mark" data-hist="' + esc(f.k) + '" type="button" ' +
-              'aria-label="' + esc(f.label) + ' 변경 이력 ' + rec.history.length + '건 보기">' +
-              '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-              'stroke-width="3"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/></svg></button>'
-            : "") +
-        '</div>' +
-        '<p class="field-msg" data-msg="' + esc(f.k) + '" role="alert"></p>' +
-      '</td>' +
+      onCommit: function (f, raw) {
+        const r = commit(batch, f, raw);
+        if (r === "saved") render();
+        return r;
+      },
+      onRevert: function (f) { revert(batch, f); },
 
-      '<td class="ebr-td-unit">' + (f.unit ? esc(f.unit) : "") + '</td>' +
-
-      '<td class="ebr-td-audit">' +
-        /* 결측 꼬리표가 이미 "미측정" 이라고 말하면 또 적지 않습니다 —
-           예전에는 "미측정미측정" 으로 두 번 나왔습니다. */
-        (miss ? '<span class="miss-tag miss-' + miss.code + '" title="' + esc(miss.hint) + '">' +
-                esc(miss.label) + '</span>' : "") +
-        (cap ? '<span class="ebr-origin">' + esc(cap) + '</span>'
-             : (miss ? "" : '<span class="audit-none">미측정</span>')) +
-        (edited ? '<span class="ebr-editcount" data-hist="' + esc(f.k) + '">수정 ' +
-                  rec.history.length + '회</span>' : "") +
-      '</td>' +
-    '</tr>';
+      /* anchor 가 null 이면 "닫아 달라" 는 뜻입니다 (마우스가 벗어남) */
+      onHistory: function (anchor, f, sticky) {
+        if (!anchor) { closeHoverHistory(); return; }
+        showHistory(anchor, E.getValue(scopeKey(), f.k), f, sticky);
+      }
+    });
   }
 
   /* 이 배치가 쓴 자재 — 이상이 생겼을 때 첫 질문에 바로 답하도록
@@ -581,13 +561,8 @@
     const host = $("#form-host");
     const fieldInputs = () => $$("[data-f]", host);
 
-    fieldInputs().forEach(function (inp) {
-      inp.addEventListener("change", function () {
-        const f = all.find(x => x.k === inp.dataset.f);
-        const r = commit(batch, f, inp.value);
-        if (r === "saved") render();
-      });
-    });
+    /* 표 안의 칸은 DataGrid 가 붙입니다 (change · 키보드 · 이력 표식).
+       여기서 또 붙이면 한 번 고칠 때 저장이 두 번 돕니다. */
 
     $("#save-all").addEventListener("click", function () {
       let saved = 0, asking = 0, bad = 0;
@@ -609,103 +584,8 @@
       if (saved && !asking && !bad) render();
     });
 
-    /* ── 이력 보기 — 올려도 뜨고 눌러도 뜹니다 ────────────────────────
-       올리면 뜨는 것만 두면 태블릿에서는 볼 방법이 없고, 키보드로도
-       닿지 않습니다. 실험실에서 태블릿을 쓰므로 둘 다 둡니다.
-         hover / focus  → 떠 있다가 벗어나면 닫힙니다 (가볍게 확인)
-         click          → 고정됩니다. 안의 글을 고르거나 읽을 수 있습니다. */
-    let hoverTimer = null;
-    $$("[data-hist]", host).forEach(function (b) {
-      const key = b.dataset.hist;
-      const fld = all.find(x => x.k === key) || {};
-      const open = sticky => showHistory(b, E.getValue(scopeKey(), key), fld, sticky);
-
-      b.addEventListener("click", function (e) {
-        e.preventDefault(); e.stopPropagation();
-        clearTimeout(hoverTimer);
-        open(true);
-      });
-      b.addEventListener("mouseenter", function () {
-        clearTimeout(hoverTimer);
-        hoverTimer = setTimeout(() => open(false), 120);   /* 지나가는 마우스에 뜨지 않게 */
-      });
-      b.addEventListener("mouseleave", function () {
-        clearTimeout(hoverTimer);
-        hoverTimer = setTimeout(closeHoverHistory, 160);   /* 팝오버로 옮겨 갈 틈 */
-      });
-      b.addEventListener("focus", () => open(false));
-      b.addEventListener("blur", closeHoverHistory);
-    });
-
-    wireGrid(batch, all, host);
   }
 
-  /* ── 표 안에서의 키보드 이동 ──────────────────────────────────────────
-     엑셀에서 옮겨 적는 사람이 손을 마우스로 옮기지 않아야 합니다. 한 칸
-     적고 마우스를 잡는 순간 리듬이 끊기고, 그때 줄이 밀립니다.
-
-       ↑ ↓        위아래 셀 (같은 열)
-       Enter      확정하고 아래로 · Shift+Enter 위로
-       Esc        이번 입력을 버리고 저장된 값으로 되돌림
-       Tab        브라우저 기본 순서를 그대로 씁니다 — 표의 행 순서와 같습니다
-
-     ★ Enter 로 확정했을 때 사유가 필요하면 아래로 옮기지 않습니다.
-       옮겨 버리면 사유 창은 위 셀에 떠 있고 커서는 다른 셀에 있어, 무엇에
-       대한 사유인지 알 수 없게 됩니다. */
-  function wireGrid(batch, all, host) {
-    const inputs = () => $$(".ebr-gin", host);
-
-    function move(from, delta) {
-      const list = inputs();
-      const i = list.indexOf(from);
-      if (i === -1) return;
-      const next = list[i + delta];
-      if (!next) return;
-      next.focus();
-      if (next.select) { try { next.select(); } catch (e) { /* date 입력 */ } }
-    }
-
-    inputs().forEach(function (inp) {
-      inp.addEventListener("keydown", function (e) {
-        const f = all.find(x => x.k === inp.dataset.f);
-
-        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-          /* 날짜 칸에서는 위아래가 값 증감입니다 — 가로채지 않습니다 */
-          if (f && f.type === "date") return;
-          e.preventDefault();
-          move(inp, e.key === "ArrowDown" ? 1 : -1);
-          return;
-        }
-
-        if (e.key === "Enter") {
-          e.preventDefault();
-          const r = commit(batch, f, inp.value);
-          if (r === "needReason" || r === "error") return;   /* 그 자리에 머무릅니다 */
-          const delta = e.shiftKey ? -1 : 1;
-          if (r === "saved") {
-            /* render() 가 표를 다시 그리므로, 다시 그린 뒤의 같은 자리에서
-               옮깁니다. 지금 노드를 붙잡고 있으면 사라진 노드를 가리킵니다. */
-            const key = inp.dataset.f;
-            render();
-            setTimeout(function () {
-              const list = $$(".ebr-gin", $("#form-host"));
-              const i = list.findIndex(x => x.dataset.f === key);
-              const next = list[i + delta];
-              if (next) { next.focus(); if (next.select) { try { next.select(); } catch (er) {} } }
-            }, 0);
-            return;
-          }
-          move(inp, delta);
-          return;
-        }
-
-        if (e.key === "Escape") {
-          e.preventDefault();
-          revert(batch, f);
-        }
-      });
-    });
-  }
 
   /* ── 필드 메시지 ────────────────────────────────────────────────────── */
   function cellOf(k) { return document.querySelector('[data-cell="' + k + '"]'); }

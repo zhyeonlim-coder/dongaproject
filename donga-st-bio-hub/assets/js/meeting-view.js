@@ -383,7 +383,7 @@ window.MeetingView = (function () {
       '<p class="mm-brief-sub">' + esc(String(b.previous.title || "지난 회의")) + " · " +
         esc(String(b.previous.endedAt).replace("T", " ")) + ' 종료 이후 이 시스템에서 바뀐 것</p>' +
       '<ul class="mm-brief-list">' +
-        line("EBR 입력 · 수정", b.entries.length,
+        line("Data 입력 · 수정", b.entries.length,
           b.entries.slice(0, 3).map(e => e.scope + " " + e.field).join(", ")) +
         line("완료된 조치", b.actionsDone.length) +
         line("새 트러블슈팅 사례", b.newIssues.length,
