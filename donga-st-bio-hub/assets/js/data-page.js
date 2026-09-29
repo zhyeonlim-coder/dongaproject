@@ -704,7 +704,11 @@
     toast._t = setTimeout(() => { t.style.display = "none"; }, 3000);
   }
 
-  window.StudySelector.mount($("#selector"));
+  /* 조회 바가 아니라 대상 선택만 둡니다. 큰 박스가 표를 화면 아래로
+     밀어내고 있었습니다 — 이 화면의 본체는 표입니다.
+     좁히는 일은 표 안의 컬럼 필터와 정렬 머리글, 그리고 AI 어시스턴트의
+     필터 제안으로 합니다. */
+  window.StudySelector.mount($("#selector"), { mode: "pick" });
   window.Scope.subscribe(function (sel, reason) {
     paintClassFilter();
     /* [조회]·[초기화]·과제 전환으로 조건이 새로 적용되면 직접 건 컬럼 정렬을

@@ -836,6 +836,9 @@ a { color: inherit; }
   align-items: start;
   flex: 1;
 }
+/* 우측 rail 이 없는 화면(대시보드)은 본문이 그 폭을 씁니다. 세 번째 칸을
+   비워 두면 오른쪽에 빈 띠가 남고, 그래프 2단이 그만큼 좁아집니다. */
+.body-grid:not(:has(> .rail)) { grid-template-columns: 216px minmax(0, 1fr); }
 .body-grid > * { min-width: 0; }
 
 .subnav {
@@ -1892,6 +1895,42 @@ tr.is-picked:hover > td { background: var(--c-accent-bg-2); }
 /* --------------------------------------------------------------------------
    대시보드 위젯 — Smart To-Do · 분석 의뢰 요약
    -------------------------------------------------------------------------- */
+/* ──────────────────────────────────────────────────────────────────────────
+   대시보드 그래프 2단
+
+   비교가 이 화면의 목적입니다. 한 줄에 하나씩이면 두 번째 그래프를 보려고
+   스크롤하는 사이에 첫 번째가 화면에서 사라져, 비교가 기억에 의존하게
+   됩니다. 나란히 놓으면 눈만 옮기면 됩니다.
+
+   460px 아래로는 한 단으로 돌립니다 — 범례와 축 라벨이 겹치기 시작하면
+   좁게 두 개보다 넓게 하나가 낫습니다.
+   ────────────────────────────────────────────────────────────────────────── */
+.dash-grid2 {
+  display: grid; gap: var(--s-4);
+  grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+  align-items: start;
+  margin-bottom: var(--s-4);
+}
+/* 카드 자체의 아래 여백은 그리드 gap 이 대신합니다 */
+.dash-grid2 > .card { margin-bottom: 0 !important; }
+.dash-grid2 .card-head { padding-bottom: var(--s-2); }
+.dash-grid2 .card-title { font-size: 13.5px; }
+.dash-grid2 .card-sub { font-size: 11px; }
+.dash-grid2 .card-body { padding-top: var(--s-3); }
+/* 그래프가 칸 폭에 맞게 줄어들도록 — SVG 는 viewBox 로 그려집니다 */
+.dash-grid2 .chart-wrap svg { width: 100%; height: auto; }
+
+/* 팀 구분 머리글 — 세 팀을 이어 그릴 때 어디서 바뀌는지 보여야 합니다 */
+.dash-teamhead {
+  margin: var(--s-6) 0 var(--s-3);
+  padding-left: var(--s-3);
+  border-left: 3px solid var(--c-accent);
+  font-family: var(--font-data);
+  font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--c-text-soft);
+}
+.dash-teamhead:first-child { margin-top: 0; }
+
 .widget-row {
   display: grid; gap: var(--s-3);
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
