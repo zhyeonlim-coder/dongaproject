@@ -417,9 +417,73 @@
      revert · closeReason 이 모두 cellOf(k) 로 이 행을 찾으므로, 기존 저장
      경로는 그대로입니다.
      ══════════════════════════════════════════════════════════════════════ */
+  /* ══════════════════════════════════════════════════════════════════════
+     워크시트 — 원본 엑셀과 같은 배열
+
+     항목이 왼쪽에 세로로 서고 오른쪽으로 시점(또는 시료)이 늘어납니다.
+     열이 무엇인가는 팀마다 다릅니다.
+
+       배양   배양 경과 일자 (D10 · D11 …)   하루에 한 번 재는 값
+       분석   시료 (SMP-…)                    시료마다 한 번 재는 값
+       정제   단일 열                          배치당 한 번 재는 값
+
+     사용자가 축을 바꿀 수 있습니다 — 실제 실험이 늘 이 셋으로 떨어지지는
+     않습니다.
+
+     ★ 저장 경로는 그대로입니다.
+       기존 스키마 항목은 원래 쓰던 키로 저장합니다 (일자별 Titer 는
+       titer_D10 …, 분석은 시료 범위의 seHPLC_hmw …). 그래야 조회 ·
+       대시보드 · AI 가 같은 값을 봅니다.
+       사용자가 행추가로 만든 항목만 ws_<행>@<열> 로 따로 담고, 그 값은
+       이 화면 안에서만 씁니다 — 다른 화면이 모르는 항목이기 때문입니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  const AXIS_KEY = "hub.ws.axis";
+  const CUSTOM_KEY = "hub.ws.rows";
+
+  function axisFor(team) {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(AXIS_KEY) || "{}")[team]; } catch (e) {}
+    if (saved) return saved;
+    return team === "upstream" ? "day" : team === "analytics" ? "sample" : "single";
+  }
+  function setAxis(team, v) {
+    let m = {};
+    try { m = JSON.parse(localStorage.getItem(AXIS_KEY) || "{}"); } catch (e) {}
+    m[team] = v;
+    try { localStorage.setItem(AXIS_KEY, JSON.stringify(m)); } catch (e) {}
+  }
+  /* 사용자가 만든 행 — 배치·팀별로 따로 둡니다 */
+  function customRows(team, bid) {
+    try {
+      const m = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "{}");
+      return m[team + "|" + bid] || [];
+    } catch (e) { return []; }
+  }
+  function saveCustomRows(team, bid, list) {
+    let m = {};
+    try { m = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "{}"); } catch (e) {}
+    m[team + "|" + bid] = list;
+    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(m)); } catch (e) {}
+  }
+  /* 사용자가 늘린 열 (기본 열 뒤에 붙습니다) */
+  function extraCols(team, bid) {
+    try {
+      const m = JSON.parse(localStorage.getItem(CUSTOM_KEY + ".cols") || "{}");
+      return m[team + "|" + bid] || 0;
+    } catch (e) { return 0; }
+  }
+  function saveExtraCols(team, bid, n) {
+    let m = {};
+    try { m = JSON.parse(localStorage.getItem(CUSTOM_KEY + ".cols") || "{}"); } catch (e) {}
+    m[team + "|" + bid] = n;
+    try { localStorage.setItem(CUSTOM_KEY + ".cols", JSON.stringify(m)); } catch (e) {}
+  }
+
   function mountGrid(batch, groups) {
     const host = $("#grid-host");
-    if (!host || !window.DataGrid) return;
+    if (!host) return;
+    if (window.Worksheet) { mountWorksheet(batch, groups, host); return; }
+    if (!window.DataGrid) return;
 
     window.DataGrid.mount(host, {
       groups: groups,
@@ -457,6 +521,347 @@
         showHistory(anchor, E.getValue(scopeKey(), f.k), f, sticky);
       }
     });
+  }
+
+  /* ── 워크시트 축 만들기 ──────────────────────────────────────────────
+     열은 { id, label, sub, scope, dayKey } 입니다.
+       scope  이 열의 값이 어느 저장 범위에 들어가는가 ("batch:…"/"sample:…")
+       dayKey 일자 축일 때 기존 스키마의 일자 코드 (D10 …) */
+  function buildCols(team, batch, samples, axis) {
+    const bid = batch.id;
+    const extra = extraCols(team, bid);
+
+    if (axis === "day") {
+      const days = (window.DATA_TITER_DAYS || []).slice();
+      const cols = days.map(d => ({ id: d, label: d, sub: "배양 " + d.slice(1) + "일차",
+                                    scope: "batch:" + bid, dayKey: d }));
+      for (let i = 0; i < extra; i++) {
+        const id = "X" + (i + 1);
+        cols.push({ id: id, label: id, sub: "추가 열", scope: "batch:" + bid, dayKey: null });
+      }
+      return cols;
+    }
+    if (axis === "sample") {
+      const cols = (samples || []).map(s => ({
+        id: s.id, label: s.name || s.id, sub: s.stage || "시료",
+        scope: "sample:" + s.id, dayKey: null
+      }));
+      if (!cols.length) {
+        cols.push({ id: "none", label: "시료 없음", sub: "먼저 시료를 만드세요",
+                    scope: "batch:" + bid, dayKey: null });
+      }
+      return cols;
+    }
+    /* 단일 — 배치당 한 번 재는 값 */
+    const cols = [{ id: "v", label: "값", sub: "배치 단위", scope: "batch:" + bid, dayKey: null }];
+    for (let i = 0; i < extra; i++) {
+      const id = "X" + (i + 1);
+      cols.push({ id: id, label: id, sub: "추가 열", scope: "batch:" + bid, dayKey: null });
+    }
+    return cols;
+  }
+
+  /* 행 — 스키마 항목 + 사용자가 만든 항목.
+     scalar 인 행은 배치당 하나뿐인 값이라 첫 열에만 칸을 둡니다. */
+  function buildRows(team, groups, axis, bid) {
+    const out = [];
+    let dayRowDone = false;
+    groups.forEach(function (grp) {
+      (grp.items || []).forEach(function (f) {
+        const perDay = !!(f.src && f.src[0] === "titer");
+        const perSample = isSampleScoped(f);
+
+        /* ★ 일자별 항목은 한 행으로 접습니다.
+           스키마에는 Titer D10 · D11 … 이 항목마다 하나씩 있지만, 워크시트
+           에서는 "Titer" 한 줄이 D 열을 가로지르는 것이 원본 시트의 모양
+           입니다. 펼쳐 두면 11줄이 생기고 열도 11개라 같은 값을 표 안에서
+           두 번 찾게 됩니다. */
+        if (axis === "day" && perDay) {
+          if (dayRowDone) return;
+          dayRowDone = true;
+          out.push({ k: "titer", label: "Titer", unit: f.unit, type: f.type,
+                     group: grp.g, scalar: false, field: f, perDay: true });
+          return;
+        }
+
+        /* 축과 성격이 맞는 항목만 열마다 칸을 둡니다 */
+        const spread = (axis === "sample" && perSample) || (axis === "single");
+        out.push({ k: f.k, label: f.label, unit: f.unit, type: f.type,
+                   group: grp.g, scalar: !spread, field: f });
+      });
+    });
+    customRows(team, bid).forEach(function (c) {
+      out.push({ k: "ws_" + c.k, label: c.label, unit: c.unit || "", type: "num",
+                 group: "직접 추가한 항목", custom: true, field: null });
+    });
+    return out;
+  }
+
+  /* 한 칸이 어디에 저장되는가 — 기존 스키마 키를 최대한 그대로 씁니다 */
+  function cellTarget(row, col) {
+    if (row.custom) {
+      return { scope: col.scope, key: row.k + "@" + col.id, schema: false };
+    }
+    const f = row.field;
+    /* 일자별 행은 열이 곧 일자입니다 — 원래 키가 titer_D10 입니다.
+       추가한 열(X1 …)에는 대응하는 스키마 키가 없으므로 따로 담습니다. */
+    if (row.perDay) {
+      if (!col.dayKey) {
+        return { scope: "batch:" + (currentBatchId() || ""),
+                 key: "ws_titer@" + col.id, schema: false };
+      }
+      return { scope: "batch:" + (currentBatchId() || ""),
+               key: "titer_" + col.dayKey, schema: true, f: f };
+    }
+    if (row.scalar) {
+      /* 배치·시료 단위 값 — 원래 쓰던 범위와 키 그대로 */
+      return { scope: isSampleScoped(f) ? col.scope : ("batch:" + (currentBatchId() || "")),
+               key: f.k, schema: true, f: f };
+    }
+    /* 시료 축에서 분석 항목 — 열이 곧 시료 범위입니다 */
+    return { scope: col.scope, key: f.k, schema: true, f: f };
+  }
+  function currentBatchId() { return batchId; }
+
+  function mountWorksheet(batch, groups, host) {
+    const team = window.Scope.get().team;
+    const axis = axisFor(team);
+
+    window.Scope.samples ? null : null;
+    const samples = (window.DATA_SAMPLES || []).filter(s => s.batchId === batch.id);
+    const cols = buildCols(team, batch, samples, axis);
+    const rows = buildRows(team, groups, axis, batch.id);
+
+    host.innerHTML =
+      '<div class="ws-axis">' +
+        '<label for="ws-axis-sel"><b>열 기준</b></label>' +
+        '<select class="input" id="ws-axis-sel">' +
+          ['<option value="day">배양 경과 일자 (Day)</option>',
+           '<option value="sample">시료 (Sample)</option>',
+           '<option value="single">단일 (배치당 한 값)</option>'].join("") +
+        '</select>' +
+        '<span>이 서식에 맞지 않으면 기준을 바꿔 주세요. 선택은 팀별로 기억합니다.</span>' +
+      '</div>' +
+      '<div id="ws-host"></div>';
+    const sel = host.querySelector("#ws-axis-sel");
+    sel.value = axis;
+    sel.addEventListener("change", function () { setAxis(team, this.value); render(); });
+
+    window.Worksheet.mount(host.querySelector("#ws-host"), {
+      rows: rows, cols: cols,
+
+      cell: function (row, col) {
+        const t = cellTarget(row, col);
+        const rec = E.getValue(t.scope, t.key);
+        if (rec) {
+          return { display: wsDisplay(row, rec.value), origin: E.caption(rec),
+                   missing: wsMissing(row, rec.value),
+                   edited: E.hasHistory(rec),
+                   editCount: rec.history ? rec.history.length : 0 };
+        }
+        /* 원본 Excel 값 — 일자별 Titer 와 배치·시료 스키마 항목이 여기 옵니다 */
+        const base = t.schema ? wsBaseValue(batch, t, col) : null;
+        return { display: wsDisplay(row, base),
+                 origin: (base !== null && base !== undefined) ? originLabel(t.f || {}) : null,
+                 missing: wsMissing(row, base), edited: false, editCount: 0 };
+      },
+
+      onCommit: function (row, col, raw) {
+        const r = wsCommit(batch, row, col, raw);
+        if (r === "saved") render();
+        return r;
+      },
+      onRevert: function (row, col) { wsRevert(batch, row, col); },
+      onHistory: function (anchor, row, col, sticky) {
+        if (!anchor) { closeHoverHistory(); return; }
+        const t = cellTarget(row, col);
+        showHistory(anchor, E.getValue(t.scope, t.key),
+          { label: row.label + " · " + col.label, type: row.type }, sticky);
+      },
+
+      onAddRow: function (label) {
+        const list = customRows(team, batch.id);
+        list.push({ k: "c" + Date.now().toString(36), label: label, unit: "" });
+        saveCustomRows(team, batch.id, list);
+        render();
+      },
+      onDropRow: function (rk) {
+        const list = customRows(team, batch.id).filter(c => ("ws_" + c.k) !== rk);
+        saveCustomRows(team, batch.id, list);
+        render();
+      },
+      onAddCol: axis === "sample" ? null : function () {
+        saveExtraCols(team, batch.id, extraCols(team, batch.id) + 1);
+        render();
+      }
+    });
+  }
+
+  function wsDisplay(row, v) {
+    if (v === null || v === undefined) return "";
+    if (row.type === "date" || row.type === "text") return String(v);
+    return window.VAL.format(v);
+  }
+  function wsMissing(row, v) {
+    if (row.type === "date" || row.type === "text") return null;
+    return window.VAL.missingInfo(window.VAL.coerce(v));
+  }
+  /* 원본값 — 일자별은 batch.upstream.titer[D], 그 밖은 기존 excelValue 경로 */
+  function wsBaseValue(batch, t, col) {
+    const f = t.f;
+    if (!f) return null;
+    if (col.dayKey && f.src && f.src[0] === "titer") {
+      const tt = batch.upstream && batch.upstream.titer;
+      const v = tt ? tt[col.dayKey] : null;
+      return v === undefined ? null : v;
+    }
+    if (isSampleScoped(f)) {
+      const sid = String(t.scope).indexOf("sample:") === 0 ? t.scope.slice(7) : null;
+      const s = sid ? (window.DATA_SAMPLES || []).find(x => x.id === sid) : null;
+      return s ? window.Repo.valueOfSample(s, f.src[0], f.src[1]) : null;
+    }
+    return excelValue(batch, f.src);
+  }
+
+  /* 저장 — 스키마 항목은 기존 commit() 을 그대로 지납니다. 사용자가 만든
+     항목만 여기서 직접 저장합니다 (다른 화면이 모르는 항목이라 검증할
+     규격도 없습니다 — 숫자 형식만 봅니다). */
+  function wsCommit(batch, row, col, raw) {
+    const t = cellTarget(row, col);
+    if (t.schema && row.field) {
+      /* ★ row 를 함께 넘깁니다. 접힌 일자 행은 행 키("titer")와 스키마
+         항목 키("titer_D10")가 다릅니다 — 항목 키로 셀을 찾으면 못 찾고,
+         사유 창이 뜨지 않은 채 조용히 지나갑니다. */
+      return commitAt(t.scope, t.key, batch, row.field, raw, col, row);
+    }
+    const p = window.VAL.parse(raw);
+    if (!p.ok) { wsMsg(row, col, "error", [p.error]); return "error"; }
+    wsMsg(row, col, null, []);
+    const prev = E.getValue(t.scope, t.key);
+    const r = window.Repo.setValue(t.scope, t.key, p.val, undefined,
+      { baseValue: prev ? prev.value : null, baseSource: null });
+    if (!r.ok && r.needReason) { wsReason(batch, row, col, raw, r.reason); return "needReason"; }
+    if (!r.ok) { wsMsg(row, col, "error", [r.reason || "저장하지 못했습니다"]); return "error"; }
+    if (r.action === "None") return "none";
+    return "saved";
+  }
+
+  /* 스키마 항목 저장 — 기존 commit() 과 같은 규칙(범위 검사 · 경고 · 사유
+     필수)을 쓰되, 범위(scope)와 키를 워크시트가 정한 것으로 씁니다.
+     시료 축에서는 열마다 범위가 다르기 때문입니다. */
+  function commitAt(scope, key, batch, f, raw, col, row) {
+    const rk = row ? row.k : f.k;
+    const measure = isMeasure(f);
+    let val;
+    if (measure) {
+      const p = window.VAL.parse(raw);
+      if (!p.ok) { wsMsgKey(rk, col.id, "error", [p.error]); return "error"; }
+      val = p.val;
+      const it = itemSchema(f);
+      const rangeErr = window.VAL.checkRange(val, it);
+      if (rangeErr) { wsMsgKey(rk, col.id, "error", [rangeErr]); return "error"; }
+      const warns = warningsFor(batch, f, val, it);
+      wsMsgKey(rk, col.id, warns.length ? "warn" : null, warns);
+    } else {
+      val = raw === "" ? null : raw;
+      wsMsgKey(rk, col.id, null, []);
+    }
+
+    const prev = E.getValue(scope, key);
+    /* 화면이 "Excel 원본" 이라고 보여 준 값은 바꿀 때 사유를 받아야 합니다 */
+    const base = prev ? null : wsBaseValue(batch, { f: f, scope: scope }, col);
+
+    const r = window.Repo.setValue(scope, key, val, undefined,
+      { baseValue: prev ? prev.value : (base === undefined ? null : base),
+        baseSource: originLabel(f) });
+
+    if (!r.ok && r.needReason) {
+      wsReasonAt(scope, key, batch, f, raw, col, r.reason, row);
+      return "needReason";
+    }
+    if (!r.ok) { wsMsgKey(rk, col.id, "error", [r.reason || "저장하지 못했습니다"]); return "error"; }
+    if (r.action === "None") return "none";
+    return "saved";
+  }
+
+  function wsMsg(row, col, kind, lines) { wsMsgKey(row.k, col.id, kind, lines); }
+  function wsMsgKey(rk, ck, kind, lines) {
+    const id = rk + "::" + ck;
+    const cell = document.querySelector('[data-cell="' + id + '"]');
+    if (!cell) return;
+    const p = cell.querySelector("[data-msg]");
+    const inp = cell.querySelector(".ws-in");
+    if (p) {
+      p.className = "ws-msg" + (kind ? " is-" + kind : "");
+      p.innerHTML = (lines || []).map(esc).join("<br>");
+    }
+    if (inp) {
+      inp.classList.toggle("is-invalid", kind === "error");
+      inp.classList.toggle("is-warned", kind === "warn");
+    }
+  }
+
+  /* 사유 popover — 칸에 붙습니다. 저장은 사유를 받은 뒤에만 일어납니다. */
+  function wsReason(batch, row, col, raw, note) {
+    const t = cellTarget(row, col);
+    wsReasonAt(t.scope, t.key, batch, row.field, raw, col, note, row);
+  }
+  function wsReasonAt(scope, key, batch, f, raw, col, note, rowOpt) {
+    const rk = rowOpt ? rowOpt.k : f.k;
+    const id = rk + "::" + col.id;
+    const cell = document.querySelector('[data-cell="' + id + '"]');
+    if (!cell) return;
+    closeReason(id);
+    cell.classList.add("is-asking");
+
+    const pop = document.createElement("div");
+    pop.className = "pop reason-pop";
+    pop.id = "reason-pop";
+    const label = (rowOpt ? rowOpt.label : f.label) + " · " + col.label;
+    pop.innerHTML =
+      '<div class="reason-head">' + esc(label) + ' — ' +
+        esc(note || "변경 사유를 입력하세요") + '</div>' +
+      '<div class="reason-ctl">' +
+        '<input class="ebr-input" id="ws-rsn" list="reason-presets" ' +
+          'placeholder="예: 오기 정정 (전사 오류)">' +
+        '<button class="btn btn-accent btn-sm" id="ws-rsave">사유 저장</button>' +
+        '<button class="btn btn-ghost btn-sm" id="ws-rcancel">취소</button>' +
+      '</div>' +
+      '<div class="reason-foot">사유를 저장해야 값이 반영됩니다. ' +
+        '취소하면(Esc) 저장된 값으로 되돌립니다.</div>';
+    document.body.appendChild(pop);
+    placePop(pop, cell.querySelector(".ws-box") || cell);
+
+    const input = pop.querySelector("input");
+    setTimeout(() => input.focus(), 0);
+
+    function submit() {
+      const why = input.value.trim();
+      if (why.length < 2) { wsMsgKey(rk, col.id, "error", ["사유를 2자 이상 입력하세요."]); input.focus(); return; }
+      const measure = f ? isMeasure(f) : true;
+      let val;
+      if (measure) { const p = window.VAL.parse(raw); if (!p.ok) return; val = p.val; }
+      else val = raw === "" ? null : raw;
+      const prev = E.getValue(scope, key);
+      const base = prev ? null : (f ? wsBaseValue(batch, { f: f, scope: scope }, col) : null);
+      const r = window.Repo.setValue(scope, key, val, why,
+        { baseValue: prev ? prev.value : (base === undefined ? null : base),
+          baseSource: f ? originLabel(f) : null });
+      if (r.ok) { closeReason(id); render(); }
+      else wsMsgKey(rk, col.id, "error", [r.reason || "저장하지 못했습니다"]);
+    }
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); submit(); }
+      if (e.key === "Escape") { e.preventDefault(); closeReason(id); render(); }
+    });
+    pop.querySelector("#ws-rsave").addEventListener("click", submit);
+    pop.querySelector("#ws-rcancel").addEventListener("click", function () { closeReason(id); render(); });
+  }
+
+  function wsRevert(batch, row, col) {
+    closeReason(row.k + "::" + col.id);
+    wsMsgKey(row.k, col.id, null, []);
+    render();
   }
 
   /* 이 배치가 쓴 자재 — 이상이 생겼을 때 첫 질문에 바로 답하도록

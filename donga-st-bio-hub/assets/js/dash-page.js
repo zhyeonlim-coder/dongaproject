@@ -51,7 +51,21 @@
         { ko: "데이터 조회", href: "data.html" },
         { ko: "일정 관리", href: "schedule.html" }
       ]}
-    ], k => window.Scope.setTeam(window.Scope.get().team === k ? null : k));
+    /* ★ 같은 팀을 다시 눌러도 끄지 않습니다.
+       끄면 세 팀 그래프가 한꺼번에 세로로 쌓여, 비교하려고 들어온 사람이
+       스크롤부터 하게 됩니다. 이 화면은 "한 팀을 본다" 가 기본 상태입니다. */
+    ], k => window.Scope.setTeam(k));
+  }
+
+  /* 팀이 정해져 있지 않으면 첫 팀으로 시작합니다. "아무 팀도 아님" 을
+     기본값으로 두면 그게 곧 전체 나열이 됩니다. */
+  function ensureTeam() {
+    const sel = window.Scope.get();
+    if (sel.team) return false;
+    const first = (window.DATA_TEAMS && window.DATA_TEAMS[0]) ? window.DATA_TEAMS[0].id : null;
+    if (!first) return false;
+    window.Scope.setTeam(first);          /* subscribe 가 render 를 다시 부릅니다 */
+    return true;
   }
 
   /* ── KPI — 팀을 고르면 그 팀 지표로 바뀝니다 ────────────────────────── */
@@ -448,6 +462,7 @@
 
   /* ── 렌더 ───────────────────────────────────────────────────────────── */
   function render() {
+    if (ensureTeam()) return;        /* 팀을 정하면 통지가 다시 render 합니다 */
     const sel = window.Scope.get();
     const desc = window.Scope.describe();
     paintSubnav();
