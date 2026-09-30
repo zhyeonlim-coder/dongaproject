@@ -1185,7 +1185,10 @@ a { color: inherit; }
 
 /* 컬럼별 필터 입력 — 헤더 셀 안에 붙습니다 */
 .col-filter {
-  width: 100%; margin-top: 4px;
+  /* block 이어야 합니다 — inline 이면 정렬 버튼과 같은 줄에 남아 컬럼 폭을
+     넘어 옆 컬럼 위로 삐져나옵니다 (table-layout:fixed 에서는 칸이 늘어나
+     주지 않습니다). */
+  display: block; width: 100%; margin-top: 4px;
   min-height: 24px; padding: 0 6px;
   font: inherit; font-size: 11px; font-weight: 400;
   text-transform: none; letter-spacing: 0;
@@ -2893,3 +2896,128 @@ td.is-generated { background: color-mix(in srgb, var(--c-warn, #B45309) 7%, tran
   color: #fff; font-weight: 600;
 }
 .cls-chip.is-on:hover { color: #fff; }
+
+/* ==========================================================================
+   데이터 조회 표 — 엑셀처럼 다루기
+
+   43개 컬럼짜리 표를 하루 종일 보는 화면입니다. 기본 여백으로는 한 번에
+   대여섯 행밖에 안 보여, 배치끼리 견주려면 스크롤을 오르내리며 앞서 본
+   숫자를 외우게 됩니다. 그 외움이 곧 오독입니다.
+
+   ★ .tbl 자체는 건드리지 않습니다 — 연구 지식 · 일정 · 자재 표가 전부
+     같은 클래스를 씁니다. 밀도는 .dgrid.is-dense 로 이 표에만 겁니다.
+   ========================================================================== */
+
+/* 표를 자기 상자 안에서만 스크롤시킵니다. 머리글은 위에 붙여 둡니다 —
+   50행을 내려가서 본 숫자가 어느 컬럼인지 다시 올라와 확인하게 되면,
+   내려가는 동안 본 것을 믿을 수 없습니다. */
+.dgrid {
+  overflow: auto; -webkit-overflow-scrolling: touch;
+  /* 화면 높이에 맞추되 바닥을 둡니다. 창이 낮으면 calc 가 거의 0 이 되어
+     표가 한 줄짜리 틈으로 쪼그라듭니다 — 노트북을 반으로 접어 쓰거나
+     창을 옆에 붙여 놓고 보는 경우가 실제로 그렇습니다. */
+  max-height: max(320px, calc(100vh - 300px));
+  border-top: 1px solid var(--c-border);
+  overscroll-behavior: contain;
+}
+.dgrid thead th {
+  position: sticky; top: 0; z-index: 3;
+  background: var(--c-paper);
+  box-shadow: inset 0 -1px 0 var(--c-border);
+}
+.tbl-fixed { table-layout: fixed; }
+.tbl-fixed td {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 숫자는 자리를 맞춰 세웁니다 — 자릿수가 흔들리면 크기 비교가 눈으로
+   안 되고, 한 자리씩 읽어 견주게 됩니다. */
+.tbl .mono, .tbl-fixed td.mono {
+  font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+  text-align: right;
+}
+.tbl-fixed th { position: relative; }
+
+/* 콤팩트 — 행 높이와 글자만 줄입니다. 정렬·필터 동작은 그대로입니다. */
+.dgrid.is-dense .tbl { font-size: 12px; }
+.dgrid.is-dense .tbl td { padding: 3px var(--s-3); }
+.dgrid.is-dense .tbl th { padding: 4px var(--s-3) 5px; }
+.dgrid.is-dense .col-filter { min-height: 20px; margin-top: 3px; font-size: 10.5px; }
+.dgrid.is-dense .sort-btn { font-size: 10px; }
+.dgrid.is-dense .cmp-tbl td, .dgrid.is-dense .cmp-tbl th { padding: 3px var(--s-3); }
+
+/* 컬럼 경계 손잡이 — 헤더 오른쪽 끝에 붙습니다 */
+.col-grip {
+  position: absolute; top: 0; right: -3px; bottom: 0; width: 7px;
+  cursor: col-resize; z-index: 4; background: transparent;
+}
+.col-grip::after {
+  content: ""; position: absolute; top: 4px; bottom: 4px; left: 3px; width: 1px;
+  background: var(--c-border); transition: background .12s;
+}
+.col-grip:hover::after, .col-grip:focus-visible::after, .col-grip.is-drag::after {
+  background: var(--c-accent); width: 2px; left: 2.5px;
+}
+.col-grip:focus-visible { outline: none; }
+/* 끄는 동안에는 글자가 잡히지 않아야 합니다 — 드래그가 텍스트 선택으로
+   새면 표 절반이 파랗게 칠해집니다. */
+body.is-colresize { cursor: col-resize; user-select: none; }
+
+/* 표 위 도구 — 보기 모드 · 너비 자동 맞춤 · 컬럼 표시 */
+.grid-tools { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.grid-btn {
+  min-height: 30px; padding: 0 10px;
+  border: 1px solid var(--c-border-str); border-radius: var(--r-md);
+  background: var(--c-surface); color: var(--c-text);
+  font-size: 12px; font-weight: 500; cursor: pointer;
+}
+.grid-btn:hover { border-color: var(--c-accent); color: var(--c-accent); }
+.grid-btn.btn-xs { min-height: 26px; padding: 0 8px; font-size: 11px; }
+.grid-badge {
+  margin-left: 5px; padding: 1px 5px; border-radius: 999px;
+  background: var(--c-accent-bg); color: var(--c-accent);
+  font-size: 10px; font-weight: 700;
+}
+.grid-seg-wrap {
+  display: inline-flex; border: 1px solid var(--c-border-str);
+  border-radius: var(--r-md); overflow: hidden;
+}
+.grid-seg {
+  min-height: 30px; padding: 0 11px; border: 0; cursor: pointer;
+  background: var(--c-surface); color: var(--c-text-mute);
+  font-size: 12px; font-weight: 500;
+}
+.grid-seg + .grid-seg { border-left: 1px solid var(--c-border); }
+.grid-seg:hover { color: var(--c-accent); }
+.grid-seg.is-on { background: var(--c-navy-700); color: #fff; font-weight: 600; }
+
+/* 컬럼 표시 팝오버 */
+.col-menu { width: 264px; max-height: 420px; padding: 0; overflow: hidden;
+            display: flex; flex-direction: column; }
+.col-menu-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--c-border);
+  font-size: 12.5px;
+}
+.col-menu-head span { font-size: 11px; color: var(--c-text-mute); font-family: var(--font-data); }
+.col-menu-acts {
+  display: flex; gap: 5px; flex-wrap: wrap;
+  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--c-paper-2);
+}
+.col-menu-list { overflow-y: auto; padding: 4px 0; flex: 1; }
+.col-menu-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px var(--s-4); font-size: 12.5px; cursor: pointer;
+}
+.col-menu-row:hover { background: var(--c-accent-bg); }
+.col-menu-row input { flex: none; }
+.col-menu-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-menu-foot {
+  margin: 0; padding: var(--s-3) var(--s-4);
+  border-top: 1px solid var(--c-paper-2);
+  font-size: 10.5px; color: var(--c-text-mute); line-height: 1.6;
+}
+
+/* 좁힌 컬럼에서 머리글이 넘칠 때 — 자르고 전체 이름은 마우스를 올려 봅니다.
+   자르지 않으면 컬럼이 머리글 길이 아래로는 절대 좁아지지 않습니다. */
+.sort-btn-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tbl-fixed .sort-btn { min-width: 0; }

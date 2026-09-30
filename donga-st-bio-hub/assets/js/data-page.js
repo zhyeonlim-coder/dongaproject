@@ -28,6 +28,40 @@
   let groupBy = "batch";        // "batch" | "sample"
   let colFilters = {};          // { colKey: "부분일치 문자열" }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     표 보기 설정 — 밀도 · 컬럼 너비 · 숨긴 컬럼
+
+     43개 컬럼짜리 표를 하루 종일 보는 사람의 화면입니다. 어느 컬럼을 넓히고
+     어느 것을 치웠는지는 그 사람의 작업 방식이라, 새로 고칠 때마다 원래대로
+     돌아가면 매번 다시 맞추게 됩니다. 그래서 브라우저에 남깁니다.
+
+     ★ 이 설정은 **보는 방식**일 뿐 데이터가 아닙니다. 값을 거르거나 바꾸지
+       않습니다 — 숨긴 컬럼도 CSV 에는 그대로 나갈 수 있고(내보낼 때 묻습니다),
+       컬럼 필터(colFilters)와 달리 행 수를 바꾸지 않습니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  const GRID_KEY = "hub.data.grid";
+  const GRID_DEFAULT = { dense: true, hidden: {}, width: {} };
+
+  let grid = (function () {
+    try {
+      const r = JSON.parse(localStorage.getItem(GRID_KEY) || "null");
+      if (!r || typeof r !== "object") return Object.assign({}, GRID_DEFAULT);
+      return { dense: r.dense !== false, hidden: r.hidden || {}, width: r.width || {} };
+    } catch (e) { return Object.assign({}, GRID_DEFAULT); }
+  })();
+  function saveGrid() {
+    try { localStorage.setItem(GRID_KEY, JSON.stringify(grid)); } catch (e) {}
+  }
+
+  /* 숨긴 컬럼 수 — 식별 컬럼까지 포함해 셉니다 */
+  function hiddenCount(cols) {
+    return (cols || []).filter(c => grid.hidden[c.key]).length;
+  }
+  function widthOf(c) {
+    const w = grid.width[c.key];
+    return (typeof w === "number" && w > 0) ? w : c.w;
+  }
+
   /* ── AI 에게 이 화면의 표 상태를 알려 줍니다 ─────────────────────────
      "여기서 가장 높은 값" 의 "여기" 를 풀려면, 지금 표에 무엇이 어떤
      순서로 보이는지 알아야 합니다. Scope(과제·기간 등)는 AIContext 가
@@ -168,7 +202,8 @@
           '[전체 항목] 으로 되돌려 보세요.</div></div>'
         : "") +
 
-      '<div class="tbl-scroll"><table class="tbl cmp-tbl"><thead><tr>' +
+      '<div class="dgrid' + (grid.dense ? " is-dense" : "") + '">' +
+      '<table class="tbl cmp-tbl"><thead><tr>' +
         '<th scope="col">항목</th>' +
         cols.map(b => '<th scope="col"><span class="mono">' + esc(b.id) + '</span>' +
           '<br><span style="font-weight:400;text-transform:none;font-size:10px">' +
@@ -212,7 +247,10 @@
      식별 컬럼(과제 · Study · Exp. No. …)은 항상 남기고, 측정 컬럼만
      팀 · Data 분류 · 검색어로 좁힙니다. 식별 컬럼까지 사라지면 어느 배치의
      값인지 알 수 없게 되기 때문입니다. */
-  function columns(titerDays) {
+  /* opts.all = true 면 숨긴 컬럼까지 전부 돌려줍니다 — 컬럼 표시/숨기기
+     목록과 CSV 가 씁니다. 화면에 안 보이는 컬럼도 목록에는 있어야 다시
+     꺼낼 수 있습니다. */
+  function columns(titerDays, opts) {
     const sel = window.Scope.get();
     const team = sel.team;
 
@@ -250,7 +288,14 @@
       }));
     });
 
-    return base.concat(narrowMeasures(measure, sel));
+    const all = base.concat(narrowMeasures(measure, sel));
+    if (opts && opts.all) return all;
+
+    /* 마지막 한 컬럼까지 숨기지는 않습니다 — 빈 표가 되면 되돌릴 손잡이가
+       화면에서 사라집니다 (설정 창은 남지만, 표가 통째로 비면 무엇이
+       잘못됐는지 알기 어렵습니다). */
+    const shown = all.filter(c => !grid.hidden[c.key]);
+    return shown.length ? shown : all;
   }
 
   /* Data 분류 선택 → 그 분류의 컬럼만.
@@ -441,6 +486,7 @@
         '<div class="empty"><div class="empty-title">과제를 선택하세요</div>' +
         '<div class="empty-body">상단 우측 셀렉터에서 선택하면 해당 범위의 데이터만 표시됩니다.</div></div>';
       $("#sample-bar").innerHTML = "";
+      if ($("#grid-tools")) $("#grid-tools").innerHTML = "";
       return;
     }
 
@@ -459,6 +505,7 @@
           cmpPicked.length + "개 비교 (최대 " + CMP_MAX + ")";
         $("#sample-bar").innerHTML = "";
         $("#sort-chips").innerHTML = "";
+        paintGridTools(null);
         $("#table-host").innerHTML = compareView(batches);
         $$("[data-cmp]").forEach(b => b.addEventListener("click", function () {
           const id = b.dataset.cmp;
@@ -487,24 +534,43 @@
         " · " + (titerDays.length ? "Titer " + titerDays[0] + "~" + titerDays[titerDays.length - 1] : "Titer 미입력");
 
       paintSampleBar(batches);
-      paintSortChips(cols);
+      /* 숨긴 컬럼으로 정렬·필터가 걸려 있을 수 있습니다. 보이는 컬럼만
+         넘기면 칩에 라벨 대신 내부 키("projectLabel")가 뜨고, 왜 이렇게
+         정렬됐는지 읽을 수 없게 됩니다. */
+      paintSortChips(columns(titerDays, { all: true }));
+
+      paintGridTools(titerDays);
+
+      /* 폭을 <colgroup> 으로 못박고 table-layout:fixed 를 씁니다.
+         자동 배치로 두면 드래그로 폭을 바꿔도 브라우저가 내용에 맞춰 다시
+         계산해, 끌어 놓은 자리에 머무르지 않습니다. */
+      const totalW = cols.reduce((n, c) => n + widthOf(c), 0);
 
       $("#table-host").innerHTML = rows.length
-        ? '<div class="tbl-scroll"><table class="tbl" style="min-width:' +
-            cols.reduce((n, c) => n + c.w, 0) + 'px">' +
+        ? '<div class="dgrid' + (grid.dense ? " is-dense" : "") + '">' +
+            '<table class="tbl tbl-fixed" style="width:' + totalW + 'px">' +
+            '<colgroup>' + cols.map(c =>
+              '<col data-cw="' + esc(c.key) + '" style="width:' + widthOf(c) + 'px">').join("") +
+            '</colgroup>' +
             '<thead><tr>' + cols.map(function (c) {
               const si = sorts.findIndex(s => s.key === c.key);
               const ind = si > -1
                 ? '<span class="sort-ind">' + (sorts[si].dir === 1 ? "▲" : "▼") +
                   (sorts.length > 1 ? '<sub>' + (si + 1) + '</sub>' : "") + '</span>'
                 : '<span class="sort-ind sort-ind-off">↕</span>';
-              return '<th scope="col" style="min-width:' + c.w + 'px">' +
+              return '<th scope="col">' +
+                /* 폭을 좁히면 머리글도 잘립니다 — 전체 이름은 title 로 남깁니다 */
                 '<button class="sort-btn" data-sort="' + esc(c.key) + '" ' +
-                  'title="클릭: 정렬 · Shift+클릭: 정렬 추가" ' +
-                  'aria-label="' + esc(c.label) + ' 기준 정렬">' + esc(c.label) + ind + '</button>' +
+                  'title="' + esc(c.label) + ' — 클릭: 정렬 · Shift+클릭: 정렬 추가" ' +
+                  'aria-label="' + esc(c.label) + ' 기준 정렬">' +
+                  '<span class="sort-btn-txt">' + esc(c.label) + '</span>' + ind + '</button>' +
                 '<input class="col-filter" data-cf="' + esc(c.key) + '" value="' +
                   esc(colFilters[c.key] || "") + '" placeholder="필터" ' +
                   'aria-label="' + esc(c.label) + ' 필터">' +
+                /* 경계선 손잡이 — 끌면 폭, 두 번 누르면 내용에 맞춤 */
+                '<span class="col-grip" data-grip="' + esc(c.key) + '" role="separator" ' +
+                  'aria-orientation="vertical" tabindex="0" ' +
+                  'title="끌어서 너비 조절 · 두 번 누르면 내용에 맞춤"></span>' +
               '</th>';
             }).join("") + '</tr></thead>' +
             '<tbody>' + rows.map(function (r) {
@@ -514,8 +580,11 @@
                 const pin = pinMark(bid, c.key);
                 if (v === null || v === undefined)
                   return '<td class="na">' + (c.key === "sampleName" ? "(샘플 미생성)" : L.empty) + pin + '</td>';
-                return '<td' + (c.type === "n" ? ' class="mono"' : "") + '>' +
-                  esc(c.type === "n" ? Number(v).toFixed(c.dp) : v) + pin + '</td>';
+                const txt = c.type === "n" ? Number(v).toFixed(c.dp) : String(v);
+                /* 폭을 좁히면 글자가 잘립니다. 잘린 값을 눈으로만 읽고 넘어가면
+                   안 되므로 전체 값을 title 로 남깁니다. */
+                return '<td' + (c.type === "n" ? ' class="mono"' : "") +
+                  ' title="' + esc(txt) + '">' + esc(txt) + pin + '</td>';
               }).join("") + '</tr>';
             }).join("") +
             '</tbody></table></div>'
@@ -523,6 +592,7 @@
           '<div class="empty-body">' + esc(L.noResultHint) +
           ' 표 안의 컬럼 필터도 함께 확인하세요.</div></div>';
 
+      wireResize(cols, rows);
       $$("[data-sort]").forEach(b => b.addEventListener("click", e => toggleSort(b.dataset.sort, e.shiftKey)));
       $$("[data-cf]").forEach(function (inp) {
         inp.addEventListener("click", e => e.stopPropagation());
@@ -541,9 +611,265 @@
     });
   }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     엑셀처럼 다루기 — 밀도 · 너비 · 컬럼 표시
+
+     43개 컬럼을 한 화면에서 훑어야 하는 표입니다. 기본 여백으로는 한 번에
+     대여섯 행밖에 안 보여, 배치끼리 견주려면 스크롤을 오르내리며 앞서 본
+     숫자를 외우게 됩니다. 그 외움이 곧 오독입니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function paintGridTools(titerDays) {
+    const host = $("#grid-tools");
+    if (!host) return;
+    if (groupBy === "compare") {
+      /* 비교 표는 항목이 행, 배치가 열이라 컬럼 설정이 의미가 없습니다 */
+      host.innerHTML = densityToggle();
+      wireDensity(host);
+      return;
+    }
+    const all = columns(titerDays || [], { all: true });
+    const hid = hiddenCount(all);
+
+    host.innerHTML = densityToggle() +
+      '<button type="button" class="grid-btn" id="grid-fit" ' +
+        'title="모든 컬럼 너비를 내용에 맞춥니다">너비 자동 맞춤</button>' +
+      '<button type="button" class="grid-btn" id="grid-cols" aria-haspopup="true" ' +
+        'aria-expanded="false">컬럼 ⚙' +
+        (hid ? '<span class="grid-badge">' + hid + ' 숨김</span>' : "") +
+      '</button>';
+
+    wireDensity(host);
+    $("#grid-fit").addEventListener("click", () => autoFitAll());
+    $("#grid-cols").addEventListener("click", function (e) {
+      e.stopPropagation();
+      openColumnMenu(this, all);
+    });
+  }
+
+  function densityToggle() {
+    const opt = (v, ko, tip) =>
+      '<button type="button" class="grid-seg' + (grid.dense === v ? " is-on" : "") + '" ' +
+        'data-dense="' + v + '" aria-pressed="' + (grid.dense === v) + '" ' +
+        'title="' + esc(tip) + '">' + ko + '</button>';
+    return '<span class="grid-seg-wrap" role="group" aria-label="보기 모드">' +
+      opt(true, "콤팩트", "행 간격을 좁혀 한 화면에 더 많이 봅니다") +
+      opt(false, "기본", "여유 있는 행 간격") +
+    '</span>';
+  }
+  function wireDensity(host) {
+    $$("[data-dense]", host).forEach(b => b.addEventListener("click", function () {
+      const next = b.dataset.dense === "true";
+      if (grid.dense === next) return;
+      grid.dense = next; saveGrid(); render();
+    }));
+  }
+
+  /* ── 너비 조절 ────────────────────────────────────────────────────────
+     끄는 동안에는 화면을 다시 그리지 않습니다. 다시 그리면 붙잡고 있던
+     손잡이가 사라져 마우스를 놓을 때까지 따라오지 않습니다. <col> 의 폭만
+     바꾸고, 놓을 때 한 번 저장합니다. */
+  const COL_MIN = 56, COL_MAX = 480;
+
+  function wireResize(cols, rows) {
+    const host = $("#table-host");
+    if (!host) return;
+    const table = host.querySelector(".tbl-fixed");
+    if (!table) return;
+    const colOf = key => table.querySelector('col[data-cw="' + key + '"]');
+
+    function setW(key, px) {
+      const w = Math.max(COL_MIN, Math.min(COL_MAX, Math.round(px)));
+      const el = colOf(key);
+      if (el) el.style.width = w + "px";
+      grid.width[key] = w;
+      return w;
+    }
+    function retotal() {
+      table.style.width = cols.reduce((n, c) => n + widthOf(c), 0) + "px";
+    }
+
+    $$("[data-grip]", host).forEach(function (grip) {
+      const key = grip.dataset.grip;
+
+      grip.addEventListener("mousedown", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        const startX = e.clientX;
+        const startW = widthOf(cols.find(c => c.key === key) || { w: 100 });
+        document.body.classList.add("is-colresize");
+        grip.classList.add("is-drag");
+
+        function move(ev) { setW(key, startW + (ev.clientX - startX)); retotal(); }
+        function up() {
+          document.removeEventListener("mousemove", move);
+          document.removeEventListener("mouseup", up);
+          document.body.classList.remove("is-colresize");
+          grip.classList.remove("is-drag");
+          saveGrid();
+        }
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", up);
+      });
+
+      /* 두 번 누르면 이 컬럼만 내용에 맞춥니다 */
+      grip.addEventListener("dblclick", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        const c = cols.find(x => x.key === key);
+        if (!c) return;
+        setW(key, measureCol(c, rows));
+        retotal(); saveGrid();
+      });
+
+      /* 마우스가 없어도 조절할 수 있어야 합니다 */
+      grip.addEventListener("keydown", function (e) {
+        const step = e.shiftKey ? 24 : 8;
+        if (e.key === "ArrowLeft")  { e.preventDefault(); setW(key, widthOf(cols.find(c => c.key === key)) - step); retotal(); saveGrid(); }
+        if (e.key === "ArrowRight") { e.preventDefault(); setW(key, widthOf(cols.find(c => c.key === key)) + step); retotal(); saveGrid(); }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const c = cols.find(x => x.key === key);
+          if (c) { setW(key, measureCol(c, rows)); retotal(); saveGrid(); }
+        }
+      });
+    });
+  }
+
+  /* 내용에 맞는 폭 — 캔버스로 글자 너비를 잽니다.
+     table-layout:fixed 에서는 "자연 너비" 를 브라우저에 물을 수 없고, 잠깐
+     auto 로 되돌려 재면 화면이 한 번 출렁입니다. */
+  let measureCtx = null;
+  function textWidth(s, font) {
+    if (!measureCtx) {
+      const cv = document.createElement("canvas");
+      measureCtx = cv.getContext ? cv.getContext("2d") : null;
+    }
+    if (!measureCtx) return String(s).length * 7;      /* 캔버스가 없으면 어림 */
+    measureCtx.font = font;
+    return measureCtx.measureText(String(s)).width;
+  }
+  /* ★ 머리글 길이가 아니라 **값** 길이에 맞춥니다.
+
+     자동 맞춤이 머리글까지 다 담으려 하면 표가 오히려 넓어집니다 —
+     "N-glycan Afucosylated form" 은 스물여섯 자인데 그 아래 값은 늘
+     "12.3" 넉 자입니다. 스물여섯 자에 맞춘 컬럼이 마흔세 개면 자동
+     맞춤을 누를수록 가로로 길어집니다.
+
+     그래서 머리글은 넘치면 말줄임으로 자르고(전체 이름은 마우스를 올리면
+     보입니다), 폭은 값이 정하게 합니다. 정렬 화살표와 필터 칸이 들어갈
+     자리만 바닥으로 둡니다. */
+  const COL_FIT_FLOOR = 64;
+
+  function measureCol(c, rows) {
+    const cs = getComputedStyle(document.body);
+    const bodyFont = "12px " + (c.type === "n"
+      ? (cs.getPropertyValue("--font-data") || "monospace")
+      : cs.fontFamily);
+
+    let w = COL_FIT_FLOOR;
+    (rows || []).forEach(function (r) {
+      const v = cellValue(r, c.key);
+      const s = (v === null || v === undefined)
+        ? L.empty
+        : (c.type === "n" ? Number(v).toFixed(c.dp) : String(v));
+      const t = textWidth(s, bodyFont) + 20;
+      if (t > w) w = t;
+    });
+    return Math.max(COL_MIN, Math.min(COL_MAX, Math.ceil(w)));
+  }
+  function autoFitAll() {
+    Promise.all([window.Scope.batches(), window.Repo.getStudies()]).then(function (res) {
+      const batches = res[0], studies = res[1];
+      const titerDays = window.DATA_TITER_DAYS.filter(d =>
+        batches.some(b => b.upstream.titer[d] !== null));
+      const cols = columns(titerDays);
+      const rows = applySort(applyColFilters(buildRows(batches, studies)));
+      cols.forEach(c => { grid.width[c.key] = measureCol(c, rows); });
+      saveGrid();
+      render();
+    });
+  }
+
+  /* ── 컬럼 표시 / 숨기기 ──────────────────────────────────────────────
+     43개 중 과제 · Study · 팀처럼 모든 행에서 같은 값이 반복되는 컬럼이
+     있습니다. 그것만 치워도 화면이 한참 넓어집니다. */
+  let colMenu = null;
+  function closeColumnMenu() {
+    if (!colMenu) return;
+    colMenu.remove(); colMenu = null;
+    const b = $("#grid-cols");
+    if (b) b.setAttribute("aria-expanded", "false");
+    document.removeEventListener("click", onDocClick, true);
+    document.removeEventListener("keydown", onMenuKey, true);
+  }
+  function onDocClick(e) { if (colMenu && !colMenu.contains(e.target)) closeColumnMenu(); }
+  function onMenuKey(e) { if (e.key === "Escape") { e.preventDefault(); closeColumnMenu(); } }
+
+  function openColumnMenu(anchor, all) {
+    if (colMenu) { closeColumnMenu(); return; }
+    anchor.setAttribute("aria-expanded", "true");
+
+    const shownN = all.filter(c => !grid.hidden[c.key]).length;
+    colMenu = document.createElement("div");
+    colMenu.className = "pop col-menu";
+    colMenu.innerHTML =
+      '<div class="col-menu-head">' +
+        '<b>컬럼 표시</b><span>' + shownN + ' / ' + all.length + '</span>' +
+      '</div>' +
+      '<div class="col-menu-acts">' +
+        '<button type="button" class="grid-btn btn-xs" data-cm="all">모두 표시</button>' +
+        '<button type="button" class="grid-btn btn-xs" data-cm="ids">식별 컬럼만</button>' +
+        '<button type="button" class="grid-btn btn-xs" data-cm="reset">너비도 초기화</button>' +
+      '</div>' +
+      '<div class="col-menu-list">' +
+        all.map(c =>
+          '<label class="col-menu-row">' +
+            '<input type="checkbox" data-colvis="' + esc(c.key) + '"' +
+              (grid.hidden[c.key] ? "" : " checked") + '>' +
+            '<span>' + esc(c.label) + '</span>' +
+          '</label>').join("") +
+      '</div>' +
+      '<p class="col-menu-foot">숨긴 컬럼도 값은 그대로 있습니다 — ' +
+        'CSV 로 내보낼 때 포함할지 묻습니다.</p>';
+    document.body.appendChild(colMenu);
+
+    const r = anchor.getBoundingClientRect();
+    colMenu.style.top = Math.min(r.bottom + 6, window.innerHeight - 380) + "px";
+    colMenu.style.left = Math.max(8,
+      Math.min(r.right - 260, window.innerWidth - 272)) + "px";
+
+    $$("[data-colvis]", colMenu).forEach(cb => cb.addEventListener("change", function () {
+      if (cb.checked) delete grid.hidden[cb.dataset.colvis];
+      else grid.hidden[cb.dataset.colvis] = true;
+      saveGrid();
+      /* 목록은 열어 둔 채 표만 다시 그립니다 — 하나 끌 때마다 창이 닫히면
+         여러 개를 치우는 데 그만큼 다시 열어야 합니다. */
+      const keep = colMenu;
+      render();
+      if (keep && !keep.isConnected) document.body.appendChild(keep);
+    }));
+
+    $$("[data-cm]", colMenu).forEach(b => b.addEventListener("click", function () {
+      const what = b.dataset.cm;
+      if (what === "all") grid.hidden = {};
+      if (what === "ids") ["projectLabel", "studyName", "teamLabel"]
+        .forEach(k => { grid.hidden[k] = true; });
+      if (what === "reset") { grid.width = {}; grid.hidden = {}; }
+      saveGrid();
+      closeColumnMenu();
+      render();
+    }));
+
+    setTimeout(function () {
+      document.addEventListener("click", onDocClick, true);
+      document.addEventListener("keydown", onMenuKey, true);
+    }, 0);
+  }
+
   function paintSortChips(cols) {
     const host = $("#sort-chips");
-    const labelOf = k => (cols.find(c => c.key === k) || {}).label || k;
+    /* 숨긴 컬럼이면 그렇다고 적습니다 — 표에 없는 컬럼으로 정렬·필터가
+       걸려 있으면, 왜 이 순서인지 화면 어디에도 단서가 없습니다. */
+    const labelOf = k => ((cols.find(c => c.key === k) || {}).label || k) +
+      (grid.hidden[k] ? " (숨김)" : "");
     const filterKeys = Object.keys(colFilters).filter(k => colFilters[k]);
     if (!sorts.length && !filterKeys.length) { host.innerHTML = ""; return; }
 
@@ -683,7 +1009,26 @@
     Promise.all([window.Scope.batches(), window.Repo.getStudies()]).then(function (res) {
       const batches = res[0], studies = res[1];
       const titerDays = window.DATA_TITER_DAYS.filter(d => batches.some(b => b.upstream.titer[d] !== null));
-      const cols = columns(titerDays);
+
+      /* ★ 화면에서 숨긴 컬럼을 파일에도 뺄지 묻습니다.
+
+         묻지 않고 한쪽으로 정하면 어느 쪽이든 조용히 틀립니다. 화면대로
+         빼면 어제 숨긴 것을 잊은 채 내보내 컬럼이 빠진 파일이 나가고,
+         무조건 다 넣으면 일부러 추린 줄 알았던 사람이 전체 컬럼을 받습니다.
+         받는 사람은 둘 다 알 길이 없으므로, 내보내는 사람이 한 번 정합니다. */
+      const allCols = columns(titerDays, { all: true });
+      const hid = allCols.filter(c => grid.hidden[c.key]);
+      let cols = columns(titerDays);
+      if (hid.length) {
+        const take = window.confirm(
+          "화면에서 숨긴 컬럼이 " + hid.length + "개 있습니다.\n" +
+          hid.slice(0, 8).map(c => "· " + c.label).join("\n") +
+          (hid.length > 8 ? "\n· … 외 " + (hid.length - 8) + "개" : "") +
+          "\n\n[확인] 숨긴 컬럼까지 모두 내보냅니다\n" +
+          "[취소] 화면에 보이는 컬럼만 내보냅니다");
+        if (take) cols = allCols;
+      }
+
       let rows = applySort(applyColFilters(buildRows(batches, studies)));
       const q = v => {
         if (v === null || v === undefined) return "";
