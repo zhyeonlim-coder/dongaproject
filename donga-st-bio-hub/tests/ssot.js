@@ -180,6 +180,83 @@ window.SSOTTest = (function () {
     T.add("⑨ 검사가 데이터를 남기지 않음", snapshot() === snap,
       "저장소가 검사 전과 다릅니다");
 
+    /* ── 10) 이름을 고쳐도 값이 있던 자리는 그대로인가 ────────────────
+       Data 입력 워크시트에서 항목명 · 시료명 · 열 머리글을 고칠 수 있습니다.
+       여기서 지켜야 하는 것이 둘입니다.
+
+         a) 이름은 전사 공통이어야 합니다. 대시보드 · 데이터 조회 · AI 가
+            각자 다른 이름으로 같은 항목을 부르면, "Acidic 최대값" 을 물었을
+            때 AI 의 답과 화면의 표가 어긋납니다.
+         b) 저장 키는 따라 바뀌면 안 됩니다. 이름을 고쳤다고 titer_D10 이
+            다른 키로 옮겨 가면 이미 적어 둔 값이 미아가 되고, 조회도
+            대시보드도 그 값을 못 찾습니다.
+
+       b 가 깨지는 쪽이 조용해서 더 위험합니다 — 화면에는 새 이름이 잘
+       나오고, 값만 사라집니다. */
+    (function renameChecks() {
+      const A = window.Aliases;
+      if (!A) { T.add("⑩ 이름 덧씌움 계층이 있음", false, "window.Aliases 없음"); return; }
+      const aSnap = (function () {
+        try { return localStorage.getItem("hub.aliases.v1"); } catch (e) { return null; }
+      })();
+
+      try {
+        /* a) 스키마 항목명은 원본 객체에 반영되고, 원래 이름은 남습니다 */
+        const g = (window.DATA_ANALYTE_GROUPS || []).find(x => x.id === "ieHPLC");
+        const it = g && (g.items || []).find(x => x.key === "acidic");
+        if (!it) { T.add("⑩ 검사 대상 항목이 있음", false, "ieHPLC.acidic 없음"); return; }
+        const was = A.originalOf(it, "label");
+
+        A.set("item:ieHPLC.acidic", "검사용 산성", was);
+        T.add("⑩ 항목명이 스키마에 반영됨", it.label === "검사용 산성",
+          "DATA_ANALYTE_GROUPS 의 label 이 " + it.label);
+        T.add("⑩ 원래 항목명이 보존됨", A.originalOf(it, "label") === was,
+          "원래 이름이 " + A.originalOf(it, "label"));
+        T.add("⑩ 이름 변경이 이력에 남음",
+          A.historyOf("item:ieHPLC.acidic").some(h => h.to === "검사용 산성" && h.by && h.at),
+          "이력에 작성자·시각과 함께 남지 않았습니다");
+
+        /* 이름을 고쳐도 값을 읽는 키는 그대로여야 합니다 */
+        const before = R.valueOf(b, FIELD.group, FIELD.key);
+        A.set("item:upstream.maxVCD", "검사용 VCD", "Max VCD");
+        T.add("⑩ 이름을 고쳐도 값이 그대로 읽힘",
+          same(R.valueOf(b, FIELD.group, FIELD.key), before),
+          "valueOf 가 " + R.valueOf(b, FIELD.group, FIELD.key) + " (기대 " + before + ")");
+
+        /* 빈 문자열은 덧씌움을 걷어 냅니다 — 되돌릴 길이 있어야 합니다 */
+        A.set("item:ieHPLC.acidic", "", was);
+        T.add("⑩ 빈 이름을 넣으면 원래대로 돌아옴", it.label === was,
+          "되돌린 뒤 label 이 " + it.label);
+
+        /* b) 숨김은 삭제가 아닙니다 */
+        const hk = "colhide:upstream|" + b.id + "|D10";
+        A.hide(hk, "검사");
+        const hidValue = R.valueOf(b, DAY.group, DAY.key);
+        T.add("⑩ 열을 숨겨도 값은 지워지지 않음",
+          A.isHidden(hk) && same(hidValue, R.valueOf(b, DAY.group, DAY.key)),
+          "숨김 상태=" + A.isHidden(hk) + " · 값=" + hidValue);
+        T.add("⑩ 누가 언제 숨겼는지 남음",
+          !!(A.hiddenInfo(hk) && A.hiddenInfo(hk).by && A.hiddenInfo(hk).at),
+          "숨김 기록에 작성자·시각이 없습니다");
+        A.unhide(hk);
+        T.add("⑩ 숨긴 열을 되살릴 수 있음", !A.isHidden(hk), "되살린 뒤에도 숨김 상태입니다");
+      } finally {
+        /* 메모리 사본까지 걷어 냅니다. localStorage 만 되돌리면 이 페이지가
+           살아 있는 동안 스키마 label 이 "검사용 …" 으로 남습니다. */
+        A.set("item:ieHPLC.acidic", "", was0("ieHPLC", "acidic"));
+        A.set("item:upstream.maxVCD", "", was0("upstream", "maxVCD"));
+        try {
+          if (aSnap === null) localStorage.removeItem("hub.aliases.v1");
+          else localStorage.setItem("hub.aliases.v1", aSnap);
+        } catch (e) { /* */ }
+      }
+      function was0(gid, key) {
+        const gg = (window.DATA_ANALYTE_GROUPS || []).find(x => x.id === gid);
+        const ii = gg && (gg.items || []).find(x => x.key === key);
+        return ii ? A.originalOf(ii, "label") : "";
+      }
+    })();
+
     return Promise.all(pending).then(function () {
     const bad = T.out.filter(x => !x.pass);
     return {

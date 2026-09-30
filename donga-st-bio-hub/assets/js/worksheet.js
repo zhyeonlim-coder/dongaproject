@@ -9,6 +9,7 @@
 
          ┌───────────┬──────┬──────┬──────┐
          │ 행추가 ↓  │  D10 │  D11 │  D12 │ ← 열추가 →
+         │ 열추가 →  │ 10일차│11일차│12일차│
          ├───────────┼──────┼──────┼──────┤
          │ Date      │      │      │      │
          │ VCD       │      │      │      │
@@ -22,27 +23,42 @@
      사용자가 화면에서 축을 바꿀 수 있습니다. 실제 실험이 늘 이 셋 중
      하나로 떨어지지는 않기 때문입니다.
 
-   ★ 이 파일은 값을 저장하지 않습니다.
+   ── 이름은 전부 고칠 수 있습니다 ───────────────────────────────────────
+     머리글(열 이름 · 부제)과 항목명은 그 자리에서 바로 고치는 입력 칸입니다.
+     누르면 입력 칸으로 "바뀌는" 방식은 쓰지 않았습니다 — 한 번 눌러야
+     고칠 수 있다는 것을 아무도 알려 주지 않으면 고칠 수 있다는 사실
+     자체를 모르고, 키보드로는 닿지도 않습니다. 늘 입력 칸으로 두고
+     평소에는 글자처럼 보이게 했습니다.
+
+   ★ 이 파일은 값도 이름도 저장하지 않습니다.
      저장·검증·감사 이력은 부르는 쪽(ebr-page)이 합니다. 저장까지 여기서
-     하면 서식마다 다른 규칙(사유 필수 · 범위 검사 · 단위 해석)이 이 안으로
-     새어 들어오고, 그러면 공통 컴포넌트가 아니게 됩니다.
+     하면 서식마다 다른 규칙(사유 필수 · 범위 검사 · 단위 해석 · 어느 이름이
+     전사 공통이고 어느 이름이 이 화면만의 것인지)이 이 안으로 새어 들어오고,
+     그러면 공통 컴포넌트가 아니게 됩니다.
 
    쓰는 법
      Worksheet.mount(host, {
-       rows:    [{ k, label, unit, type, group, scalar }],
-       cols:    [{ id, label, sub, scope }],
+       rows:    [{ k, label, unit, type, group, scalar, custom, orig }],
+       cols:    [{ id, label, sub, scope, orig, origSub, fixed }],
        cell:    (row, col) => ({ display, origin, missing, edited, editCount, readonly }),
        onCommit:(row, col, raw) => "saved" | "none" | "error" | "needReason",
        onRevert:(row, col) => {},
        onHistory:(anchorEl, row, col, sticky) => {},
-       onAddRow: label => {},        없으면 행추가 버튼을 그리지 않습니다
-       onAddCol: () => {},           없으면 열추가 버튼을 그리지 않습니다
-       onDropRow: rowKey => {}       사용자가 만든 행만 지울 수 있습니다
+       onAddRow:  label => {},              없으면 행추가 버튼을 그리지 않습니다
+       onAddCol:  () => {},                 없으면 열추가 버튼을 그리지 않습니다
+       onDropRow: rowKey => {},
+       onDropCol: col => {},                열 머리글의 × 버튼
+       onRenameRow: (row, text) => {},      없으면 항목명이 글자로만 나옵니다
+       onRenameCol: (col, part, text) => {} part 는 "name" | "sub"
      })
 
    scalar: true 인 행은 배치 단위 값입니다 — 첫 열에만 칸을 두고 나머지는
    비웁니다. 열마다 칸을 두면 같은 값을 여러 번 적게 되고, 어느 칸이 진짜인지
    알 수 없게 됩니다.
+
+   orig / origSub 는 원본에 적혀 있던 이름입니다. 고친 뒤에도 마우스를 올리면
+   원래 무엇이었는지 보여야 합니다 — 고친 이름만 남으면 원본 시트와 맞춰 볼
+   수 없습니다.
    ========================================================================== */
 
 window.Worksheet = (function () {
@@ -53,6 +69,13 @@ window.Worksheet = (function () {
   const $$ = (s, r) => Array.prototype.slice.call((r || document).querySelectorAll(s));
 
   function isMeasure(r) { return r.type !== "date" && r.type !== "text"; }
+
+  /* 고친 이름 옆에 원래 이름을 달아 줍니다 (마우스를 올렸을 때) */
+  function origTip(label, orig, what) {
+    const o = orig == null ? "" : String(orig);
+    if (!o || o === String(label == null ? "" : label)) return what + "을 고칠 수 있습니다";
+    return what + " · 원래 이름: " + o;
+  }
 
   /* 셀 하나 — data-r / data-c 로 찾습니다. 한 칸이 한 (행,열)입니다. */
   function cellHTML(row, col, c, first) {
@@ -91,6 +114,54 @@ window.Worksheet = (function () {
     '</td>';
   }
 
+  /* ── 머리글 ───────────────────────────────────────────────────────────
+     이름과 부제가 각각 입력 칸입니다. fixed 인 열(예: "시료 없음" 자리
+     지킴)은 고칠 것이 없으므로 글자로만 둡니다. */
+  function colHeadHTML(col, o) {
+    const editable = !!o.onRenameCol && !col.fixed;
+    const name = editable
+      ? '<input class="ws-hin ws-hin-name" data-col="' + esc(col.id) + '" data-part="name" ' +
+        'value="' + esc(col.label) + '" spellcheck="false" ' +
+        'aria-label="' + esc(col.label) + ' 열 이름" ' +
+        'title="' + esc(origTip(col.label, col.orig, "열 이름")) + '">'
+      : '<span class="ws-colh-name">' + esc(col.label) + '</span>';
+    const sub = editable
+      ? '<input class="ws-hin ws-hin-sub" data-col="' + esc(col.id) + '" data-part="sub" ' +
+        'value="' + esc(col.sub == null ? "" : col.sub) + '" spellcheck="false" ' +
+        'placeholder="설명 추가" aria-label="' + esc(col.label) + ' 열 설명" ' +
+        'title="' + esc(origTip(col.sub, col.origSub, "열 설명")) + '">'
+      : (col.sub ? '<span class="ws-colh-sub">' + esc(col.sub) + '</span>' : "");
+
+    return '<th scope="col" class="ws-colh" data-colh="' + esc(col.id) + '">' +
+      '<div class="ws-colh-top">' + name +
+        (o.onDropCol && !col.fixed
+          ? '<button class="ws-colx" type="button" data-dropcol="' + esc(col.id) + '" ' +
+            'title="이 열 지우기" aria-label="' + esc(col.label) + ' 열 지우기">×</button>'
+          : "") +
+      '</div>' + sub +
+    '</th>';
+  }
+
+  function rowHeadHTML(row, o) {
+    const editable = !!o.onRenameRow;
+    const name = editable
+      ? '<input class="ws-lin" data-rowlabel="' + esc(row.k) + '" ' +
+        'value="' + esc(row.label) + '" spellcheck="false" ' +
+        'aria-label="' + esc(row.label) + ' 항목명" ' +
+        'title="' + esc(origTip(row.label, row.orig, "항목명")) + '">'
+      : '<span class="ws-th-name">' + esc(row.label) + '</span>';
+
+    return '<th scope="row" class="ws-th">' +
+      '<div class="ws-th-top">' + name +
+        (row.custom && o.onDropRow
+          ? '<button class="ws-drop" type="button" data-drop="' + esc(row.k) + '" ' +
+            'aria-label="' + esc(row.label) + ' 행 지우기" title="이 행 지우기">×</button>'
+          : "") +
+      '</div>' +
+      (row.unit ? '<span class="ws-th-unit">' + esc(row.unit) + '</span>' : "") +
+    '</th>';
+  }
+
   function markup(o) {
     const rows = o.rows || [];
     const cols = o.cols || [];
@@ -106,14 +177,7 @@ window.Worksheet = (function () {
           esc(row.group) + '</th></tr>';
       }
       out += '<tr class="ws-row" data-row="' + esc(row.k) + '">' +
-        '<th scope="row" class="ws-th">' +
-          '<span class="ws-th-name">' + esc(row.label) + '</span>' +
-          (row.unit ? '<span class="ws-th-unit">' + esc(row.unit) + '</span>' : "") +
-          (row.custom && o.onDropRow
-            ? '<button class="ws-drop" type="button" data-drop="' + esc(row.k) + '" ' +
-              'aria-label="' + esc(row.label) + ' 행 지우기" title="이 행 지우기">×</button>'
-            : "") +
-        '</th>' +
+        rowHeadHTML(row, o) +
         cols.map((col, i) => cellHTML(row, col, o.cell(row, col) || {}, i === 0)).join("") +
       '</tr>';
       return out;
@@ -127,16 +191,15 @@ window.Worksheet = (function () {
             (o.onAddCol ? '<button class="ws-add" type="button" id="ws-addcol">열추가 →</button>' : "") +
             (!o.onAddRow && !o.onAddCol ? esc(o.cornerLabel || "항목") : "") +
           '</th>' +
-          cols.map(c => '<th scope="col" class="ws-colh">' +
-            '<span class="ws-colh-name">' + esc(c.label) + '</span>' +
-            (c.sub ? '<span class="ws-colh-sub">' + esc(c.sub) + '</span>' : "") +
-            '</th>').join("") +
+          cols.map(c => colHeadHTML(c, o)).join("") +
         '</tr></thead>' +
         '<tbody>' + body + '</tbody>' +
       '</table></div>' +
       '<p class="ws-hint">' +
         '<b>← ↑ ↓ →</b> 칸 이동 · <b>Tab</b> 오른쪽 · <b>Enter</b> 확정하고 아래로 · ' +
         '<b>Shift+Enter</b> 위로 · <b>Esc</b> 되돌리기' +
+        (o.onRenameCol || o.onRenameRow
+          ? ' · 머리글과 항목명은 <b>눌러서</b> 고칩니다' : "") +
       '</p>';
   }
 
@@ -155,7 +218,9 @@ window.Worksheet = (function () {
     const inputs = () => $$(".ws-in", host);
 
     /* (행,열) 격자에서의 이동 — 화면에 실제로 있는 칸만 셉니다.
-       scalar 행은 첫 열에만 칸이 있어, 좌표로 계산하면 빈자리를 짚습니다. */
+       scalar 행은 첫 열에만 칸이 있어, 좌표로 계산하면 빈자리를 짚습니다.
+       ★ 머리글·항목명 입력 칸(.ws-hin · .ws-lin)은 격자에 넣지 않습니다.
+         넣으면 값 칸에서 ↓ 를 눌렀을 때 이름 칸으로 떨어집니다. */
     function grid() {
       const map = [];
       $$(".ws-row", host).forEach(function (tr) {
@@ -192,6 +257,20 @@ window.Worksheet = (function () {
         r += dr;
       }
     }
+    /* Tab — 줄 끝에서 다음 줄 첫 칸으로 넘어갑니다. 엑셀과 같습니다.
+       가로 이동(→)과 달리 표 전체를 한 줄로 이어서 봅니다. */
+    function step(el, dir) {
+      const p = locate(el);
+      if (!p) return false;
+      let r = p.r, c = p.c + dir;
+      while (r >= 0 && r < p.g.length) {
+        if (c >= 0 && c < p.g[r].length) { return focusAt(p.g, r, c); }
+        r += dir;
+        if (r < 0 || r >= p.g.length) return false;
+        c = dir > 0 ? 0 : p.g[r].length - 1;
+      }
+      return false;
+    }
 
     inputs().forEach(function (inp) {
       inp.addEventListener("keydown", function (e) {
@@ -199,6 +278,12 @@ window.Worksheet = (function () {
         const col = (o.cols || []).find(x => x.id === inp.dataset.c);
         if (!row || !col) return;
 
+        if (e.key === "Tab") {
+          /* 표 안에서는 Tab 이 다음 칸입니다. 막지 않으면 머리글 입력 칸과
+             × 버튼까지 차례로 들러, 값을 이어 적을 수 없습니다. */
+          if (step(inp, e.shiftKey ? -1 : 1)) e.preventDefault();
+          return;
+        }
         if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
           /* 글자 안에서 커서를 옮기는 중이면 가로채지 않습니다 */
           const atEdge = e.key === "ArrowLeft"
@@ -246,7 +331,64 @@ window.Worksheet = (function () {
       });
     });
 
-    /* 행추가 · 열추가 · 행 삭제 */
+    /* ── 이름 고치기 ───────────────────────────────────────────────────
+       Enter 로 확정, Esc 로 되돌립니다. 칸을 벗어나도 확정합니다 —
+       고쳐 놓고 다른 데를 누른 것을 "취소" 로 읽으면 방금 적은 것이
+       사라집니다.
+
+       ★ 확정하면 부르는 쪽이 표를 다시 그립니다. 다시 그리면 이 입력 칸이
+         사라지고, 사라지는 과정에서 blur 가 한 번 더 납니다 — 그때 또
+         확정하면 같은 이름 변경이 이력에 두 번 남습니다. 그래서 한 번
+         보낸 칸은 잠급니다. */
+    function wireName(el, commit) {
+      const was = el.value;
+      let done = false;
+      function send() {
+        if (done) return;
+        const now = el.value.trim();
+        if (now === was.trim()) return;
+        done = true;
+        commit(now);
+      }
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); send(); el.blur(); return; }
+        if (e.key === "Escape") { e.preventDefault(); done = true; el.value = was; el.blur(); return; }
+        /* 이름 칸에서 좌우 방향키는 글자 안에서만 씁니다 — 표 이동으로
+           가로채면 오타를 고칠 수 없습니다. 아래로는 같은 줄의 첫 값 칸으로
+           내려갑니다.
+
+           ★ 고친 것이 있으면 내려가지 않습니다. 확정하면 부르는 쪽이 표를
+             다시 그려 이 줄의 칸이 새 노드로 바뀌는데, 그때 옛 노드에
+             focus() 를 걸면 커서가 아무 데도 없는 상태가 됩니다. */
+        if (e.key === "ArrowDown") {
+          const tr = el.closest("tr");
+          const next = tr ? tr.querySelector(".ws-in") : null;
+          if (!next) return;
+          e.preventDefault();
+          const changed = el.value.trim() !== was.trim();
+          send();
+          if (!changed) next.focus();
+        }
+      });
+      el.addEventListener("blur", send);
+    }
+
+    if (o.onRenameCol) {
+      $$(".ws-hin", host).forEach(function (el) {
+        const col = (o.cols || []).find(x => x.id === el.dataset.col);
+        if (!col) return;
+        wireName(el, txt => o.onRenameCol(col, el.dataset.part, txt));
+      });
+    }
+    if (o.onRenameRow) {
+      $$(".ws-lin", host).forEach(function (el) {
+        const row = rows.find(x => x.k === el.dataset.rowlabel);
+        if (!row) return;
+        wireName(el, txt => o.onRenameRow(row, txt));
+      });
+    }
+
+    /* 행추가 · 열추가 · 행 삭제 · 열 삭제 */
     const ar = host.querySelector("#ws-addrow");
     if (ar && o.onAddRow) ar.addEventListener("click", function () {
       const name = window.prompt("추가할 항목 이름을 적어 주세요 (예: Glucose, pH)");
@@ -260,6 +402,16 @@ window.Worksheet = (function () {
           if (window.confirm("이 행과 여기 적은 값을 지웁니다. 계속할까요?")) {
             o.onDropRow(b.dataset.drop);
           }
+        });
+      });
+    }
+    /* 열 삭제는 물어보지 않고 부르는 쪽에 넘깁니다 — 지울 수 있는 열인지,
+       값이 있어 숨기기만 해야 하는 열인지는 부르는 쪽만 알기 때문입니다. */
+    if (o.onDropCol) {
+      $$("[data-dropcol]", host).forEach(function (b) {
+        b.addEventListener("click", function () {
+          const col = (o.cols || []).find(x => x.id === b.dataset.dropcol);
+          if (col) o.onDropCol(col);
         });
       });
     }

@@ -266,9 +266,15 @@ window.Repo = (function () {
   function samplesOfBatch(batchId) {
     const base = (window.DATA_SAMPLES || [])
       .filter(s => s.active !== false && s.batchId === batchId);
+    /* 사용자가 만든 시료는 부를 때마다 새 객체로 만들어지므로 Aliases.apply()
+       가 닿지 않습니다 — 이름을 여기서 덧씌웁니다. 안 하면 워크시트에서 고친
+       시료 이름이 다른 화면에서만 옛 이름으로 보입니다. */
+    const alias = (k, v) => (window.Aliases ? window.Aliases.get(k, v) : v);
     const user = (window.Entries ? window.Entries.getSamples(batchId) : []).map(s => ({
-      id: s.id, batchId: s.batchId, studyId: s.studyId, name: s.name,
-      stage: null, collectedAt: s.createdAt ? String(s.createdAt).slice(0, 10) : null,
+      id: s.id, batchId: s.batchId, studyId: s.studyId,
+      name: alias("smp:" + s.id + ".name", s.name),
+      stage: alias("smp:" + s.id + ".stage", null) || null,
+      collectedAt: s.createdAt ? String(s.createdAt).slice(0, 10) : null,
       source: "user", primary: false, active: true,
       note: s.note || null, analytics: null
     }));
@@ -623,7 +629,7 @@ window.Repo = (function () {
     projectLabel, studyOf, valueOf,
     getMeasurementRows, getStudySummary,
     /* Single Source of Truth 표면 — 저장소가 바뀌어도 이 이름들은 그대로 */
-    get, set, update, setValue, recordOf, subscribe, entryKey, useStore,
+    get, set, update, setValue, recordOf, subscribe, notify, entryKey, useStore,
     storeName: () => store.name
   };
 })();

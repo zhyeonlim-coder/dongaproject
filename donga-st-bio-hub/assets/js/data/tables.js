@@ -173,7 +173,7 @@ window.AskTables = (function () {
      Repo 가 값 변경을 알려 줄 때마다 다시 만듭니다. */
   if (window.Repo && window.Repo.subscribe) {
     window.Repo.subscribe(function (what) {
-      if (what === "value" || what === "store") invalidate();
+      if (what === "value" || what === "store" || what === "label") invalidate();
     });
   }
 
