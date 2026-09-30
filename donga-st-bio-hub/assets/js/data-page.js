@@ -85,20 +85,51 @@
 
     const cols = cmpPicked.map(id => batches.find(b => b.id === id)).filter(Boolean);
     const picked = cmpPicked;
+    const sel = window.Scope.get();
 
-    /* 비교 대상 항목 — 배양 지표, 정제, 그리고 배치 메타 */
+    /* 비교 대상 항목 — 배치 메타 · 배양 · 정제 · 분석
+
+       ★ 분석 항목이 예전에는 빠져 있었습니다. 값이 배치가 아니라 시료에
+         붙는다는 이유였는데, 그 때문에 [SE-HPLC] 같은 Data 분류 버튼이 이
+         화면에서만 아무 반응도 없었습니다 — 표에 해당 행 자체가 없으니
+         걸러 낼 것도 없었던 것입니다.
+
+         배치별 표는 이미 대표 시료 값으로 분석 컬럼을 보여 주고 있습니다
+         (Repo.valueOf 가 그렇게 내려갑니다). 같은 데이터를 한 화면에서는
+         보여 주고 다른 화면에서는 감추면, 두 화면을 견주는 사람이 어느
+         쪽이 맞는지 알 수 없습니다. 대표 시료 값이라는 사실은 표 아래에
+         밝혀 둡니다. */
     const rows = [];
-    rows.push({ group: "기간", label: "배양 일수", unit: "일", dp: 0,
+    rows.push({ key: "cultureDays", group: "기간", label: "배양 일수", unit: "일", dp: 0,
                 get: b => b.cultureDays });
     window.DATA_ANALYTE_GROUPS.forEach(function (g) {
-      if (g.empty || g.team === "analytics") return;      // 분석은 시료 축이라 제외
+      if (g.empty) return;
+      const perSample = g.team === "analytics";
       g.items.forEach(it => rows.push({
-        group: g.label, label: it.label, unit: it.unit, dp: it.dp,
+        /* 키는 컬럼 표와 같은 규칙이어야 합니다 — Data 분류가 그 키로
+           걸러지기 때문입니다 (repo.colInClass) */
+        key: (g.team === "upstream") ? it.key : g.id + "." + it.key,
+        group: g.label, label: it.label, unit: it.unit, dp: it.dp, perSample: perSample,
         get: b => window.Repo.valueOf(b, g.id, it.key)
       }));
     });
 
-    const scored = rows.map(function (r) {
+    /* Data 분류 선택 → 그 분류의 항목만 남깁니다. 컬럼 표와 같은 기준입니다. */
+    const shown = sel.dataClass
+      ? rows.filter(r => window.Repo.colInClass(r.key, sel.dataClass))
+      : rows;
+    const clsLabel = sel.dataClass
+      ? ((window.Repo.getDataClasses().find(c => c.id === sel.dataClass) || {}).label || "")
+      : "";
+    if (sel.dataClass && !shown.length) {
+      return cmpChipBar(batches, picked) +
+        '<div class="empty"><div class="empty-title">' + esc(clsLabel) +
+          ' 에 해당하는 비교 항목이 없습니다</div>' +
+        '<div class="empty-body">위 [전체 항목] 을 누르면 모든 항목이 다시 나옵니다.</div></div>';
+    }
+    const anySample = shown.some(r => r.perSample);
+
+    const scored = shown.map(function (r) {
       const vals = cols.map(r.get);
       return { r: r, vals: vals, spread: spreadOf(vals) };
     });
@@ -128,12 +159,14 @@
       '</tr>';
     }).join("");
 
-    return '<div class="card-body" style="border-bottom:1px solid var(--c-border)">' +
-        '<div class="eyebrow" style="margin-bottom:var(--s-2)">비교할 배치 (최대 ' + CMP_MAX + '개)</div>' +
-        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-          batches.map(b => '<button class="mm-chip" data-cmp="' + esc(b.id) + '" ' +
-            'aria-pressed="' + (picked.indexOf(b.id) > -1) + '">' + esc(b.id) + '</button>').join("") +
-        '</div></div>' +
+    return cmpChipBar(batches, picked) +
+
+      (sel.dataClass
+        ? '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' +
+          '<b>' + esc(clsLabel) + '</b> 항목만 보는 중입니다 (' + shown.length + '건). ' +
+          '다른 공정에 원인이 있을 수 있으니, 짚이는 것이 없으면 ' +
+          '[전체 항목] 으로 되돌려 보세요.</div></div>'
+        : "") +
 
       '<div class="tbl-scroll"><table class="tbl cmp-tbl"><thead><tr>' +
         '<th scope="col">항목</th>' +
@@ -154,9 +187,25 @@
       '<div class="card-body">' +
         '<p style="font-size:11.5px;color:var(--c-text-mute);margin:0;line-height:1.7">' +
         '편차는 <b>(최댓값 − 최솟값) ÷ 중앙값</b> 입니다. 단위가 다른 항목끼리 견주려면 ' +
-        '절대 차이가 아니라 상대 폭으로 재야 합니다. 각 행에서 가장 큰 값은 파랑, 가장 작은 값은 주황입니다.<br>' +
-        '분석 항목은 시료마다 값이 달라 이 표에 넣지 않았습니다 — <b>시료별</b> 보기에서 확인하세요.</p>' +
+        '절대 차이가 아니라 상대 폭으로 재야 합니다. 각 행에서 가장 큰 값은 파랑, 가장 작은 값은 주황입니다.' +
+        (anySample
+          ? '<br>분석 항목(SE-HPLC · IE-HPLC · N-glycan · CE-SDS)은 배치가 아니라 시료를 측정한 ' +
+            '값이라, 여기서는 <b>각 배치의 대표 시료</b> 값을 보여 줍니다. 한 배치에서 여러 시료를 ' +
+            '시험했다면 <b>시료별</b> 보기에서 확인하세요.'
+          : "") +
+        '</p>' +
       '</div>';
+  }
+
+  /* 비교할 배치 고르는 줄 — 항목이 하나도 남지 않았을 때도 이 줄은 나와야
+     합니다. 배치 선택까지 사라지면 되돌릴 방법이 화면에 없습니다. */
+  function cmpChipBar(batches, picked) {
+    return '<div class="card-body" style="border-bottom:1px solid var(--c-border)">' +
+      '<div class="eyebrow" style="margin-bottom:var(--s-2)">비교할 배치 (최대 ' + CMP_MAX + '개)</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        batches.map(b => '<button class="mm-chip" data-cmp="' + esc(b.id) + '" ' +
+          'aria-pressed="' + (picked.indexOf(b.id) > -1) + '">' + esc(b.id) + '</button>').join("") +
+      '</div></div>';
   }
 
   /* ── 컬럼 정의 ──────────────────────────────────────────────────────────
@@ -561,16 +610,30 @@
      한쪽에서 고르면 다른 쪽도 함께 바뀝니다 — 필터가 두 개로 보이면
      어느 쪽이 적용된 건지 알 수 없게 됩니다. */
   function paintClassFilter() {
+    const host = $("#group-filter");
+    if (!host) return;
     const sel = window.Scope.get();
     const list = [{ id: null, label: "전체 항목" }]
       .concat(window.Repo.getDataClasses(sel.team).map(c => ({ id: c.id, label: c.label })));
-    $("#group-filter").innerHTML = list.map(c =>
-      '<button class="btn btn-ghost btn-sm" data-g="' + esc(c.id || "") + '"' +
-        (sel.dataClass === c.id
-          ? ' style="background:var(--c-navy-700);color:#fff;border-color:var(--c-navy-700)"' : "") +
-        '>' + esc(c.label) + '</button>').join("");
-    $$("[data-g]").forEach(b => b.addEventListener("click", () => {
-      window.Scope.setFilter({ dataClass: b.dataset.g || null });
+
+    /* 고른 것이 어느 것인지 인라인 style 이 아니라 클래스로 표시합니다.
+       인라인이면 상태가 문자열 안에 숨어 있어, 눌렀는데 안 바뀌는지
+       눌리지 않은 것인지 화면에서도 코드에서도 구분이 안 됩니다.
+       aria-pressed 로 화면 낭독기에도 같은 사실이 전달됩니다. */
+    host.innerHTML = list.map(function (c) {
+      const on = sel.dataClass === c.id;
+      return '<button type="button" class="cls-chip' + (on ? " is-on" : "") + '" ' +
+        'data-g="' + esc(c.id || "") + '" aria-pressed="' + on + '">' +
+        esc(c.label) + '</button>';
+    }).join("");
+
+    /* 문서 전체가 아니라 이 줄 안에서만 찾습니다 — 다른 화면 요소가 같은
+       data-g 를 쓰게 되면 그쪽까지 필터 버튼으로 잡힙니다. */
+    $$("[data-g]", host).forEach(b => b.addEventListener("click", function () {
+      /* 같은 것을 다시 누르면 전체로 되돌립니다 — 되돌릴 길이 [전체 항목]
+         하나뿐이면, 좁혀 놓고 원래대로 오는 방법을 찾게 됩니다. */
+      const next = b.dataset.g || null;
+      window.Scope.setFilter({ dataClass: sel.dataClass === next ? null : next });
     }));
   }
 

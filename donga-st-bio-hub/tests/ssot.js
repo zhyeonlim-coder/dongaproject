@@ -257,6 +257,50 @@ window.SSOTTest = (function () {
       }
     })();
 
+    /* ── 11) 팀 선택이 Study·과제 전환에 살아남는가 ───────────────────
+       팀은 Study 아래에 있는 값이 아니라 "지금 어느 공정을 보는 사람인가"
+       입니다. 여기서 team 을 비우면 대시보드가 팀 없는 상태를 보고 첫 팀을
+       집어, 바이오분석팀 화면에서 Study 만 바꿨는데 배양공정팀으로 튕겨
+       나갑니다 — 고른 적도 없는 팀의 그래프를 보게 되는 것이라 조용히
+       틀린 값을 읽습니다.
+
+       한 줄만 되돌아가도 되살아나는 버그라 여기서 붙잡습니다. */
+    (function scopeChecks() {
+      const S = window.Scope;
+      if (!S) { T.add("⑪ Scope 가 있음", false, "window.Scope 없음"); return; }
+      const keep = S.get();
+      try {
+        const study = (window.DATA_STUDIES || [])[0];
+        const other = (window.DATA_STUDIES || []).find(x => x.id !== (study || {}).id);
+        if (!study || !other) { T.add("⑪ 검사할 Study 가 둘 이상", false, "Study 부족"); return; }
+
+        S.setScope("study", study.projectId);
+        S.setStudy(study.id);
+        S.setTeam("analytics");
+        T.add("⑪ 팀이 선택됨", S.get().team === "analytics", "team=" + S.get().team);
+
+        S.setStudy(other.id);
+        T.add("⑪ Study 를 바꿔도 팀이 유지됨", S.get().team === "analytics",
+          "Study 전환 뒤 team=" + S.get().team);
+
+        const otherProject = (window.DATA_PROJECTS || [])
+          .find(p => p.id !== study.projectId);
+        if (otherProject) {
+          S.setScope("study", otherProject.id);
+          T.add("⑪ 과제를 바꿔도 팀이 유지됨", S.get().team === "analytics",
+            "과제 전환 뒤 team=" + S.get().team);
+        }
+
+        /* 팀을 바꾸는 길은 setTeam 하나뿐이어야 합니다 */
+        S.setTeam("upstream");
+        T.add("⑪ setTeam 으로는 바뀜", S.get().team === "upstream", "team=" + S.get().team);
+      } finally {
+        S.setScope(keep.scopeKind, keep.scopeId);
+        S.setStudy(keep.studyId);
+        S.setTeam(keep.team);
+      }
+    })();
+
     return Promise.all(pending).then(function () {
     const bad = T.out.filter(x => !x.pass);
     return {

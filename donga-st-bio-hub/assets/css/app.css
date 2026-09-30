@@ -2872,3 +2872,24 @@ td.is-generated { background: color-mix(in srgb, var(--c-warn, #B45309) 7%, tran
   background: var(--c-surface); color: var(--c-accent);
 }
 .ws-unhide:hover { border-color: var(--c-accent); background: var(--c-accent-bg); }
+
+/* --------------------------------------------------------------------------
+   Data 분류 칩 (데이터 조회)
+
+   고른 것이 어느 것인지 한눈에 보여야 합니다. 예전에는 인라인 style 로
+   배경색만 바꿨는데, 눌렀다는 사실이 코드 안 문자열에만 있어 상태를 화면
+   에서도 검사에서도 붙잡기 어려웠습니다.
+   -------------------------------------------------------------------------- */
+.cls-chip {
+  min-height: 32px; padding: 0 12px;
+  border: 1px solid var(--c-border-str); border-radius: 999px;
+  background: var(--c-surface); color: var(--c-text);
+  font-size: 12.5px; font-weight: 500; cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.cls-chip:hover { border-color: var(--c-accent); color: var(--c-accent); }
+.cls-chip.is-on {
+  background: var(--c-navy-700); border-color: var(--c-navy-700);
+  color: #fff; font-weight: 600;
+}
+.cls-chip.is-on:hover { color: #fff; }

@@ -438,6 +438,27 @@
        스크롤하는 사이에 첫 번째가 화면에서 사라져, 비교가 기억에 의존하게
        됩니다. 나란히 놓으면 눈만 옮기면 됩니다.
        표가 든 카드는 2단에 넣지 않습니다 — 열이 잘려 오히려 못 읽습니다. */
+  /* ── 고른 팀에 데이터가 없을 때 ──────────────────────────────────────
+     다른 팀으로 옮겨 주지 않습니다. 사용자가 고른 것은 팀이고, 바꾼 것은
+     Study 입니다 — 고른 적 없는 팀의 그래프를 대신 보여 주면 그게 어느
+     팀 값인지 확인하지 않은 채 읽게 됩니다.
+
+     팀은 그대로 두고, 이 Study 에 그 팀 데이터가 없다는 사실만 말합니다.
+     다른 Study 로 옮기거나 그 팀 데이터를 넣으러 가는 길을 함께 둡니다. */
+  function teamEmptyState(teamKo, studyKo, set) {
+    const why = (set && !set.defined)
+      ? "이 팀의 측정 항목이 원본에 정의되어 있지 않습니다."
+      : "이 Study 범위에 " + esc(teamKo) + " 측정값이 아직 없습니다.";
+    return '<div class="empty" style="border-left:3px solid ' + teamColor(currentTeam()) + '">' +
+      '<div class="empty-title">해당 Study에 대한 ' + esc(teamKo) + ' 데이터가 존재하지 않습니다.</div>' +
+      '<div class="empty-body">' +
+        (studyKo ? '<b>' + esc(studyKo) + '</b> · ' : "") + why +
+        '<br>팀 선택은 그대로 두었습니다 — 위 Study 를 다른 것으로 바꾸거나, ' +
+        '<a href="ebr.html">Data 입력</a>에서 이 팀의 값을 먼저 기록하세요.' +
+      '</div></div>';
+  }
+  function currentTeam() { return window.Scope.get().team; }
+
   function chartSections(team, batches, samples) {
     if (!batches.length) {
       return '<div class="empty"><div class="empty-title">' + esc(L.noResult) + '</div>' +
@@ -493,7 +514,15 @@
       const batches = r[0], studies = r[1], teamSets = r[2], samples = r[3];
       $("#page-title").textContent = desc.scope + (desc.study ? " · " + desc.study : "") +
         (desc.team ? " · " + desc.team : "");
-      $("#kpi").innerHTML = kpiRow(batches, sel.team, samples);
+
+      /* 고른 팀에 이 범위의 데이터가 있는지 — 없으면 KPI 도 그래프도
+         빈 상태로 둡니다. 0 이 찍힌 KPI 카드는 "쟀는데 0" 과 구분되지
+         않아, 없는 값을 있는 값처럼 읽게 만듭니다. */
+      const teamSet = sel.team ? (teamSets || []).find(t => t.team === sel.team) : null;
+      const teamKo = teamSet ? teamSet.ko : (desc.team || "");
+      const teamEmpty = !!(teamSet && (!teamSet.defined || !teamSet.hasData));
+
+      $("#kpi").innerHTML = teamEmpty ? "" : kpiRow(batches, sel.team, samples);
 
       const showTeams = !!sel.studyId;
 
@@ -515,7 +544,9 @@
               teamCards(teamSets, batches) + '</section>'
           : "") +
 
-        chartSections(sel.team, batches, samples);
+        (teamEmpty
+          ? teamEmptyState(teamKo, desc.study, teamSet)
+          : chartSections(sel.team, batches, samples));
 
       const sp = document.getElementById("dash-study");
       if (sp) sp.addEventListener("change", function () {

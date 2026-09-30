@@ -74,13 +74,16 @@ window.Scope = (function () {
 
   function get() { return Object.assign({}, state); }
 
-  /* 최상위 범위 선택. 하위는 전부 초기화됩니다. */
+  /* 최상위 범위 선택. 하위는 전부 초기화됩니다.
+
+     ★ 팀만은 남깁니다 — 아래 setStudy 의 설명과 같은 이유입니다.
+       세 팀(배양·정제·분석)은 과제마다 다른 것이 아니라 어느 과제에서도
+       같은 세 팀이므로, 과제를 바꿨다고 보던 공정이 바뀔 이유가 없습니다. */
   function setScope(kind, id) {
     if (state.scopeKind === kind && state.scopeId === id) return get();
     state.scopeKind = kind || null;
     state.scopeId = id || null;
     state.studyId = null;          // ← 과제 전환 시 잔존 방지
-    state.team = null;
     state.dataClass = null;
     state.status = null;
     emit("scope");
@@ -92,10 +95,23 @@ window.Scope = (function () {
      형태로 유지합니다 — 화면마다 조건문을 지우고 다니면 하나씩 빠뜨립니다. */
   function skipsStudyStep() { return false; }
 
+  /* ★ Study 를 바꿔도 팀은 그대로 둡니다.
+
+     예전에는 여기서 team 을 비웠습니다. Study 아래에 팀이 있다고 본 것인데,
+     실제로는 그렇지 않습니다. 팀은 "지금 어느 공정을 보고 있는 사람인가"
+     이고, 어느 Study 를 고르든 같은 세 팀입니다.
+
+     비워 두면 대시보드가 팀 없는 상태를 보고 첫 팀(배양공정팀)을 집습니다.
+     그래서 바이오분석팀 화면에서 Study 만 바꿨는데 배양공정팀으로 튕겨
+     나갔습니다 — 고른 적도 없는 팀으로 화면이 통째로 바뀌는 것이라,
+     사용자는 자기가 무엇을 잘못 눌렀는지 알 수 없습니다.
+
+     고른 Study 에 그 팀 데이터가 없을 수 있지만, 그때 할 일은 다른 팀으로
+     옮겨 주는 것이 아니라 "이 Study 에는 그 팀 데이터가 없다" 고 말해 주는
+     것입니다. 그 안내는 화면(dash-page)이 합니다. */
   function setStudy(id) {
     if (state.studyId === id) return get();
     state.studyId = id || null;
-    state.team = null;
     emit("study");
     return get();
   }
