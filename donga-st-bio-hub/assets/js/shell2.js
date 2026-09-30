@@ -172,13 +172,8 @@ window.Shell = (function () {
       window.Scope.subscribe(function () {
         const el = document.getElementById("scope-select");
         if (el) el.innerHTML = scopeOptionsMarkup();
-        paintRail();
       });
     }
-
-    paintRail();
-    if (window.Store && window.Store.subscribe) window.Store.subscribe(() => paintRail());
-    on("project", () => paintRail());
 
     /* ── Global AI ───────────────────────────────────────────────────────
        모든 화면이 이 함수를 거치므로, 여기 한 번만 붙이면 8개 페이지에
@@ -242,145 +237,20 @@ window.Shell = (function () {
     });
   }
 
-  /* ── Right rail: mini calendar + events + notifications ─────────────── */
-  let calMonth = null, calSelected = null;
+  /* ── 우측 레일은 없앴습니다 ───────────────────────────────────────────
+     예전에는 여기서 모든 화면 오른쪽에 300px 짜리 미니 캘린더 · 다가오는
+     일정 · 알림을 그렸습니다. 두 가지가 문제였습니다.
 
-  /* 캘린더 소스 우선순위
-       1. HubCalendar  — Excel 파생 + 생성 일정 + 직접 등록 + 레거시를 합친 단일 소스.
-                         대시보드 · 데이터 조회 · 일정 관리 · 데이터 탐색이 모두 이걸 씁니다.
-       2. Store        — HubCalendar 를 싣지 않는 레거시 화면(장비 예약 · DoE)용.
-     이 순서 덕분에 화면을 옮겨도 우측 캘린더에 같은 일정이 찍힙니다. */
-  function calendarSource() {
-    if (window.HubCalendar && window.HubCalendar.railSource) return window.HubCalendar.railSource();
-    if (window.Store && window.Store.eventsOn) return window.Store;
-    const pad = n => String(n).padStart(2, "0");
-    const d = new Date();
-    const t = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
-    return { today: () => t, eventsOn: () => [], oosItems: () => [] };
-  }
+       · 일정을 보는 일은 일정 관리 화면의 일인데, Data 입력 · 데이터 조회
+         처럼 표가 넓어야 하는 화면에서 그 300px 이 본문을 좁혔습니다.
+         43개 컬럼짜리 표에서는 컬럼 두세 개가 화면 밖으로 밀려나는 폭입니다.
+       · "알림(규격 이탈)" 블록은 판정 근거가 원본에 없어 oosItems() 가 늘
+         빈 배열을 돌려주고 있었습니다. 자리만 차지하고 늘 같은 문장을
+         띄우는 칸이었습니다.
 
-  function paintRail() {
-    const host = document.getElementById("rail");
-    if (!host) return;
-    const S = calendarSource();
-    const today = S.today();
-    if (!calMonth) calMonth = today.slice(0, 7);
-    if (!calSelected) calSelected = today;
+     월 달력은 필요한 한 곳 — 일정 관리 본문 — 으로 옮겼습니다
+     (schedule-page.js 의 monthCalendar). 레일의 날짜 선택 이벤트를 듣던
+     화면은 없었습니다. */
 
-    const [Y, M] = calMonth.split("-").map(Number);
-    const first = new Date(Y, M - 1, 1);
-    const startDow = first.getDay();
-    const daysInMonth = new Date(Y, M, 0).getDate();
-    const prevDays = new Date(Y, M - 1, 0).getDate();
-
-    const cells = [];
-    for (let i = startDow - 1; i >= 0; i--) cells.push({ d: prevDays - i, out: true });
-    for (let d = 1; d <= daysInMonth; d++) cells.push({ d, out: false });
-    while (cells.length % 7) cells.push({ d: cells.length, out: true });
-
-    const iso = (d) => Y + "-" + String(M).padStart(2, "0") + "-" + String(d).padStart(2, "0");
-
-    /* 색은 HubCalendar 가 정의한 값을 그대로 씁니다 — 캘린더 점과 일정 관리
-       화면의 범례가 어긋나지 않도록 한 곳에서만 정합니다.
-       purif 는 레거시 Store 만 쓰는 종류라 여기서 보완합니다. */
-    const KIND_COLOR = Object.assign(
-      { culture: "var(--c-accent)", purif: "#6D28D9", analysis: "#0F766E",
-        booking: "#B45309", milestone: "var(--c-risk)" },
-      Object.keys((window.HubCalendar || {}).KIND || {}).reduce(function (acc, k) {
-        acc[k] = window.HubCalendar.KIND[k].color; return acc;
-      }, {})
-    );
-
-    const dayCells = cells.map(c => {
-      if (c.out) return '<span class="cal-day" data-out="1" aria-hidden="true">' + c.d + '</span>';
-      const date = iso(c.d);
-      const evs = S.eventsOn(date);
-      const kinds = [];
-      evs.forEach(e => { if (kinds.indexOf(e.kind) === -1) kinds.push(e.kind); });
-      return '<button class="cal-day" data-date="' + date + '"' +
-        (date === today ? ' data-today="1"' : "") +
-        ' aria-pressed="' + (date === calSelected) + '"' +
-        ' aria-label="' + date + (evs.length ? ", 일정 " + evs.length + "건" : "") + '">' + c.d +
-        (kinds.length ? '<span class="cal-dots">' + kinds.slice(0, 3).map(k =>
-          '<span class="cal-dot" style="background:' + (KIND_COLOR[k] || "var(--c-text-soft)") + '"></span>').join("") +
-          '</span>' : "") + '</button>';
-    }).join("");
-
-    const selEvents = S.eventsOn(calSelected);
-    const oos = S.oosItems(currentProject);
-
-    /* 다가오는 일정 — HubCalendar 를 쓰는 화면에서만 채웁니다.
-       레거시 화면(장비 예약 · DoE)에는 이 목록의 근거가 없어 비웁니다. */
-    const soon = (window.HubCalendar && window.HubCalendar.upcoming)
-      ? window.HubCalendar.upcoming(4) : [];
-
-    host.innerHTML =
-      '<div class="cal-head">' +
-        '<button class="btn-icon" id="cal-prev" aria-label="이전 달" style="width:30px;height:30px">' +
-          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
-          'stroke-linecap="round"><path d="m15 5-7 7 7 7"/></svg></button>' +
-        '<strong style="font-size:13px">' + Y + '년 ' + M + '월</strong>' +
-        '<button class="btn-icon" id="cal-next" aria-label="다음 달" style="width:30px;height:30px">' +
-          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
-          'stroke-linecap="round"><path d="m9 5 7 7-7 7"/></svg></button>' +
-      '</div>' +
-      '<div class="cal-grid">' +
-        ["일","월","화","수","목","금","토"].map(d => '<span class="cal-dow">' + d + '</span>').join("") +
-        dayCells +
-      '</div>' +
-
-      '<div class="rule-hair" style="margin:var(--s-4) 0 var(--s-3)"></div>' +
-      '<div class="eyebrow" style="margin-bottom:var(--s-2)">' + calSelected.slice(5) + ' 일정</div>' +
-      (selEvents.length
-        ? selEvents.map(e =>
-            '<div class="rail-event">' +
-              '<span class="rail-event-bar" style="background:' + (KIND_COLOR[e.kind] || "var(--c-text-soft)") + '"></span>' +
-              '<span style="min-width:0;flex:1">' +
-                '<span style="display:block;font-size:12px;font-weight:500">' + esc(e.ko) + '</span>' +
-                '<span class="badge" style="margin-top:4px;font-size:10px">' + esc(e.status) + '</span>' +
-              '</span></div>').join("")
-        : '<p style="font-size:12px;color:var(--c-text-mute);margin:0">등록된 일정이 없습니다.</p>') +
-
-      (soon.length
-        ? '<div class="rule-hair" style="margin:var(--s-4) 0 var(--s-3)"></div>' +
-          '<div class="eyebrow" style="margin-bottom:var(--s-2)">다가오는 일정</div>' +
-          soon.map(e =>
-            '<a class="rail-event" href="schedule.html" style="text-decoration:none;color:inherit">' +
-              '<span class="rail-event-bar" style="background:' +
-                (KIND_COLOR[e.kind] || "var(--c-text-soft)") + '"></span>' +
-              '<span style="min-width:0;flex:1">' +
-                '<span style="display:block;font-size:12px;font-weight:500">' + esc(e.ko) + '</span>' +
-                '<span class="mono" style="display:block;font-size:10.5px;color:var(--c-text-mute);margin-top:3px">' +
-                  esc(e.date) + '</span>' +
-              '</span></a>').join("")
-        : "") +
-
-      '<div class="rule-hair" style="margin:var(--s-4) 0 var(--s-3)"></div>' +
-      '<div class="eyebrow" style="margin-bottom:var(--s-2)">알림</div>' +
-      (oos.length
-        ? oos.slice(0, 3).map(x =>
-            '<a class="rail-event" href="ebr.html#analysis" style="text-decoration:none;color:inherit">' +
-              '<span class="rail-event-bar" style="background:var(--c-risk)"></span>' +
-              '<span style="min-width:0"><span style="display:block;font-size:12px;font-weight:600;color:#9B1C1C">' +
-                'Fail · ' + esc(x.ko) + '</span>' +
-              '<span style="display:block;font-size:11px;color:var(--c-text-mute)">' + esc(x.sample) + ' · ' +
-                x.value + ' (규격 ' + esc(x.spec) + ')</span></span></a>').join("")
-        : '<p style="font-size:12px;color:var(--c-text-mute);margin:0">규격 이탈 항목이 없습니다.</p>') +
-
-      '<div class="rule-hair" style="margin:var(--s-4) 0 var(--s-3)"></div>' +
-      '<a class="btn btn-ghost btn-sm" href="schedule.html" style="width:100%">전체 일정 보기</a>';
-
-    document.getElementById("cal-prev").addEventListener("click", () => { calMonth = shiftMonth(calMonth, -1); paintRail(); });
-    document.getElementById("cal-next").addEventListener("click", () => { calMonth = shiftMonth(calMonth, 1); paintRail(); });
-    Array.prototype.forEach.call(host.querySelectorAll("[data-date]"), b =>
-      b.addEventListener("click", () => { calSelected = b.dataset.date; paintRail(); fire("date", calSelected); }));
-  }
-
-  function shiftMonth(ym, delta) {
-    const [y, m] = ym.split("-").map(Number);
-    const d = new Date(y, m - 1 + delta, 1);
-    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
-  }
-
-  return { mount, subnav, project, setProject, on, paintRail, logo };
+  return { mount, subnav, project, setProject, on, logo };
 })();

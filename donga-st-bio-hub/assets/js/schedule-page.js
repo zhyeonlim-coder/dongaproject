@@ -306,7 +306,7 @@
 
     if (mode === "all") {
       $("#page-title").textContent = "일정 관리 · 전체 보기";
-      $("#body").innerHTML = overviewGantt() +
+      $("#body").innerHTML = monthCalendar(null) + overviewGantt() +
         allScopes().map(s => timeline(eventsForScope(s), s.label + " 일정")).join("");
       wire(null);
       return;
@@ -316,7 +316,7 @@
       $("#page-title").textContent = "일정 관리";
       /* 과제를 안 골랐어도 전체 타임라인은 보여줍니다 —
          "무엇을 골라야 할지" 를 이 화면이 알려주는 게 맞습니다. */
-      $("#body").innerHTML = overviewGantt() +
+      $("#body").innerHTML = monthCalendar(null) + overviewGantt() +
         '<div class="empty"><div class="empty-title">과제를 선택하면 상세 일정이 열립니다</div>' +
         '<div class="empty-body">상단 우측 셀렉터에서 과제를 고르면 그 과제의 간트 · 일정 등록 · ' +
         '타임라인이 표시됩니다. 과제별로 일정은 완전히 분리됩니다.</div></div>';
@@ -326,12 +326,162 @@
 
     const scope = { id: sel.scopeId, label: desc.scope };
     $("#page-title").textContent = "일정 관리 · " + desc.scope;
-    $("#body").innerHTML = overviewGantt() + scopeGantt(scope) + addForm(scope) +
+    $("#body").innerHTML = monthCalendar(scope) + overviewGantt() + scopeGantt(scope) + addForm(scope) +
       timeline(eventsForScope(scope), desc.scope + " 일정");
     wire(scope);
   }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     월 달력 — 예전 우측 레일의 미니 달력이 여기로 들어왔습니다
+
+     달력은 "이번 달에 무슨 일이 언제 있나" 를 한눈에 보는 도구인데, 300px
+     사이드바 안에서는 칸이 손톱만 해 점 세 개밖에 못 찍었습니다. 정작 그
+     좁은 달력이 데이터 표가 넓어야 할 다른 화면들의 폭을 가져가고 있었습니다.
+
+     이제 필요한 한 곳에서 본문 폭을 씁니다. 날짜를 누르면 오른쪽에 그날
+     일정이 펼쳐지고, 간트와 타임라인은 그대로 아래에 이어집니다.
+
+     ★ 일정 소스는 HubCalendar 하나입니다 — 간트 · 타임라인 · 이 달력이
+       같은 곳을 보므로 한 화면 안에서 숫자가 어긋나지 않습니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  let calMonth = null, calPick = null;
+
+  function shiftMonth(ym, d) {
+    const [y, m] = ym.split("-").map(Number);
+    const x = new Date(y, m - 1 + d, 1);
+    return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0");
+  }
+
+  function monthCalendar(scope) {
+    const today = H.today();
+    if (!calMonth) calMonth = today.slice(0, 7);
+    if (!calPick) calPick = today;
+
+    const [Y, M] = calMonth.split("-").map(Number);
+    const startDow = new Date(Y, M - 1, 1).getDay();
+    const daysInMonth = new Date(Y, M, 0).getDate();
+    const prevDays = new Date(Y, M - 1, 0).getDate();
+
+    const cells = [];
+    for (let i = startDow - 1; i >= 0; i--) cells.push({ d: prevDays - i, out: true });
+    for (let d = 1; d <= daysInMonth; d++) cells.push({ d: d, out: false });
+    while (cells.length % 7) cells.push({ d: cells.length, out: true });
+
+    const iso = d => Y + "-" + String(M).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+    /* 과제를 고른 상태면 그 과제 일정만 — 다른 과제 일정이 섞이면 안 됩니다 */
+    const onDay = date => H.eventsOn(date)
+      .filter(e => !scope || !e.projectId || e.projectId === scope.id);
+
+    const dayCells = cells.map(function (c) {
+      if (c.out) return '<span class="cal-day" data-out="1" aria-hidden="true">' + c.d + '</span>';
+      const date = iso(c.d);
+      const evs = onDay(date);
+      const kinds = [];
+      evs.forEach(e => { if (kinds.indexOf(e.kind) === -1) kinds.push(e.kind); });
+      return '<button class="cal-day" data-date="' + date + '"' +
+        (date === today ? ' data-today="1"' : "") +
+        ' aria-pressed="' + (date === calPick) + '"' +
+        ' aria-label="' + date + (evs.length ? ", 일정 " + evs.length + "건" : "") + '">' + c.d +
+        (kinds.length
+          ? '<span class="cal-dots">' + kinds.slice(0, 4).map(k =>
+              '<span class="cal-dot" style="background:' +
+              ((KIND[k] || {}).color || "var(--c-text-soft)") + '"></span>').join("") + '</span>'
+          : "") + '</button>';
+    }).join("");
+
+    const picked = onDay(calPick);
+    const soon = (H.upcoming ? H.upcoming(5) : [])
+      .filter(e => !scope || !e.projectId || e.projectId === scope.id);
+
+    const arrow = (id, ko, path) =>
+      '<button class="btn-icon" id="' + id + '" aria-label="' + ko + '" style="width:32px;height:32px">' +
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="2.4" stroke-linecap="round"><path d="' + path + '"/></svg></button>';
+
+    return '<section class="card" style="margin-bottom:var(--s-4)" aria-labelledby="cal-h">' +
+      '<div class="card-head"><div>' +
+        '<h2 class="card-title" id="cal-h">월간 일정</h2>' +
+        '<p class="card-sub">날짜를 누르면 그날 일정이 옆에 열립니다' +
+          (scope ? ' · ' + esc(scope.label) + ' 범위' : " · 전사 일정") + '</p></div>' +
+        '<button class="btn btn-ghost btn-sm" id="cal-today">오늘</button>' +
+      '</div>' +
+      '<div class="card-body"><div class="cal-lg">' +
+        '<div>' +
+          '<div class="cal-head">' + arrow("cal-prev", "이전 달", "m15 5-7 7 7 7") +
+            '<strong>' + Y + '년 ' + M + '월</strong>' +
+            arrow("cal-next", "다음 달", "m9 5 7 7-7 7") + '</div>' +
+          '<div class="cal-grid">' +
+            ["일","월","화","수","목","금","토"]
+              .map(d => '<span class="cal-dow">' + d + '</span>').join("") +
+            dayCells +
+          '</div>' +
+          '<div class="cal-legend">' +
+            Object.keys(KIND).map(k => '<span><i class="cal-dot" style="background:' +
+              KIND[k].color + '"></i>' + esc(KIND[k].ko) + '</span>').join("") +
+          '</div>' +
+        '</div>' +
+
+        '<div class="cal-side">' +
+          '<div class="eyebrow" style="margin-bottom:var(--s-2)">' +
+            esc(calPick) + ' 일정 ' + picked.length + '건</div>' +
+          (picked.length
+            ? picked.map(e =>
+                '<div class="rail-event">' +
+                  '<span class="rail-event-bar" style="background:' +
+                    ((KIND[e.kind] || {}).color || "var(--c-text-soft)") + '"></span>' +
+                  '<span style="min-width:0;flex:1">' +
+                    '<span style="display:block;font-size:12.5px;font-weight:500">' + esc(e.ko) + '</span>' +
+                    '<span class="badge" style="margin-top:4px;font-size:10px">' +
+                      esc(SRC_LABEL[e.src] || e.src || "") + '</span>' +
+                  '</span></div>').join("")
+            : '<p style="font-size:12.5px;color:var(--c-text-mute);margin:0">' +
+              '이날 등록된 일정이 없습니다.</p>') +
+
+          (soon.length
+            ? '<div class="rule-hair" style="margin:var(--s-4) 0 var(--s-3)"></div>' +
+              '<div class="eyebrow" style="margin-bottom:var(--s-2)">다가오는 일정</div>' +
+              soon.map(e =>
+                '<button class="rail-event" data-date="' + esc(e.date) + '" ' +
+                  'style="width:100%;border:0;background:transparent;text-align:left;cursor:pointer">' +
+                  '<span class="rail-event-bar" style="background:' +
+                    ((KIND[e.kind] || {}).color || "var(--c-text-soft)") + '"></span>' +
+                  '<span style="min-width:0;flex:1">' +
+                    '<span style="display:block;font-size:12.5px;font-weight:500">' + esc(e.ko) + '</span>' +
+                    '<span class="mono" style="display:block;font-size:10.5px;' +
+                      'color:var(--c-text-mute);margin-top:3px">' + esc(e.date) + '</span>' +
+                  '</span></button>').join("")
+            : "") +
+        '</div>' +
+      '</div></div></section>';
+  }
+
+  /* 달력은 본문을 통째로 다시 그리지 않고 제자리에서 갱신합니다 — 다시
+     그리면 아래 간트가 깜빡이고 스크롤 위치가 튑니다. */
+  function wireCalendar(scope) {
+    const prev = $("#cal-prev"), next = $("#cal-next"), todayBtn = $("#cal-today");
+    if (!prev) return;
+    const redraw = () => {
+      const host = $("#cal-h") && $("#cal-h").closest("section");
+      if (!host) { render(); return; }
+      host.outerHTML = monthCalendar(scope);
+      wireCalendar(scope);
+    };
+    prev.addEventListener("click", () => { calMonth = shiftMonth(calMonth, -1); redraw(); });
+    next.addEventListener("click", () => { calMonth = shiftMonth(calMonth, 1); redraw(); });
+    if (todayBtn) todayBtn.addEventListener("click", function () {
+      calPick = H.today(); calMonth = calPick.slice(0, 7); redraw();
+    });
+    $$("[data-date]", $("#cal-h").closest("section")).forEach(b =>
+      b.addEventListener("click", function () {
+        calPick = b.dataset.date;
+        /* 다가오는 일정에서 다른 달을 눌렀으면 달력도 그달로 넘깁니다 */
+        if (calPick.slice(0, 7) !== calMonth) calMonth = calPick.slice(0, 7);
+        redraw();
+      }));
+  }
+
   function wire(scope) {
+    wireCalendar(scope);
     const f = $("#ev-form");
     if (f && scope) {
       f.addEventListener("submit", function (e) {
@@ -358,12 +508,10 @@
     }));
   }
 
-  /* 일정이 바뀌면 본문뿐 아니라 우측 미니 캘린더도 같이 갱신합니다 —
-     한쪽만 갱신되면 같은 화면 안에서 일정이 서로 달라 보입니다. */
-  function refresh() {
-    render();
-    if (window.Shell.paintRail) window.Shell.paintRail();
-  }
+  /* 월 달력이 본문 안으로 들어와 render() 한 번이면 둘 다 갱신됩니다.
+     예전에는 본문과 우측 레일을 따로 그려야 했고, 한쪽만 갱신되면 같은
+     화면 안에서 일정이 서로 달라 보였습니다. */
+  function refresh() { render(); }
 
   /* 일정 관리는 Scope 를 읽기만 합니다 (get 1회 · subscribe 1회). 좁히는
      조작을 여기서 하지 않으므로 조회 바를 두지 않습니다 — 상단 바의 과제

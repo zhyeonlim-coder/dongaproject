@@ -830,15 +830,18 @@ a { color: inherit; }
 /* --------------------------------------------------------------------------
    I. Body layout
    -------------------------------------------------------------------------- */
+/* 좌측 서식 메뉴 + 본문, 두 칸입니다.
+
+   예전에는 오른쪽에 300px 짜리 미니 캘린더 레일이 한 칸 더 있었습니다.
+   일정을 보는 곳은 일정 관리 화면이고, 데이터를 넣고 보는 화면에서는 그
+   300px 이 표를 그만큼 좁혔습니다 — 43개 컬럼짜리 표에서는 컬럼 두세 개가
+   화면 밖으로 밀려나는 폭입니다. 월 달력은 일정 관리 본문으로 옮겼습니다. */
 .body-grid {
   display: grid;
-  grid-template-columns: 216px minmax(0, 1fr) 300px;
+  grid-template-columns: 216px minmax(0, 1fr);
   align-items: start;
   flex: 1;
 }
-/* 우측 rail 이 없는 화면(대시보드)은 본문이 그 폭을 씁니다. 세 번째 칸을
-   비워 두면 오른쪽에 빈 띠가 남고, 그래프 2단이 그만큼 좁아집니다. */
-.body-grid:not(:has(> .rail)) { grid-template-columns: 216px minmax(0, 1fr); }
 .body-grid > * { min-width: 0; }
 
 .subnav {
@@ -868,16 +871,12 @@ a { color: inherit; }
 }
 .subnav-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 
-.rail {
-  position: sticky; top: 58px;
-  height: calc(100vh - 58px); overflow-y: auto;
-  background: var(--c-surface);
-  border-left: 1px solid var(--c-border);
-  padding: var(--s-5) var(--s-4);
-}
-
 /* --------------------------------------------------------------------------
-   J. Mini calendar
+   J. Calendar — 일정 관리 본문의 월 달력
+
+   예전에는 전 화면 우측 300px 레일에 들어 있던 미니 달력이었습니다. 일정을
+   보는 일은 일정 관리 화면의 일이고, 다른 화면에서는 그 폭이 본문을 좁히기만
+   했습니다. 이제 필요한 한 곳에서 본문 폭을 쓰므로 칸을 크게 둡니다.
    -------------------------------------------------------------------------- */
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--s-3); }
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
@@ -1537,10 +1536,6 @@ body.mm-open { overflow: hidden; }
 /* Right rail folds under the content before the sub-menu does. */
 @media (max-width: 1280px) {
   .body-grid { grid-template-columns: 200px minmax(0, 1fr); }
-  .rail {
-    grid-column: 1 / -1; position: static; height: auto;
-    border-left: 0; border-top: 1px solid var(--c-border);
-  }
   .team-grid { grid-template-columns: 1fr; }
 }
 
@@ -3021,3 +3016,25 @@ body.is-colresize { cursor: col-resize; user-select: none; }
    자르지 않으면 컬럼이 머리글 길이 아래로는 절대 좁아지지 않습니다. */
 .sort-btn-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .tbl-fixed .sort-btn { min-width: 0; }
+
+/* 본문 폭 월 달력 (일정 관리) — 미니 달력과 같은 마크업에 크기만 키웁니다.
+   같은 클래스를 쓰므로 점 색·오늘 표시·선택 상태 규칙이 한 벌로 남습니다. */
+.cal-lg { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: var(--s-5); }
+.cal-lg .cal-head strong { font-size: 15px; }
+.cal-lg .cal-grid { gap: 4px; }
+.cal-lg .cal-dow { font-size: 11px; padding-bottom: 6px; }
+.cal-lg .cal-day { font-size: 14px; border-radius: var(--r-md); }
+.cal-lg .cal-dots { bottom: 5px; gap: 3px; }
+.cal-lg .cal-dot { width: 5px; height: 5px; }
+.cal-side { min-width: 0; }
+.cal-legend {
+  display: flex; gap: var(--s-3); flex-wrap: wrap;
+  margin-top: var(--s-4); padding-top: var(--s-3);
+  border-top: 1px solid var(--c-paper-2);
+  font-size: 11px; color: var(--c-text-mute);
+}
+.cal-legend span { display: inline-flex; align-items: center; gap: 4px; }
+
+@media (max-width: 1080px) {
+  .cal-lg { grid-template-columns: minmax(0, 1fr); }
+}
