@@ -329,10 +329,22 @@
     if (key.indexOf("downstream.") === 0)
       return row.downstream ? row.downstream[key.slice(11)] : null;
     if (key.indexOf(".") > -1) {
-      /* 분석값은 시료에 붙습니다. 배치별 보기에서는 그 배치의 대표 시료 값을
-         보여주고, 샘플별 보기에서는 그 행의 시료 값을 보여줍니다. */
       const p = key.split(".");
-      return row._sample ? window.Repo.valueOfSample(row._sample, p[0], p[1]) : null;
+      /* ★ 배치별 보기에서는 Repo 를 지납니다.
+
+         분석값의 원본은 시료에 붙어 있지만, Data 입력에서 적은 값은 배치에
+         들어갑니다 (워크시트의 열이 더 이상 시료가 아니기 때문입니다).
+         여기서 valueOfSample 로 바로 내려가면 그 입력값을 건너뛰고 원본만
+         보여 줍니다 — 입력 화면에는 고친 값이, 조회 화면에는 옛 값이 뜨고
+         둘 다 그럴듯해서 어느 쪽이 맞는지 알 수 없게 됩니다.
+
+         Repo.valueOf 는 배치 입력값을 먼저 보고 없을 때만 대표 시료로
+         내려갑니다. 시료별 보기는 그 행이 가리키는 시료가 정답이므로
+         예전 경로 그대로입니다. */
+      if (groupBy === "sample") {
+        return row._sample ? window.Repo.valueOfSample(row._sample, p[0], p[1]) : null;
+      }
+      return window.Repo.valueOf(row, p[0], p[1]);
     }
     if (row.upstream && row.upstream[key] !== undefined) return row.upstream[key];
     return row[key] === undefined ? null : row[key];

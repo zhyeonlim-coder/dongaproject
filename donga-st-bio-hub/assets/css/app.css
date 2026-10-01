@@ -3104,3 +3104,31 @@ body.is-colresize { cursor: col-resize; user-select: none; }
   border-bottom: 1px solid var(--c-border);
 }
 .dash-back-crumb { font-size: 12.5px; color: var(--c-text-mute); }
+
+/* 범용 실시간 차트의 조작부 — 어느 행을 어떤 모양으로 그릴지 */
+.live-ctl { margin-bottom: var(--s-3); display: grid; gap: var(--s-2); }
+.live-row { display: flex; align-items: center; gap: var(--s-2); font-size: 11.5px;
+            color: var(--c-text-mute); }
+.live-row > label { flex: 0 0 auto; }
+.live-row select { flex: 1; min-width: 0; min-height: 28px; font-size: 12px; }
+
+.live-seg { display: inline-flex; flex: 0 0 auto;
+            border: 1px solid var(--c-border-str); border-radius: var(--r-md); overflow: hidden; }
+.live-segb { min-height: 28px; padding: 0 9px; border: 0; cursor: pointer;
+             background: var(--c-surface); color: var(--c-text-mute); font-size: 11.5px; }
+.live-segb + .live-segb { border-left: 1px solid var(--c-border); }
+.live-segb.is-on { background: var(--c-navy-700); color: #fff; font-weight: 600; }
+
+.live-adds { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.live-add { min-height: 26px; font-size: 11.5px; max-width: 160px; }
+.live-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 4px 2px 9px; border-radius: 999px;
+  border: 1px solid var(--c-border-str); background: var(--c-surface);
+  font-size: 11px; color: var(--c-text);
+}
+.live-chip button {
+  width: 16px; height: 16px; padding: 0; line-height: 1; cursor: pointer;
+  border: 0; border-radius: 50%; background: transparent; color: var(--c-text-soft);
+}
+.live-chip button:hover { background: #FBEBEB; color: var(--c-risk); }
