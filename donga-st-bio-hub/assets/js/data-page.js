@@ -324,7 +324,7 @@
   function cellValue(row, key) {
     if (["projectLabel","studyName","teamLabel","sampleName","id","initialDate","endDate","cultureDays"].indexOf(key) > -1)
       return row[key];
-    if (key.indexOf("titer.") === 0) return row.upstream ? row.upstream.titer[key.slice(6)] : null;
+    if (key.indexOf("titer.") === 0) return row.upstream?.titer?.[key.slice(6)] ?? null;
     /* 정제 값은 batch.downstream 에 있습니다 (downstream.js 가 채움) */
     if (key.indexOf("downstream.") === 0)
       return row.downstream ? row.downstream[key.slice(11)] : null;
@@ -518,7 +518,7 @@
       }
 
       const titerDays = window.DATA_TITER_DAYS.filter(d =>
-        batches.some(b => b.upstream.titer[d] !== null));
+        batches.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
 
       let rows = buildRows(batches, studies);
       rows = applyColFilters(rows);
@@ -779,7 +779,7 @@
     Promise.all([window.Scope.batches(), window.Repo.getStudies()]).then(function (res) {
       const batches = res[0], studies = res[1];
       const titerDays = window.DATA_TITER_DAYS.filter(d =>
-        batches.some(b => b.upstream.titer[d] !== null));
+        batches.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
       const cols = columns(titerDays);
       const rows = applySort(applyColFilters(buildRows(batches, studies)));
       cols.forEach(c => { grid.width[c.key] = measureCol(c, rows); });
@@ -1008,7 +1008,7 @@
   function exportCSV() {
     Promise.all([window.Scope.batches(), window.Repo.getStudies()]).then(function (res) {
       const batches = res[0], studies = res[1];
-      const titerDays = window.DATA_TITER_DAYS.filter(d => batches.some(b => b.upstream.titer[d] !== null));
+      const titerDays = window.DATA_TITER_DAYS.filter(d => batches.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
 
       /* ★ 화면에서 숨긴 컬럼을 파일에도 뺄지 묻습니다.
 

@@ -45,7 +45,18 @@ window.Backup = (function () {
     "hub.todos.v1":   { ko: "할 일",      parts: [["list", "건"]] },
     "hub.schedule.v2":{ ko: "일정",       parts: null },
     "hub.presets.v2": { ko: "회의 프리셋", parts: null },
-    "hub.project":    { ko: "이전 화면 선택", parts: null }
+    "hub.project":    { ko: "이전 화면 선택", parts: null },
+
+    /* 레코드 자체가 localStorage 로 옮겨 왔습니다. 백업에 빠지면 사용자가
+       만든 Study · Batch 가 PC 를 옮길 때 통째로 사라집니다 — 값은 있는데
+       그 값이 붙을 배치가 없는 상태가 됩니다. */
+    "hub.dataset.v1": { ko: "Study · Batch · 시료 목록",
+                        parts: [["studies", "Study"], ["batches", "Batch"], ["samples", "시료"]] },
+    "hub.aliases.v1": { ko: "고친 이름 (항목명 · 시료명)", parts: null },
+    "hub.ws.axis":    { ko: "워크시트 열 기준", parts: null },
+    "hub.ws.rows":    { ko: "직접 추가한 입력 항목", parts: null },
+    "hub.data.grid":  { ko: "표 보기 설정 (밀도 · 너비 · 숨긴 컬럼)", parts: null },
+    "hub.ebr.live":   { ko: "입력 화면 그래프 범위", parts: null }
   };
 
   function isPlain(v) {

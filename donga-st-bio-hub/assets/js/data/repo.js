@@ -474,7 +474,7 @@ window.Repo = (function () {
       points: days.map(d => ({
         day: d,
         dayNum: parseInt(d.slice(1), 10),
-        value: metric === "titer" ? b.upstream.titer[d] : null
+        value: metric === "titer" ? (b.upstream?.titer?.[d] ?? null) : null
       }))
     }));
     return ok({ days, metric: metric || "titer", series });

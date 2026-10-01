@@ -62,7 +62,7 @@
   const FIELDS = {
     upstream: function () {
       const days = window.DATA_TITER_DAYS.filter(d =>
-        window.DATA_BATCHES.some(b => b.upstream.titer[d] !== null));
+        window.DATA_BATCHES.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
       return [
         { g: "배양 지표", items: [
           { k: "ivcd",           label: "IVCD",            unit: "10⁶ cells/mL", dp: 1, src: ["upstream","ivcd"] },
@@ -118,9 +118,9 @@
 
   function excelValue(batch, src) {
     if (!src || !batch) return null;
-    if (src[0] === "upstream")   return batch.upstream[src[1]];
-    if (src[0] === "titer")      return batch.upstream.titer[src[1]];
-    if (src[0] === "downstream") return batch.downstream ? batch.downstream[src[1]] : null;
+    if (src[0] === "upstream")   return batch.upstream?.[src[1]] ?? null;
+    if (src[0] === "titer")      return batch.upstream?.titer?.[src[1]] ?? null;
+    if (src[0] === "downstream") return batch.downstream?.[src[1]] ?? null;
     if (src[0] === "meta")       return batch[src[1]];
     /* 분석 항목 — 값은 시료에 붙습니다 */
     const s = currentSample();
@@ -163,6 +163,15 @@
 
     /* 분석 및 시료 관리 — 예전 '분석 의뢰' 화면을 이 탭 안으로 흡수했습니다.
        데이터 입력과 시료 인계는 같은 사람이 이어서 하는 일이라 한 메뉴에 둡니다. */
+    /* 드롭다운에 없는 Study · Batch 를 그 자리에서 만드는 줄.
+       게이트 화면에서도 보여야 합니다 — "결과 없음" 을 만난 사람이 가장
+       먼저 하고 싶은 일이 새로 만드는 것입니다. */
+    const eb = $("#entity-bar");
+    if (eb) {
+      eb.innerHTML = mode === "requests" ? "" : entityBar();
+      wireEntityBar();
+    }
+
     if (mode === "requests") { renderRequests(); return; }
 
     if (!sel.scopeId) { gate("상단에서 과제를 선택하세요."); return; }
@@ -175,7 +184,14 @@
 
     window.Scope.batches().then(function (batches) {
       if (my !== renderSeq) return;          // 더 최근 렌더가 이미 그렸습니다
-      if (!batches.length) { gate(L.noResult + " " + L.noResultHint); return; }
+      /* 새로 만든 Study 에는 아직 배치가 없습니다. 막다른 안내로 끝내지 않고
+         바로 만들 수 있게 합니다 — 여기서 길이 끊기면 방금 만든 Study 가
+         쓸 수 없는 채로 남습니다. */
+      if (!batches.length) {
+        gate("이 Study 에는 아직 Batch 가 없습니다. 위 [+ 새 Batch] 로 만들면 " +
+             "입력 표가 열립니다.");
+        return;
+      }
       if (!batchId || !batches.some(b => b.id === batchId)) batchId = batches[0].id;
       const batch = batches.find(b => b.id === batchId);
       const samples = window.Repo.samplesOfBatch(batchId);
@@ -224,9 +240,16 @@
           window.Calc.panel(sel.team) +
           lotStrip(batch) +
 
-          /* 표는 DataGrid 가 그립니다 — 어느 팀 서식이든 같은 모양이어야
-             하므로 여기서 직접 그리지 않습니다. 아래에서 mount 합니다. */
-          '<div class="card-body" style="padding-bottom:var(--s-4)" id="grid-host"></div>' +
+          /* 왼쪽에 표, 오른쪽에 그 값으로 그린 그래프.
+
+             옮겨 적는 사람이 자기가 적은 숫자를 눈으로 확인할 자리가
+             없었습니다. 한 칸 밀려 적거나 자릿수를 틀려도 표 안에서는
+             그냥 또 하나의 숫자라 티가 나지 않습니다. 선으로 보면 혼자
+             튀어 바로 보입니다 — 적는 중에 보여야 그 자리에서 고칩니다. */
+          '<div class="card-body ebr-split" style="padding-bottom:var(--s-4)">' +
+            '<div id="grid-host"></div>' +
+            '<aside id="live-host" class="ebr-live" aria-label="입력값 실시간 그래프"></aside>' +
+          '</div>' +
 
           '<div class="card-body" style="border-top:1px solid var(--c-border);display:flex;' +
             'gap:var(--s-3);align-items:center;flex-wrap:wrap">' +
@@ -298,6 +321,7 @@
             (s.id === sampleId ? " selected" : "") + '>' + esc(s.name) +
             (s.stage ? " · " + esc(s.stage) : "") + '</option>').join("") +
         '</select></label>' +
+      '<button class="btn btn-ghost btn-sm" id="new-batch">+ 새 Batch</button>' +
       '<button class="btn btn-ghost btn-sm" id="new-sample">' + esc(L.ui.addSample) + '</button>' +
       /* 시료를 넘기는 동작은 어느 배치·시료인지 정해진 이 자리에서 시작해야
          실수가 없습니다. 그래서 별도 화면이 아니라 여기 모달로 둡니다. */
@@ -316,6 +340,8 @@
     if (ps) ps.addEventListener("change", function () {
       sampleId = this.value || null; render();
     });
+    const nb = $("#new-batch");
+    if (nb) nb.addEventListener("click", () => openNewBatch());
     const ns = $("#new-sample");
     if (ns) ns.addEventListener("click", function () {
       const batch = batches.find(b => b.id === batchId);
@@ -332,6 +358,146 @@
       if (!batch) return;
       openRequestModal(batch, window.Repo.samplesOfBatch(batchId));
     });
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     신규 Study · Batch 등록
+
+     드롭다운에 없는 것을 고르려다 없는 걸 알게 되는 자리가 여기입니다.
+     그 자리에서 바로 만들 수 있어야 화면을 옮겨 다니지 않습니다.
+
+     ★ 측정값은 지어내지 않습니다. 새 Batch 의 모든 항목은 null 이고 화면에
+       "미입력" 으로 나옵니다. 다만 키는 씨앗과 똑같이 채워 둡니다 —
+       upstream.titer.D10 이 아예 없으면 그걸 읽는 화면이 멈춥니다.
+
+     ★ 어디서 온 레코드인지 남깁니다 (source: "user"). Excel 에서 온 것과
+       사람이 만든 것을 구분할 수 없으면, 나중에 원본과 대조할 때 무엇을
+       맞춰 봐야 하는지 알 수 없습니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function entityBar() {
+    const sel = window.Scope.get();
+    if (!sel.scopeId) return "";
+    return '<div class="entity-bar">' +
+      '<span>드롭다운에 없나요?</span>' +
+      '<button class="btn btn-ghost btn-sm" id="new-study">+ 새 Study</button>' +
+      (sel.studyId
+        ? '<button class="btn btn-ghost btn-sm" id="new-batch-2">+ 새 Batch</button>'
+        : '<span class="entity-hint">Study 를 고르면 Batch 도 만들 수 있습니다</span>') +
+    '</div>';
+  }
+  function wireEntityBar() {
+    const a = $("#new-study");
+    if (a) a.addEventListener("click", () => openNewStudy());
+    const b = $("#new-batch-2");
+    if (b) b.addEventListener("click", () => openNewBatch());
+  }
+
+  function closeEntityModal() {
+    const old = document.getElementById("entity-modal");
+    if (old) old.remove();
+  }
+
+  function entityModal(title, sub, fieldsHTML, onSubmit) {
+    closeEntityModal();
+    const d = document.createElement("div");
+    d.className = "modal";
+    d.id = "entity-modal";
+    d.setAttribute("role", "dialog");
+    d.setAttribute("aria-modal", "true");
+    d.setAttribute("aria-label", title);
+    d.innerHTML =
+      '<div class="modal-box" style="max-width:520px">' +
+        '<div class="modal-head"><div>' +
+          '<h2 class="card-title">' + esc(title) + '</h2>' +
+          '<p class="card-sub">' + esc(sub) + '</p></div>' +
+          '<button class="btn-icon" id="em-x" aria-label="닫기">✕</button>' +
+        '</div>' +
+        '<form class="modal-body" id="em-form"><div class="ebr-grid">' + fieldsHTML + '</div>' +
+          '<p class="em-note">측정값은 비워 둡니다 — 값을 지어내지 않습니다. ' +
+            '등록 뒤 왼쪽 표에서 직접 적으면 그 자리에서 대시보드와 데이터 조회에 반영됩니다.</p>' +
+          '<p class="field-msg is-error" id="em-msg" style="display:none"></p>' +
+        '</form>' +
+        '<div class="modal-foot">' +
+          '<button class="btn btn-ghost" id="em-cancel">취소</button>' +
+          '<button class="btn btn-accent" id="em-ok">등록</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(d);
+
+    const msg = t => {
+      const p = d.querySelector("#em-msg");
+      p.style.display = t ? "block" : "none";
+      p.textContent = t || "";
+    };
+    const go = function () {
+      const data = {};
+      Array.prototype.forEach.call(d.querySelectorAll("[data-f]"), i => { data[i.dataset.f] = i.value.trim(); });
+      const r = onSubmit(data);
+      if (r && r.ok) { closeEntityModal(); render(); }
+      else msg((r && r.reason) || "등록하지 못했습니다");
+    };
+    d.querySelector("#em-ok").addEventListener("click", go);
+    d.querySelector("#em-form").addEventListener("submit", e => { e.preventDefault(); go(); });
+    d.querySelector("#em-x").addEventListener("click", closeEntityModal);
+    d.querySelector("#em-cancel").addEventListener("click", closeEntityModal);
+    d.addEventListener("click", e => { if (e.target === d) closeEntityModal(); });
+    document.addEventListener("keydown", function esc2(e) {
+      if (e.key === "Escape") { closeEntityModal(); document.removeEventListener("keydown", esc2); }
+    });
+    const first = d.querySelector("[data-f]");
+    if (first) setTimeout(() => first.focus(), 0);
+  }
+
+  function field(key, label, opts) {
+    const o = opts || {};
+    return '<label class="ebr-cell"><span>' + esc(label) + (o.req ? " *" : "") + '</span>' +
+      (o.options
+        ? '<select class="ebr-input" data-f="' + esc(key) + '">' +
+            o.options.map(x => '<option value="' + esc(x[0]) + '"' +
+              (x[0] === o.value ? " selected" : "") + '>' + esc(x[1]) + '</option>').join("") +
+          '</select>'
+        : '<input class="ebr-input" data-f="' + esc(key) + '" type="' + (o.type || "text") + '" ' +
+          'value="' + esc(o.value || "") + '" placeholder="' + esc(o.ph || "") + '">') +
+      (o.hint ? '<span class="ebr-hint">' + esc(o.hint) + '</span>' : "") +
+    '</label>';
+  }
+
+  function openNewStudy() {
+    const sel = window.Scope.get();
+    const prj = (window.DATA_PROJECTS || []).find(p => p.id === sel.scopeId);
+    entityModal("새 Study 등록",
+      (prj ? prj.label || prj.id : sel.scopeId) + " 아래에 만듭니다",
+      field("name", "Study 이름", { req: true, ph: "예: Feed 조건 비교 2차" }) +
+      field("type", "유형", { ph: "예: Media screening · DoE", hint: "비워 두면 '직접 등록'" }) +
+      field("id", "Study ID", { ph: "비워 두면 자동 생성", hint: "사내 번호가 있으면 적으세요" }),
+      function (data) {
+        const r = window.Dataset.addStudy({
+          projectId: sel.scopeId, name: data.name, type: data.type, id: data.id });
+        if (r.ok) window.Scope.setStudy(r.study.id);
+        return r;
+      });
+  }
+
+  function openNewBatch() {
+    const sel = window.Scope.get();
+    if (!sel.studyId) { window.alert("Study 를 먼저 선택하세요."); return; }
+    const study = (window.DATA_STUDIES || []).find(s => s.id === sel.studyId);
+    const today = window.HubCalendar ? window.HubCalendar.today() : "";
+    entityModal("새 Batch 등록",
+      (study ? study.name : sel.studyId) + " 아래에 만듭니다",
+      field("id", "Batch ID", { req: true, ph: "예: B123-13", hint: "비워 두면 자동 생성" }) +
+      field("expNo", "Exp. No.", { ph: "비워 두면 Batch ID 와 같게" }) +
+      field("team", "팀", { value: sel.team || "upstream",
+        options: (window.DATA_TEAMS || []).map(t => [t.id, t.ko]) }) +
+      field("initialDate", "Initial Date", { type: "date", value: today }) +
+      field("endDate", "End Date", { type: "date" }),
+      function (data) {
+        const r = window.Dataset.addBatch({
+          studyId: sel.studyId, id: data.id, expNo: data.expNo, team: data.team,
+          initialDate: data.initialDate || null, endDate: data.endDate || null });
+        if (r.ok) batchId = r.batch.id;
+        return r;
+      });
   }
 
   /* ── 값 타입 ────────────────────────────────────────────────────────────
@@ -805,8 +971,192 @@
 
       onRenameCol: function (col, part, text) { renameCol(team, batch, axis, samples, col, part, text); },
       onRenameRow: function (row, text) { renameRow(team, batch, row, text); },
-      onDropCol:   function (col) { dropCol(team, batch, axis, rows, col); }
+      onDropCol:   function (col) { dropCol(team, batch, axis, rows, col); },
+
+      /* 치는 동안 옆 그래프만 다시 그립니다. 표까지 다시 그리면 커서가
+         사라져 글자를 이어 칠 수 없습니다. */
+      onEdit: function (row, col, raw) {
+        draft = { rowKey: row.k, colId: col.id, raw: raw };
+        schedulePaintLive(batch, team, axis);
+      }
     });
+
+    draft = null;
+    paintLive(batch, team, axis);
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     실시간 그래프 — 왼쪽 표에 적는 값을 바로 선으로 보여 줍니다
+
+     ★ 저장 전 값도 그립니다. 저장한 뒤에만 보여 주면 "적는 중에 확인한다"
+       가 되지 않습니다. 다만 아직 저장되지 않았다는 것은 화면에 밝힙니다 —
+       그래프에 보이니 기록된 줄 알면 안 됩니다.
+
+     범위는 고를 수 있습니다. 기본은 입력 중인 배치 하나이고, 같은 Study 의
+     다른 배치를 겹쳐 볼 수도 있습니다. 옆줄과 견주면 한 칸 밀려 적은 것이
+     바로 드러나기 때문입니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  const LIVE_KEY = "hub.ebr.live";
+  let draft = null;        /* 아직 저장 전인 칸 { rowKey, colId, raw } */
+  let liveTimer = null;
+
+  function liveScope() {
+    try { return localStorage.getItem(LIVE_KEY) || "batch"; } catch (e) { return "batch"; }
+  }
+  function setLiveScope(v) {
+    try { localStorage.setItem(LIVE_KEY, v); } catch (e) {}
+  }
+
+  function schedulePaintLive(batch, team, axis) {
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(() => paintLive(batch, team, axis), 120);
+  }
+
+  /* 한 배치의 일자별 값 — 저장값(Repo) 우선, 치는 중이면 그 값을 얹습니다 */
+  function daySeriesOf(b, days, metricKey, isCurrent) {
+    return days.map(function (d) {
+      if (isCurrent && draft && draft.colId === d && draft.rowKey === metricKey) {
+        const p = window.VAL.parse(draft.raw);
+        if (p.ok) {
+          const n = window.VAL.numeric(p.val);
+          return (n === null || n === undefined) ? NaN : n;
+        }
+        return NaN;
+      }
+      const v = window.Repo.valueOf(b, "titer", d);
+      return (v === null || v === undefined) ? NaN : v;
+    });
+  }
+
+  function paintLive(batch, team, axis) {
+    const host = $("#live-host");
+    if (!host || !window.Charts) return;
+    const C = window.Charts;
+    const scopeMode = liveScope();
+
+    /* 겹쳐 볼 배치 — 기본은 입력 중인 것 하나 */
+    let peers = [];
+    if (scopeMode === "study") {
+      peers = (window.DATA_BATCHES || [])
+        .filter(b => b.studyId === batch.studyId && b.id !== batch.id)
+        .slice(0, 8);
+    }
+
+    const picker =
+      '<div class="live-scope">' +
+        '<label for="live-range"><b>범위</b></label>' +
+        '<select class="input" id="live-range">' +
+          '<option value="batch"' + (scopeMode === "batch" ? " selected" : "") + '>' +
+            '이 배치만</option>' +
+          '<option value="study"' + (scopeMode === "study" ? " selected" : "") + '>' +
+            '같은 Study 겹쳐 보기</option>' +
+        '</select>' +
+      '</div>';
+
+    let body = "";
+
+    if (axis === "day") {
+      const days = (window.DATA_TITER_DAYS || []);
+      const mine = daySeriesOf(batch, days, "titer", true);
+      const series = [{ name: batch.id + " (입력 중)", data: mine, color: "var(--c-accent)" }];
+      peers.forEach(function (b, i) {
+        series.push({ name: b.id, data: daySeriesOf(b, days, "titer", false),
+                      color: PEER[i % PEER.length], thin: true });
+      });
+      const any = mine.some(v => isFinite(v));
+
+      body =
+        liveCard("Titer 일자별", "적는 즉시 선이 움직입니다 · 단위 mg/L",
+          any || peers.length
+            ? C.line({ x: days.map(d => d.slice(1)), series: series, h: 190, w: 380,
+                       aria: "일자별 Titer 추이" })
+            : liveEmpty("Titer 를 한 칸이라도 적으면 선이 그려집니다")) +
+        liveCard("배양 지표", "IVCD · Max VCD · Final VCD · Viability",
+          upstreamBars(batch, C));
+    } else if (axis === "sample") {
+      body = liveCard("시료별 분석값", "열(시료)마다 한 묶음 · 단위 %",
+        sampleBars(batch, C));
+    } else {
+      body = liveCard("정제 단계별", "수율과 순도 · 단위 %", downstreamBars(batch, C));
+    }
+
+    host.innerHTML = picker + body +
+      '<p class="live-note">' +
+        (draft
+          ? '<b>치는 중인 값이 그래프에 먼저 반영됩니다.</b> 아직 저장된 것은 아닙니다 — ' +
+            'Enter 를 누르거나 칸을 벗어나야 기록됩니다.'
+          : '왼쪽 표에 값을 적으면 그 자리에서 선이 움직입니다. ' +
+            '옆 배치와 견주려면 위 범위를 바꾸세요.') +
+      '</p>';
+
+    const sel = host.querySelector("#live-range");
+    if (sel) sel.addEventListener("change", function () {
+      setLiveScope(this.value);
+      paintLive(batch, team, axis);
+    });
+  }
+
+  const PEER = ["#94A3B8", "#A5B4C4", "#B6C2D0", "#8FA2BB", "#AAB8C8", "#9FB0C2", "#C0CAD6", "#8C9CB0"];
+
+  function liveCard(title, sub, inner) {
+    return '<section class="live-card">' +
+      '<h3>' + esc(title) + '</h3>' +
+      '<p>' + esc(sub) + '</p>' + inner + '</section>';
+  }
+  function liveEmpty(msg) {
+    return '<div class="live-empty">' + esc(msg) + '</div>';
+  }
+
+  /* 배치 단위 지표 — 막대 하나가 항목 하나입니다 */
+  function upstreamBars(batch, C) {
+    const items = [["ivcd", "IVCD"], ["maxVCD", "Max VCD"],
+                   ["finalVCD", "Final VCD"], ["finalViability", "Viability"]];
+    return metricBars(batch, C, "upstream", items);
+  }
+  function downstreamBars(batch, C) {
+    const g = (window.DATA_ANALYTE_GROUPS || []).find(x => x.id === "downstream");
+    const items = ((g && g.items) || []).map(it => [it.key, it.label]);
+    return metricBars(batch, C, "downstream", items);
+  }
+  function metricBars(batch, C, groupId, items) {
+    const data = items.map(function (it) {
+      if (draft && draft.rowKey === keyFor(groupId, it[0])) {
+        const p = window.VAL.parse(draft.raw);
+        if (p.ok) {
+          const n = window.VAL.numeric(p.val);
+          if (n !== null && n !== undefined) return n;
+        }
+        return NaN;
+      }
+      const v = window.Repo.valueOf(batch, groupId, it[0]);
+      return (v === null || v === undefined) ? NaN : v;
+    });
+    if (!data.some(v => isFinite(v))) return liveEmpty("아직 적힌 값이 없습니다");
+    return C.bars({ cats: items.map(x => x[1]),
+                    series: [{ name: "값", data: data, color: "var(--c-accent)" }],
+                    h: 190, w: 380 });
+  }
+  /* 워크시트의 행 키 규칙과 맞춥니다 (upstream 은 맨키, 그 외는 그룹_키) */
+  function keyFor(groupId, key) {
+    return (groupId === "upstream" || groupId === "titer") ? key : groupId + "_" + key;
+  }
+
+  function sampleBars(batch, C) {
+    const samples = window.Repo.samplesOfBatch(batch.id);
+    if (!samples.length) return liveEmpty("시료를 먼저 만드세요");
+    const metrics = [["seHPLC", "main", "SE Main"], ["ieHPLC", "acidic", "IE Acidic"],
+                     ["nGlycan", "g0f", "G0F"], ["ceSdsNR", "monomer", "CE Mono"]];
+    const series = metrics.map(function (m, i) {
+      return { name: m[2], color: i === 0 ? "var(--c-accent)" : PEER[i],
+        data: samples.map(function (s) {
+          const v = window.Repo.valueOfSample(s, m[0], m[1]);
+          return (v === null || v === undefined) ? NaN : v;
+        }) };
+    });
+    if (!series.some(s => s.data.some(v => isFinite(v)))) {
+      return liveEmpty("아직 적힌 분석값이 없습니다");
+    }
+    return C.bars({ cats: samples.map(s => s.name || s.id), series: series, h: 200, w: 380 });
   }
 
   /* ── 열 늘리기 (시료 축) ──────────────────────────────────────────────

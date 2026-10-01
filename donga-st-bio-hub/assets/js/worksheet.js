@@ -329,6 +329,16 @@ window.Worksheet = (function () {
         const col = (o.cols || []).find(x => x.id === inp.dataset.c);
         if (row && col) o.onCommit(row, col, inp.value);
       });
+
+      /* 글자를 치는 동안의 값 — 아직 저장 전입니다.
+         부르는 쪽이 옆 그래프를 미리 그리는 데만 씁니다. 저장은 Enter 나
+         칸을 벗어날 때만 일어나고, 여기서는 아무것도 기록하지 않습니다 —
+         치다 만 숫자가 기록으로 남으면 이력이 오타로 가득 찹니다. */
+      if (o.onEdit) inp.addEventListener("input", function () {
+        const row = rows.find(x => x.k === inp.dataset.r);
+        const col = (o.cols || []).find(x => x.id === inp.dataset.c);
+        if (row && col) o.onEdit(row, col, inp.value);
+      });
     });
 
     /* ── 이름 고치기 ───────────────────────────────────────────────────

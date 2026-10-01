@@ -301,6 +301,85 @@ window.SSOTTest = (function () {
       }
     })();
 
+    /* ── 12) 새로 만든 레코드가 씨앗과 같은 모양인가 ─────────────────
+       Study · Batch 가 코드 상수에서 localStorage 로 옮겨 오면서, 이제
+       사용자가 Batch 를 직접 만들 수 있습니다. 여기서 모양이 어긋나면
+       그 배치를 여는 화면이 **그 자리에서 멈춥니다** — upstream.titer.D10
+       을 읽는 코드가 열 곳이 넘는데, 키가 아예 없으면 전부 터집니다.
+
+       "값이 null" 과 "키가 없음" 은 다릅니다. 측정값은 지어내지 않으므로
+       null 이 맞지만, 키는 씨앗과 똑같이 있어야 합니다. */
+    (function datasetChecks() {
+      const D = window.Dataset;
+      if (!D) { T.add("⑫ Dataset 이 있음", false, "window.Dataset 없음"); return; }
+
+      const beforeStore = (function () {
+        try { return localStorage.getItem("hub.dataset.v1"); } catch (e) { return null; }
+      })();
+      const study = (window.DATA_STUDIES || [])[0];
+      const madeId = "ZZTEST-" + Date.now().toString(36);
+
+      try {
+        const r = D.addBatch({ studyId: study.id, id: madeId,
+                               initialDate: "2026-01-01", endDate: "2026-01-14" });
+        T.add("⑫ 새 Batch 를 만들 수 있음", r.ok, r.reason || "");
+        if (!r.ok) return;
+        const nb = r.batch;
+
+        /* 씨앗 배치와 키 집합이 같아야 합니다 */
+        const seedB = (window.DATA_BATCHES || []).find(b => b.id !== madeId && b.upstream);
+        const seedDays = Object.keys((seedB && seedB.upstream && seedB.upstream.titer) || {});
+        const newDays = Object.keys((nb.upstream && nb.upstream.titer) || {});
+        T.add("⑫ 일자 키가 씨앗과 같음", seedDays.length > 0 && newDays.length === seedDays.length,
+          "씨앗 " + seedDays.length + "개 · 새 배치 " + newDays.length + "개");
+
+        const seedUp = Object.keys((seedB && seedB.upstream) || {}).sort().join(",");
+        const newUp = Object.keys(nb.upstream || {}).sort().join(",");
+        T.add("⑫ 배양 항목 키가 씨앗과 같음", seedUp === newUp, "새 배치: " + newUp);
+
+        /* 값은 전부 비어 있어야 합니다 — 지어내지 않습니다 */
+        const anyValue = Object.keys(nb.upstream).some(function (k) {
+          if (k === "titer") return Object.keys(nb.upstream.titer).some(d => nb.upstream.titer[d] !== null);
+          return nb.upstream[k] !== null;
+        });
+        T.add("⑫ 새 Batch 의 측정값은 전부 비어 있음", !anyValue, "값이 채워져 있습니다");
+
+        /* 읽는 경로가 터지지 않아야 합니다 */
+        let read = "throw";
+        try { read = String(R.valueOf(nb, "titer", newDays[0])); } catch (e) { read = "throw: " + e.message; }
+        T.add("⑫ 새 Batch 를 Repo 로 읽어도 터지지 않음", read === "null", "valueOf → " + read);
+
+        /* 사용자가 만든 것과 Excel 에서 온 것을 구분할 수 있어야 합니다 */
+        T.add("⑫ 사용자가 만든 레코드임을 알 수 있음",
+          D.isUserMade("batch", madeId) && !D.isUserMade("batch", seedB.id),
+          "새 배치 user=" + D.isUserMade("batch", madeId) +
+          " · 씨앗 user=" + D.isUserMade("batch", seedB.id));
+
+        /* 저장본을 고쳐도 원본 대조값은 그대로여야 합니다 */
+        const origEnd = D.originOf("batch", seedB.id).endDate;
+        D.patch("batch", seedB.id, { endDate: "2099-12-31" });
+        T.add("⑫ 저장본을 고쳐도 원본은 그대로",
+          D.originOf("batch", seedB.id).endDate === origEnd,
+          "원본이 " + D.originOf("batch", seedB.id).endDate + " 로 바뀌었습니다");
+        D.patch("batch", seedB.id, { endDate: origEnd });
+
+        /* 검사 페이지는 사용자 데이터를 건드리지 않아야 합니다 */
+        const afterStore = (function () {
+          try { return localStorage.getItem("hub.dataset.v1"); } catch (e) { return null; }
+        })();
+        T.add("⑫ 검사가 사용자 레코드를 바꾸지 않음", afterStore === beforeStore,
+          "hub.dataset.v1 이 검사 전과 다릅니다");
+      } finally {
+        /* 메모리 상태만 되돌립니다 (검사 페이지는 저장하지 않습니다) */
+        const list = D.all().batches;
+        const i = list.findIndex(b => b.id === madeId);
+        if (i > -1) list.splice(i, 1);
+        const arr = window.DATA_BATCHES;
+        const j = arr.findIndex(b => b.id === madeId);
+        if (j > -1) arr.splice(j, 1);
+      }
+    })();
+
     return Promise.all(pending).then(function () {
     const bad = T.out.filter(x => !x.pass);
     return {

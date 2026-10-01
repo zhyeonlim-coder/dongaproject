@@ -277,21 +277,21 @@
 
   /* ── 배양공정팀 ─────────────────────────────────────────────────────── */
   function upstreamSection(batches) {
-    const days = window.DATA_TITER_DAYS.filter(d => batches.some(b => b.upstream.titer[d] !== null));
+    const days = window.DATA_TITER_DAYS.filter(d => batches.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
     const shown = batches.slice(0, 12);
 
     const trend = days.length
       ? (function () {
           const series = shown.map((b, i) => ({
             name: b.id, color: PALETTE[i % PALETTE.length],
-            data: days.map(d => b.upstream.titer[d])
+            data: days.map(d => b.upstream?.titer?.[d] ?? null)
           }));
           return C.legend(series) +
             '<div class="chart-wrap" style="margin-top:var(--s-3)">' +
               C.line({ x: days, series, h: CH_H, w: 820, aria: "배치별 Titer 일자 추이" }) + '</div>' +
             C.dataTable("배치 × Day Titer", ["배치"].concat(days),
               shown.map(b => [b.id].concat(days.map(d =>
-                b.upstream.titer[d] === null ? L.empty : b.upstream.titer[d])))) +
+                (b.upstream?.titer?.[d] ?? null) === null ? L.empty : b.upstream.titer[d])))) +
             (batches.length > 12
               ? '<p style="font-size:11.5px;color:var(--c-text-mute);margin:var(--s-3) 0 0">' +
                 '배치 ' + batches.length + '개 중 12개만 표시합니다 — Study나 조건으로 범위를 좁히세요.</p>' : "");
