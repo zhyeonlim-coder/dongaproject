@@ -445,6 +445,37 @@
 
      팀은 그대로 두고, 이 Study 에 그 팀 데이터가 없다는 사실만 말합니다.
      다른 Study 로 옮기거나 그 팀 데이터를 넣으러 가는 길을 함께 둡니다. */
+  /* 그릴 것이 하나라도 있는가.
+
+     ★ 완성도(completeness)로 판단하면 안 됩니다. 완성도는 **스키마 항목이
+       몇 칸 찼나** 를 세는데, 일자별 Titer(D10~D20)는 그 분모에 들어 있지
+       않습니다. 그래서 일자별 Titer 만 적은 배치는 "0/6 입력" 이 되고,
+       화면에는 그릴 선이 멀쩡히 있는데도 "데이터가 없습니다" 가 떴습니다.
+
+     여기서 묻는 것은 "서식이 다 찼나" 가 아니라 "그릴 값이 있나" 입니다.
+     그래서 그래프가 실제로 읽는 경로(Repo.valueOf)로 직접 확인합니다. */
+  function teamHasAnyValue(team, batches, samples) {
+    const some = (list, fn) => (list || []).some(fn);
+
+    if (team === "analytics") {
+      const groups = (window.DATA_ANALYTE_GROUPS || [])
+        .filter(g => g.team === "analytics" && !g.empty);
+      return some(samples, s => groups.some(g =>
+        (g.items || []).some(it => window.Repo.valueOfSample(s, g.id, it.key) !== null)));
+    }
+
+    const groups = (window.DATA_ANALYTE_GROUPS || [])
+      .filter(g => g.team === team && !g.empty);
+    const hit = some(batches, b => groups.some(g =>
+      (g.items || []).some(it => window.Repo.valueOf(b, g.id, it.key) !== null)));
+    if (hit) return true;
+
+    /* 배양은 일자별 Titer 도 봅니다 — 그래프의 주인공인데 위 그룹에 없습니다 */
+    if (team !== "upstream") return false;
+    const days = window.DATA_TITER_DAYS || [];
+    return some(batches, b => days.some(d => window.Repo.valueOf(b, "titer", d) !== null));
+  }
+
   function teamEmptyState(teamKo, studyKo, set) {
     const why = (set && !set.defined)
       ? "이 팀의 측정 항목이 원본에 정의되어 있지 않습니다."
@@ -520,7 +551,7 @@
          않아, 없는 값을 있는 값처럼 읽게 만듭니다. */
       const teamSet = sel.team ? (teamSets || []).find(t => t.team === sel.team) : null;
       const teamKo = teamSet ? teamSet.ko : (desc.team || "");
-      const teamEmpty = !!(teamSet && (!teamSet.defined || !teamSet.hasData));
+      const teamEmpty = !!(sel.team && !teamHasAnyValue(sel.team, batches, samples));
 
       $("#kpi").innerHTML = teamEmpty ? "" : kpiRow(batches, sel.team, samples);
 

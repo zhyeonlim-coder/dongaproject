@@ -316,6 +316,14 @@ window.SSOTTest = (function () {
       const beforeStore = (function () {
         try { return localStorage.getItem("hub.dataset.v1"); } catch (e) { return null; }
       })();
+      /* ★ 이 그룹은 Entries 에도 값을 하나 씁니다 (완성도 전제 확인용).
+         바깥 검사의 restore 는 이미 지나간 뒤라, 여기서 따로 떠 놓고
+         되돌리지 않으면 1234 가 저장소에 남습니다. 실제로 남겼고, 그
+         숫자가 다음 검사(Phase B 유출 탐지)에 걸려 엉뚱한 실패가 났습니다.
+         검사가 저장소를 더럽히면 그 다음 검사 결과를 믿을 수 없습니다. */
+      const beforeEntries = (function () {
+        try { return localStorage.getItem("hub.entries.v1"); } catch (e) { return null; }
+      })();
       const study = (window.DATA_STUDIES || [])[0];
       const madeId = "ZZTEST-" + Date.now().toString(36);
 
@@ -369,7 +377,38 @@ window.SSOTTest = (function () {
         })();
         T.add("⑫ 검사가 사용자 레코드를 바꾸지 않음", afterStore === beforeStore,
           "hub.dataset.v1 이 검사 전과 다릅니다");
+
+        /* ★ 일자별 Titer 만 있는 배치도 "값이 있는" 배치입니다.
+
+           완성도(completeness)는 스키마 항목이 몇 칸 찼나를 세는데 일자별
+           Titer 는 그 분모에 없습니다. 그래서 완성도로 "데이터가 있나" 를
+           판단하면, 일자별 Titer 만 적은 배치가 0/6 으로 나와 대시보드가
+           그릴 선이 멀쩡히 있는데도 "데이터가 없습니다" 를 띄웁니다.
+           실제로 그랬고, 그릴 값이 있는지는 Repo 로 직접 봐야 합니다. */
+        const day = newDays[0];
+        R.setValue("batch:" + madeId, R.entryKey("titer", day), 1234, null,
+          { baseValue: null, baseSource: null });
+        const c = R.completeness([nb], (window.DATA_ANALYTE_GROUPS || [])
+          .filter(g => g.team === "upstream" && !g.empty));
+        T.add("⑫ 완성도는 일자별 Titer 를 세지 않음", c.filled === 0,
+          "완성도가 " + c.filled + "/" + c.total + " — 이 전제가 바뀌면 아래 판단도 바꿔야 합니다");
+        T.add("⑫ 그래도 Repo 로는 값이 읽힘", R.valueOf(nb, "titer", day) === 1234,
+          "valueOf → " + R.valueOf(nb, "titer", day));
       } finally {
+        /* Entries 를 검사 전으로 되돌립니다 — 메모리 사본까지 비워야
+           이 페이지가 살아 있는 동안에도 남지 않습니다. */
+        try {
+          if (beforeEntries === null) localStorage.removeItem("hub.entries.v1");
+          else localStorage.setItem("hub.entries.v1", beforeEntries);
+        } catch (e) { /* */ }
+        if (window.Entries && window.Entries.reset) {
+          window.Entries.reset();
+          try {
+            if (beforeEntries === null) localStorage.removeItem("hub.entries.v1");
+            else localStorage.setItem("hub.entries.v1", beforeEntries);
+          } catch (e) { /* */ }
+        }
+
         /* 메모리 상태만 되돌립니다 (검사 페이지는 저장하지 않습니다) */
         const list = D.all().batches;
         const i = list.findIndex(b => b.id === madeId);
