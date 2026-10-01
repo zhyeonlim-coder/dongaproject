@@ -41,32 +41,53 @@
   const PALETTE = ["#0369A1","#6D28D9","#0F766E","#B45309","#B91C1C","#1D4ED8",
                    "#0284C7","#7C3AED","#15803D","#C2410C","#9333EA","#0891B2"];
 
+  /* ══════════════════════════════════════════════════════════════════════
+     화면 상태 — 전체 요약 ↔ 팀 상세
+
+     이 화면에는 두 가지 보기가 있습니다.
+
+       view = null      전체 요약. 세 팀 현황 카드만. 그래프는 펼치지 않습니다.
+       view = "팀id"    그 팀 상세. 그 팀 그래프만. 카드는 감춥니다.
+
+     ★ 전역 Scope.team 과는 별개입니다.
+
+       예전에는 이 둘이 같은 값이었습니다. 그래서 대시보드에서 전체로
+       되돌리면 Scope.team 이 풀리고, 그 상태로 Data 입력에 가면 "팀을
+       선택하세요" 게이트가 다시 닫혔습니다. 대시보드를 잠깐 둘러본 것이
+       다른 화면의 작업 상태를 건드리는 셈입니다.
+
+       대시보드에서 무엇을 보고 있는가는 대시보드의 일입니다. 팀 카드의
+       [Data 입력 →] 만 전역 팀을 바꿉니다 — 그 버튼은 "이 팀으로 작업하러
+       간다" 는 뜻이라 바꾸는 것이 맞습니다.
+
+     ★ 들어올 때마다 전체 요약에서 시작합니다. 기억해 두면 어제 보던 팀이
+       먼저 떠서, 대시보드를 열 때마다 화면이 달라집니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  let view = null;
+
+  const ALL_KEY = "__all";
+
   function paintSubnav() {
-    const sel = window.Scope.get();
     window.Shell.subnav([
+      { label: "보기", items: [
+        /* 되돌아갈 길을 메뉴에도 둡니다 — 상세 화면의 뒤로 가기 버튼
+           하나뿐이면, 스크롤을 내린 상태에서는 그 버튼이 화면 밖입니다. */
+        { key: ALL_KEY, ko: "전체 요약", active: !view }
+      ]},
       { label: "팀별 보기", items: window.DATA_TEAMS.map(t => ({
-        key: t.id, ko: t.ko, active: sel.team === t.id, color: t.color })) },
+        key: t.id, ko: t.ko, active: view === t.id, color: t.color })) },
       { label: "바로가기", items: [
         { ko: "Data 입력", href: "ebr.html" },
         { ko: "데이터 조회", href: "data.html" },
         { ko: "일정 관리", href: "schedule.html" }
       ]}
-    /* ★ 같은 팀을 다시 눌러도 끄지 않습니다.
-       끄면 세 팀 그래프가 한꺼번에 세로로 쌓여, 비교하려고 들어온 사람이
-       스크롤부터 하게 됩니다. 이 화면은 "한 팀을 본다" 가 기본 상태입니다. */
-    ], k => window.Scope.setTeam(k));
+    ], function (k) {
+      view = (k === ALL_KEY) ? null : k;
+      render();
+    });
   }
 
-  /* 팀이 정해져 있지 않으면 첫 팀으로 시작합니다. "아무 팀도 아님" 을
-     기본값으로 두면 그게 곧 전체 나열이 됩니다. */
-  function ensureTeam() {
-    const sel = window.Scope.get();
-    if (sel.team) return false;
-    const first = (window.DATA_TEAMS && window.DATA_TEAMS[0]) ? window.DATA_TEAMS[0].id : null;
-    if (!first) return false;
-    window.Scope.setTeam(first);          /* subscribe 가 render 를 다시 부릅니다 */
-    return true;
-  }
+  function setView(next) { view = next || null; render(); }
 
   /* ── KPI — 팀을 고르면 그 팀 지표로 바뀝니다 ────────────────────────── */
   function kpiRow(batches, team, samples) {
@@ -488,7 +509,9 @@
         '<a href="ebr.html">Data 입력</a>에서 이 팀의 값을 먼저 기록하세요.' +
       '</div></div>';
   }
-  function currentTeam() { return window.Scope.get().team; }
+  /* 테두리 색은 지금 보고 있는 팀의 것입니다 — 전역 Scope.team 이 아니라
+     이 화면의 view 를 따릅니다. */
+  function currentTeam() { return view; }
 
   function chartSections(team, batches, samples) {
     if (!batches.length) {
@@ -513,14 +536,35 @@
   function grid2(cards) { return '<div class="dash-grid2">' + cards.join("") + '</div>'; }
 
   /* ── 렌더 ───────────────────────────────────────────────────────────── */
+  /* 팀 상세 머리 — 돌아갈 길과 지금 어느 팀을 보는지 */
+  function detailHead(teamSet, studyKo) {
+    const color = teamSet ? teamSet.color : "var(--c-accent)";
+    return '<div class="dash-back">' +
+      '<button class="btn btn-ghost btn-sm" id="dash-toall">← 전체 요약으로</button>' +
+      '<span class="dash-back-crumb">' +
+        (studyKo ? esc(studyKo) + ' <span class="crumb-sep">›</span> ' : "") +
+        '<b style="color:' + color + '">' + esc(teamSet ? teamSet.ko : "") + '</b>' +
+      '</span></div>';
+  }
+
   function render() {
-    if (ensureTeam()) return;        /* 팀을 정하면 통지가 다시 render 합니다 */
     const sel = window.Scope.get();
     const desc = window.Scope.describe();
     paintSubnav();
 
-    $("#crumb").innerHTML = desc.path.length
-      ? desc.path.map((p, i) => (i ? '<span class="crumb-sep">›</span>' : "") +
+    /* ★ 팀 마디는 Scope 가 아니라 이 화면의 view 에서 옵니다.
+
+       Scope.team 은 다른 화면(Data 입력 · 데이터 조회)이 쓰는 값이라, 전체
+       요약을 보는 중에도 값이 들어 있습니다. 그걸 그대로 찍으면 화면에는
+       세 팀 카드가 떠 있는데 경로에는 "정제공정팀" 이 적혀, 지금 무엇을
+       보고 있는지가 두 군데에서 서로 다른 말을 합니다. */
+    const crumbPath = desc.path.filter(p => p.key !== "team");
+    if (view) {
+      const t = (window.DATA_TEAMS || []).find(x => x.id === view);
+      crumbPath.push({ key: "team", label: t ? t.ko : view });
+    }
+    $("#crumb").innerHTML = crumbPath.length
+      ? crumbPath.map((p, i) => (i ? '<span class="crumb-sep">›</span>' : "") +
           '<span>' + esc(p.label) + '</span>').join("")
       : '<span style="color:var(--c-text-mute)">과제를 선택하세요</span>';
 
@@ -543,53 +587,74 @@
       window.Scope.samples()
     ]).then(function (r) {
       const batches = r[0], studies = r[1], teamSets = r[2], samples = r[3];
+
+      /* 고른 팀이 이 범위에 없어졌으면(Study 를 바꿔 팀 데이터가 사라진
+         경우가 아니라, 팀 목록 자체가 달라진 경우) 전체 요약으로 둡니다 */
+      if (view && !(window.DATA_TEAMS || []).some(t => t.id === view)) view = null;
+
+      const teamSet = view ? (teamSets || []).find(t => t.team === view) : null;
+      const teamKo = teamSet ? teamSet.ko : "";
+
       $("#page-title").textContent = desc.scope + (desc.study ? " · " + desc.study : "") +
-        (desc.team ? " · " + desc.team : "");
+        (teamKo ? " · " + teamKo : "");
 
-      /* 고른 팀에 이 범위의 데이터가 있는지 — 없으면 KPI 도 그래프도
-         빈 상태로 둡니다. 0 이 찍힌 KPI 카드는 "쟀는데 0" 과 구분되지
-         않아, 없는 값을 있는 값처럼 읽게 만듭니다. */
-      const teamSet = sel.team ? (teamSets || []).find(t => t.team === sel.team) : null;
-      const teamKo = teamSet ? teamSet.ko : (desc.team || "");
-      const teamEmpty = !!(sel.team && !teamHasAnyValue(sel.team, batches, samples));
+      /* ── 전체 요약 ───────────────────────────────────────────────────
+         세 팀 현황 카드만 둡니다. 여기서 그래프까지 펼치면 열 몇 개가
+         세로로 쌓여, 현황을 보러 들어온 사람이 스크롤부터 하게 됩니다.
+         KPI 도 두지 않습니다 — 팀을 고르지 않은 상태에서 "최고 Titer" 를
+         한 줄로 보여 주면 그게 어느 팀 숫자인지 알 수 없습니다. */
+      if (!view) {
+        $("#kpi").innerHTML = "";
+        $("#body").innerHTML =
+          studyPicker(studies, sel) +
+          '<section><div class="card-head" style="padding:0 0 var(--s-3)">' +
+            '<div><h2 class="card-title">팀별 요약</h2>' +
+            '<p class="card-sub">' +
+              (sel.studyId
+                ? '[그래프 보기] 를 누르면 그 팀 그래프만 펼칩니다 · ' +
+                  '[Data 입력 →] 은 그 팀을 들고 입력 화면으로 갑니다'
+                : '과제 전체 기준입니다 — 위에서 Study 를 고르면 그 범위로 좁혀집니다') +
+            '</p></div></div>' +
+            teamCards(teamSets, batches) + '</section>';
+        wireCommon();
+        return;
+      }
 
-      $("#kpi").innerHTML = teamEmpty ? "" : kpiRow(batches, sel.team, samples);
+      /* ── 팀 상세 ─────────────────────────────────────────────────────
+         그 팀 그래프만. 다른 팀 그래프도, 요약 카드도 두지 않습니다. */
+      const teamEmpty = !teamHasAnyValue(view, batches, samples);
+      $("#kpi").innerHTML = teamEmpty ? "" : kpiRow(batches, view, samples);
 
-      const showTeams = !!sel.studyId;
-
-      /* ★ 이 화면은 그래프 전용입니다.
-         할 일 위젯 · 분석 의뢰 · 다가오는 일정 · 최근 Data 입력 · 우측
-         캘린더를 모두 뺐습니다. 한 화면에 여러 가지가 섞여 있으면 정작
-         공정 간 비교를 하려고 들어온 사람이 스크롤부터 해야 합니다.
-         할 일과 의뢰는 각자의 화면에, 일정은 일정 관리 탭에 있습니다.
-
-         Study 는 카드 목록 대신 드롭다운 하나로 고릅니다. 카드는 자리를
-         많이 쓰면서 "전체로 되돌리는 길" 이 없었습니다. */
       $("#body").innerHTML =
+        detailHead(teamSet, desc.study) +
         studyPicker(studies, sel) +
-
-        (showTeams
-          ? '<section style="margin-bottom:var(--s-4)"><div class="card-head" style="padding:0 0 var(--s-3)">' +
-              '<div><h2 class="card-title">팀별 요약</h2>' +
-              '<p class="card-sub">그래프 보기를 누르면 그 팀 지표만 표시되고, Data 입력은 선택을 그대로 들고 갑니다</p></div></div>' +
-              teamCards(teamSets, batches) + '</section>'
-          : "") +
-
         (teamEmpty
           ? teamEmptyState(teamKo, desc.study, teamSet)
-          : chartSections(sel.team, batches, samples));
+          : chartSections(view, batches, samples));
 
+      wireCommon();
+      const back = document.getElementById("dash-toall");
+      if (back) back.addEventListener("click", () => setView(null));
+    });
+
+    /* 두 보기가 함께 쓰는 연결 */
+    function wireCommon() {
       const sp = document.getElementById("dash-study");
       if (sp) sp.addEventListener("change", function () {
+        /* Study 를 바꿔도 보던 팀은 그대로 둡니다 — 고른 것은 Study 이지
+           팀이 아닙니다 (selection.js 의 setStudy 설명과 같은 이유). */
         window.Scope.setStudy(this.value || null);
       });
-      $$("[data-viewteam]").forEach(b => b.addEventListener("click", () =>
-        window.Scope.setTeam(b.dataset.viewteam)));
+      $$("[data-viewteam]").forEach(b => b.addEventListener("click", function () {
+        setView(b.dataset.viewteam);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }));
+      /* ★ 이 버튼만 전역 팀을 바꿉니다 — "이 팀으로 작업하러 간다" 이므로 */
       $$("[data-goteam]").forEach(b => b.addEventListener("click", function () {
         window.Scope.setTeam(b.dataset.goteam);
         window.location.href = "ebr.html";
       }));
-    });
+    }
   }
 
   /* 회의 모드는 페이지 이동이 아니라 대시보드 안에서 오버레이로 열립니다 —

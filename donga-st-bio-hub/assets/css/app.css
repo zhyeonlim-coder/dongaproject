@@ -3096,3 +3096,11 @@ body.is-colresize { cursor: col-resize; user-select: none; }
   margin: var(--s-4) 0 0; font-size: 11.5px; color: var(--c-text-mute); line-height: 1.7;
 }
 .ebr-hint { font-size: 10.5px; color: var(--c-text-soft); margin-top: 2px; }
+
+/* 팀 상세 머리 — 돌아갈 길과 지금 보는 팀 */
+.dash-back {
+  display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap;
+  margin-bottom: var(--s-4); padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--c-border);
+}
+.dash-back-crumb { font-size: 12.5px; color: var(--c-text-mute); }
