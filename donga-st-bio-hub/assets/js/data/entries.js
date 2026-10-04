@@ -32,6 +32,8 @@ window.Entries = (function () {
   "use strict";
 
   const KEY = "hub.entries.v1";
+  /* 서버 모드에서 시료00b7묶음을 담는 설정 키 */
+  const AUX_KEY = "hub.entries.aux";
   const EMPTY = { samples: [], values: {}, groups: [] };
   const subs = [];
   let state;
@@ -41,8 +43,43 @@ window.Entries = (function () {
     state = raw ? Object.assign({}, EMPTY, JSON.parse(raw)) : JSON.parse(JSON.stringify(EMPTY));
   } catch (e) { state = JSON.parse(JSON.stringify(EMPTY)); }
 
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  /* ── 저장 ─────────────────────────────────────────────────────────────
+     어디에 저장할지는 Persist 가 압니다 (서버 DB 또는 이 브라우저).
+
+     서버 모드에서는 **바뀐 칸만** 보냅니다. 통째로 보내면 칸 하나 고칠
+     때마다 전체 값 표가 올라가고, 배치가 늘수록 한 번의 입력이 점점
+     무거워집니다. 어느 칸이 바뀌었는지는 setValue 가 적어 둡니다. */
+  let dirty = {};
+  function markDirty(k) { dirty[k] = true; }
+
+  function save() {
+    if (window.Persist && window.Persist.isServer()) {
+      const keys = Object.keys(dirty);
+      if (keys.length) {
+        const map = {};
+        keys.forEach(function (k) { map[k] = state.values[k] || null; });
+        dirty = {};
+        window.Persist.pushValues(map);
+      }
+      /* 시료와 묶음은 값 표가 아니라 설정 쪽에 둡니다 — 양이 적고
+         (scope,field) 모양이 아니기 때문입니다. */
+      window.Persist.setJSON(AUX_KEY, { samples: state.samples, groups: state.groups });
+      return;
+    }
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+  }
   function emit(what) { save(); subs.slice().forEach(fn => { try { fn(what, state); } catch (e) {} }); }
+
+  /* 서버에서 받은 한 벌로 통째로 갈아 끼웁니다 (bootstrap · 폴링이 부릅니다).
+     쓰기를 유발하지 않습니다 — 방금 읽은 것을 되쓰면 남의 더 새로운 쓰기를
+     덮습니다. */
+  function hydrate(values, aux) {
+    state.values = values || {};
+    state.samples = (aux && aux.samples) || [];
+    state.groups = (aux && aux.groups) || [];
+    dirty = {};
+    subs.slice().forEach(fn => { try { fn("hydrate", state); } catch (e) {} });
+  }
   function subscribe(fn) { subs.push(fn); return () => { const i = subs.indexOf(fn); if (i > -1) subs.splice(i, 1); }; }
 
   const uid = (p) => p + "-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -180,6 +217,7 @@ window.Entries = (function () {
                  reason: "원본 값을 바꾸려면 사유를 입력해야 합니다." };
       }
 
+      markDirty(k);
       state.values[k] = {
         value: val,
         createdBy: user, createdAt: now,
@@ -216,6 +254,7 @@ window.Entries = (function () {
     prev.updatedBy = user;
     prev.updatedAt = now;
     prev.action = "Update";
+    markDirty(k);
     emit("value");
     return { ok: true, action: "Update", record: prev };
   }
@@ -260,7 +299,7 @@ window.Entries = (function () {
     getGroups, addGroup, removeGroup,
     getValue, getScopeValues, setValue, needsReason, REASON_PRESETS,
     caption, hasHistory, stamp, stampHuman, who,
-    subscribe, reset, reload,
+    subscribe, reset, reload, hydrate,
     state: () => state
   };
 })();

@@ -44,13 +44,13 @@
 
   let grid = (function () {
     try {
-      const r = JSON.parse(localStorage.getItem(GRID_KEY) || "null");
+      const r = window.Persist.getJSON(GRID_KEY, null);
       if (!r || typeof r !== "object") return Object.assign({}, GRID_DEFAULT);
       return { dense: r.dense !== false, hidden: r.hidden || {}, width: r.width || {} };
     } catch (e) { return Object.assign({}, GRID_DEFAULT); }
   })();
   function saveGrid() {
-    try { localStorage.setItem(GRID_KEY, JSON.stringify(grid)); } catch (e) {}
+    window.Persist.setJSON(GRID_KEY, grid);
   }
 
   /* 숨긴 컬럼 수 — 식별 컬럼까지 포함해 셉니다 */

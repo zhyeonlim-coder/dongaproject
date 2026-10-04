@@ -635,15 +635,14 @@
      k 가 곧 이름입니다. 이름을 고치면 k 도 바뀌고, 값도 함께 옮깁니다. */
   function customRows(team, bid) {
     try {
-      const m = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "{}");
+      const m = window.Persist.getJSON(CUSTOM_KEY, {}) || {};
       return m[team + "|" + bid] || [];
     } catch (e) { return []; }
   }
   function saveCustomRows(team, bid, list) {
-    let m = {};
-    try { m = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "{}"); } catch (e) {}
+    const m = window.Persist.getJSON(CUSTOM_KEY, {}) || {};
     m[team + "|" + bid] = list;
-    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(m)); } catch (e) {}
+    window.Persist.setJSON(CUSTOM_KEY, m);
   }
 
   /* ── 열 목록 ──────────────────────────────────────────────────────────
@@ -658,20 +657,18 @@
        이름이 곧 id 입니다. */
   function colsOf(team, batch) {
     const bid = batch.id;
-    let m = {};
-    try { m = JSON.parse(localStorage.getItem(COLS_KEY) || "{}"); } catch (e) {}
+    const m = window.Persist.getJSON(COLS_KEY, {}) || {};
     const k = team + "|" + bid;
     if (Array.isArray(m[k]) && m[k].length) return m[k];
     const seed = seedCols(team, batch);
     m[k] = seed;
-    try { localStorage.setItem(COLS_KEY, JSON.stringify(m)); } catch (e) {}
+    window.Persist.setJSON(COLS_KEY, m);
     return seed;
   }
   function saveCols(team, bid, list) {
-    let m = {};
-    try { m = JSON.parse(localStorage.getItem(COLS_KEY) || "{}"); } catch (e) {}
+    const m = window.Persist.getJSON(COLS_KEY, {}) || {};
     m[team + "|" + bid] = list;
-    try { localStorage.setItem(COLS_KEY, JSON.stringify(m)); } catch (e) {}
+    window.Persist.setJSON(COLS_KEY, m);
   }
 
   function seedCols(team, batch) {
@@ -987,7 +984,7 @@
   let liveScopeMode = "batch";
 
   try {
-    const s = JSON.parse(localStorage.getItem(LIVE_KEY) || "null");
+    const s = window.Persist.getJSON(LIVE_KEY, null);
     if (s) {
       liveKind = s.kind === "bar" ? "bar" : "line";
       liveScopeMode = s.scope === "study" ? "study" : "batch";
@@ -997,8 +994,7 @@
 
   function saveLive() {
     try {
-      localStorage.setItem(LIVE_KEY, JSON.stringify(
-        { kind: liveKind, scope: liveScopeMode, pick: livePick }));
+      window.Persist.setJSON(LIVE_KEY, { kind: liveKind, scope: liveScopeMode, pick: livePick });
     } catch (e) {}
   }
 

@@ -68,11 +68,31 @@ window.Auth = (function () {
       since: Date.now()
     };
     sessionStorage.setItem(KEY, JSON.stringify(session));
+
+    /* ── 서버 세션도 함께 엽니다 ────────────────────────────────────────
+       데이터가 서버에 있으면 화면 로그인만으로는 부족합니다 — 서버는 쿠키를
+       봅니다. 여기서 같은 비밀번호를 서버에도 보내 쿠키를 받아 둡니다.
+
+       그래서 HUB_ACCESS_SECRET 은 **팀이 쓰는 이 비밀번호와 같은 값**으로
+       넣으면 됩니다. 입력란을 둘로 늘리지 않으려는 것입니다.
+
+       기다리지 않습니다. 서버가 없거나 비밀값이 다르면 화면은 그대로 열리고
+       (이 브라우저 저장으로) 동작합니다 — 로그인 자체가 막히지는 않습니다.
+       서버에 붙었는지는 각 화면이 HubBoot.note() 로 알 수 있습니다. */
+    if (window.HubBoot && window.HubBoot.signIn) {
+      try { window.HubBoot.signIn(password); } catch (e) {}
+    } else if (window.HubServer && window.HubServer.signIn) {
+      try { window.HubServer.signIn(password); } catch (e) {}
+    }
+
     return { ok: true, user: session };
   }
 
   function signOut() {
     sessionStorage.removeItem(KEY);
+    /* 서버 쿠키도 같이 내립니다 — 화면만 나가고 쿠키가 남으면, 같은
+       브라우저를 쓰는 다음 사람이 로그인 없이 데이터에 닿습니다. */
+    if (window.HubServer && window.HubServer.signOut) { try { window.HubServer.signOut(); } catch (e) {} }
     window.location.href = "index.html";
   }
 

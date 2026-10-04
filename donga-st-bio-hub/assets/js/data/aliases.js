@@ -40,14 +40,16 @@ window.Aliases = (function () {
 
   let state = load();
 
+  /* 저장 위치는 Persist 가 정합니다 (서버 DB 또는 이 브라우저) */
   function load() {
-    try {
-      const r = JSON.parse(localStorage.getItem(KEY) || "null");
-      if (!r || typeof r !== "object") return blank();
-      return { labels: r.labels || {}, hidden: r.hidden || {}, history: r.history || {} };
-    } catch (e) { return blank(); }
+    const r = window.Persist ? window.Persist.getJSON(KEY, null) : null;
+    if (!r || typeof r !== "object") return blank();
+    return { labels: r.labels || {}, hidden: r.hidden || {}, history: r.history || {} };
   }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  function save() { if (window.Persist) window.Persist.setJSON(KEY, state); }
+
+  /* 서버에서 받은 것으로 갈아 끼웁니다 — 쓰기를 유발하지 않습니다 */
+  function hydrate() { state = load(); apply(); }
 
   /* 시각은 초 단위 지역시로 남깁니다 — UTC 로 바꾸면 "몇 시에 고쳤나"를
      읽는 사람이 매번 환산해야 합니다 (entries.js 와 같은 규칙). */
@@ -166,7 +168,7 @@ window.Aliases = (function () {
   return {
     get, has, set, historyOf,
     isHidden, hiddenInfo, hide, unhide, hiddenWithPrefix,
-    apply, originalOf, subscribe,
+    apply, originalOf, subscribe, hydrate,
     _state: () => state,
     reset: function () { state = blank(); emit("reset"); }
   };

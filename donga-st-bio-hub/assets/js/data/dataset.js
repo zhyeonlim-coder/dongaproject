@@ -74,6 +74,14 @@ window.Dataset = (function () {
   }
   function save() {
     if (SEED_ONLY) return true;          /* 검사 중에는 사용자 데이터를 건드리지 않습니다 */
+    /* 어디에 저장할지는 Persist 가 압니다. 서버 모드에서는 records 표로
+       나가고 localStorage 는 쓰지 않습니다. */
+    if (window.Persist && window.Persist.isServer()) {
+      window.Persist.pushRecords({
+        study: state.studies, batch: state.batches, sample: state.samples
+      });
+      return true;
+    }
     try { localStorage.setItem(KEY, JSON.stringify(state)); return true; }
     catch (e) {
       /* 용량을 넘기면 조용히 잃지 않고 알립니다 — 저장된 줄 알고 계속
@@ -285,11 +293,30 @@ window.Dataset = (function () {
     return true;
   }
 
+  /* 서버에서 받은 레코드로 통째로 갈아 끼웁니다 (bootstrap · 폴링).
+     쓰기를 유발하지 않습니다 — 방금 읽은 것을 되쓰면 남의 쓰기를 덮습니다. */
+  function hydrate(records) {
+    if (SEED_ONLY) return false;
+    const r = records || {};
+    state = {
+      studies: r.study || [], batches: r.batch || [], samples: r.sample || []
+    };
+    applyToGlobals();
+    if (window.Aliases && window.Aliases.apply) window.Aliases.apply();
+    subs.slice().forEach(function (f) { try { f("hydrate", true); } catch (e) {} });
+    return true;
+  }
+
+  /* 씨앗 한 벌 — 서버가 비어 있을 때 올려 보냅니다 */
+  function seedPayload() {
+    return { study: clone(SEED.studies), batch: clone(SEED.batches), sample: clone(SEED.samples) };
+  }
+
   applyToGlobals();
 
   return {
     addStudy, addBatch, patch, deactivate,
-    originOf, isUserMade, subscribe, resetToSeed, reload,
+    originOf, isUserMade, subscribe, resetToSeed, reload, hydrate, seedPayload,
     emptyUpstream, emptyDownstream,
     seed: () => clone(SEED),
     all: () => state,
