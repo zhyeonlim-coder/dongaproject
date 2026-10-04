@@ -38,13 +38,25 @@ window.HubBoot = (function () {
   function adopt() {
     const S = window.HubServer;
     if (!S) return;
+    const recs = S.mem().records;
+
     if (window.Entries && window.Entries.hydrate) {
       window.Entries.hydrate(S.mem().values, S.metaOf("hub.entries.aux"));
     }
     if (window.Dataset && window.Dataset.hydrate) {
-      window.Dataset.hydrate(S.mem().records);
+      window.Dataset.hydrate(recs);
     }
     if (window.Aliases && window.Aliases.hydrate) window.Aliases.hydrate();
+
+    /* 목록형 저장소 — 일정 · 이슈 · 의뢰 · 할 일 · 회의 기록 · 장비 예약.
+       측정값과 달리 레코드 한 줄씩 맞춥니다 (collections.js 참고). */
+    if (window.Todos && window.Todos.hydrate)        window.Todos.hydrate(recs.todo);
+    if (window.Issues && window.Issues.hydrate)      window.Issues.hydrate(recs.issue);
+    if (window.Requests && window.Requests.hydrate)  window.Requests.hydrate(recs.request);
+    if (window.HubCalendar && window.HubCalendar.hydrate) window.HubCalendar.hydrate(recs.event);
+    if (window.Pins && window.Pins.hydrate)          window.Pins.hydrate(recs);
+    if (window.Store && window.Store.hydrateBookings) window.Store.hydrateBookings(recs.booking);
+
     tell("remote");
   }
 
@@ -89,6 +101,23 @@ window.HubBoot = (function () {
     if (got.empty && window.Dataset && window.Dataset.seedPayload) {
       await S.seed({ records: window.Dataset.seedPayload(), values: {}, meta: {} });
       await S.pull(true);
+    }
+
+    /* 목록형 저장소의 씨앗은 따로 봅니다.
+       ★ 위의 seed 는 "records 표가 통째로 비었을 때" 만 돕니다. 배치가 이미
+         들어간 뒤에는 영영 돌지 않으므로, 나중에 추가된 종류는 그 길로는
+         절대 심기지 않습니다. 종류마다 따로 한 번씩 심습니다.
+       ★ 개수가 아니라 meta 의 표시를 봅니다 — 개수로 보면, 누가 씨앗을 전부
+         지운 다음 날 다시 들어왔을 때 지운 것이 되살아납니다. */
+    if (window.Collections) {
+      const plan = window.Collections.seedPayload(S.mem().meta);
+      if (Object.keys(plan.records).length) {
+        await S.push({ records: plan.records,
+                       meta: { "collections.seeded": plan.seededKinds } });
+        await S.pull(true);
+      } else if (!S.metaOf("collections.seeded")) {
+        await S.push({ meta: { "collections.seeded": plan.seededKinds } });
+      }
     }
 
     adopt();

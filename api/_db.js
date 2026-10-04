@@ -153,6 +153,21 @@ async function apply(patch) {
     }
   }
 
+  /* 레코드 **진짜 지우기**.
+
+     ★ 화면에서 쓰는 길이 아닙니다. 화면에서 지운 것은 deleted 를 세워 기록으로
+       남깁니다 (레코드 단위로 맞추기 때문에, 진짜 지우면 남이 들고 있는 낡은
+       사본이 되살립니다 — collections.js 참고).
+
+     이 길은 초기화와 검사 뒷정리처럼 "그 줄 자체가 없어져야 하는" 경우에만
+     씁니다. [[kind, id], …] 형태로 받습니다. */
+  const dels = Array.isArray(p.deleteRecords) ? p.deleteRecords : [];
+  for (const pair of dels) {
+    if (!Array.isArray(pair) || pair.length < 2) continue;
+    await q`DELETE FROM records WHERE kind = ${String(pair[0])} AND id = ${String(pair[1])}`;
+    n++;
+  }
+
   const meta = p.meta || {};
   for (const k of Object.keys(meta)) {
     const data = meta[k];

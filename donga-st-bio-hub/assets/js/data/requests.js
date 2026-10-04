@@ -47,13 +47,16 @@ window.Requests = (function () {
   const subs = [];
   let state;
 
-  function load() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) { return null; }
-  }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  /* 저장 위치는 Collections 가 압니다 — 서버면 레코드 한 줄씩 */
+  const COL = window.Collections.bind({
+    kind: "request", key: KEY,
+    list: () => (state && state.list) || [],
+    setWhole: (w) => { state = w; },
+    seed: () => seed()
+  });
+
+  function load() { const got = COL.load(); return got ? (got.list ? got : { list: got }) : null; }
+  function save() { COL.save(); }
   function emit() { save(); subs.slice().forEach(fn => { try { fn(state); } catch (e) {} }); }
   function subscribe(fn) {
     subs.push(fn);
@@ -150,7 +153,10 @@ window.Requests = (function () {
   if (!stored) save();
 
   /* ── 조회 ───────────────────────────────────────────────────────────── */
-  function all() { return state.list.slice(); }
+  /* 지운 것은 표시만 남습니다 (collections.js 참고) — 화면에는 내보내지 않습니다 */
+  function live() { return window.Collections.live(state.list); }
+
+  function all() { return live().slice(); }
 
   function get(id) { return state.list.find(r => r.id === id) || null; }
 
@@ -158,7 +164,7 @@ window.Requests = (function () {
   function forSelection(sel) {
     const s = sel || {};
     const studies = window.Repo ? window.Repo.studiesInScope(s).map(x => x.id) : null;
-    return state.list.filter(function (r) {
+    return live().filter(function (r) {
       if (studies && studies.length && studies.indexOf(r.studyId) === -1) return false;
       return true;
     }).sort(function (a, b) {
@@ -182,7 +188,7 @@ window.Requests = (function () {
 
   /* 특정 시료에 걸린 의뢰 */
   function forSample(sampleId) {
-    return state.list.filter(r => (r.sampleIds || []).indexOf(sampleId) > -1);
+    return live().filter(r => (r.sampleIds || []).indexOf(sampleId) > -1);
   }
 
   /* ── 변경 ───────────────────────────────────────────────────────────── */
@@ -239,10 +245,17 @@ window.Requests = (function () {
 
   function reset() { state = { list: seed() }; emit(); }
 
+  /* 서버에서 받은 한 벌로 갈아 끼웁니다 (bootstrap · 폴링) */
+  function hydrate(records) {
+    if (!COL.hydrate(records)) return false;
+    subs.slice().forEach(fn => { try { fn(state); } catch (e) {} });
+    return true;
+  }
+
   return {
     FLOW, STATUS, PRIORITY,
     all, get, forSelection, forSample, isOpen, due,
-    create, advance, subscribe, reset,
+    create, advance, subscribe, reset, hydrate,
     state: () => state
   };
 })();

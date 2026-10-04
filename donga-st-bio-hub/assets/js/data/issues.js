@@ -50,11 +50,16 @@ window.Issues = (function () {
   const subs = [];
   let state;
 
-  function load() {
-    try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; }
-    catch (e) { return null; }
-  }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  /* 저장 위치는 Collections 가 압니다 — 서버면 레코드 한 줄씩 */
+  const COL = window.Collections.bind({
+    kind: "issue", key: KEY,
+    list: () => (state && state.list) || [],
+    setWhole: (w) => { state = w; },
+    seed: () => seed()
+  });
+
+  function load() { const got = COL.load(); return got ? (got.list ? got : { list: got }) : null; }
+  function save() { COL.save(); }
   function emit() { save(); subs.slice().forEach(fn => { try { fn(state); } catch (e) {} }); }
   function subscribe(fn) {
     subs.push(fn);
@@ -146,15 +151,19 @@ window.Issues = (function () {
      "내 팀"은 현재 선택한 팀이 아니라 로그인 사용자의 소속이어야 맞지만,
      지금 계정에는 팀 필드가 없어 화면에서 고른 팀을 씁니다.
      계정에 소속이 들어오면 이 함수 하나만 바꾸면 됩니다. */
+  /* 지운 것은 표시만 남습니다 (레코드 단위 동기화 — collections.js 참고).
+     화면으로 나가는 길은 모두 여기를 지납니다. */
+  function live() { return window.Collections.live(state.list); }
+
   function visibleTo(viewerTeam) {
-    return state.list.filter(i =>
+    return live().filter(i =>
       i.visibility === "all" || (viewerTeam && i.team === viewerTeam));
   }
 
-  function all() { return state.list.slice(); }
+  function all() { return live().slice(); }
   function get(id) { return state.list.find(i => i.id === id) || null; }
-  function forBatch(batchId) { return state.list.filter(i => i.batchId === batchId); }
-  function forStudy(studyId) { return state.list.filter(i => i.studyId === studyId); }
+  function forBatch(batchId) { return live().filter(i => i.batchId === batchId); }
+  function forStudy(studyId) { return live().filter(i => i.studyId === studyId); }
 
   /* 증상으로 찾기 — 사례집의 본래 쓰임새.
      제목·현상·원인·조치·태그를 모두 훑습니다. 사람은 "HCP 높음" 처럼
@@ -249,10 +258,17 @@ window.Issues = (function () {
 
   function reset() { state = { list: seed() }; emit(); }
 
+  /* 서버에서 받은 한 벌로 갈아 끼웁니다 (bootstrap · 폴링) */
+  function hydrate(records) {
+    if (!COL.hydrate(records)) return false;
+    subs.slice().forEach(fn => { try { fn(state); } catch (e) {} });
+    return true;
+  }
+
   return {
     SEVERITY, STATUS, VISIBILITY,
     all, get, forBatch, forStudy, search, topTags, visibleTo,
-    create, update, publish, unpublish, subscribe, reset,
+    create, update, publish, unpublish, subscribe, reset, hydrate,
     state: () => state
   };
 })();

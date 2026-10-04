@@ -34,6 +34,19 @@ window.Store = (function () {
     KEY = "hub.store.v" + VERSION + "." + (user && user.email ? user.email : "anon");
     state = read();
     if (!state.events.length) seedEvents();
+
+    /* 서버 모드면 예약은 중앙 DB 가 정본입니다.
+       ★ 통째로 갈아 끼우지 않고 **합칩니다**. 이 브라우저에만 있던 예전
+         예약(이 사용자 칸에 쌓여 있던 것)을 그대로 버리면, 쓰던 사람 입장에선
+         예약이 사라진 것입니다. 서버에 없는 것만 얹고, 다음 저장에서 올라갑니다. */
+    if (window.Persist && window.Persist.isServer() && window.Collections) {
+      const mine = state.bookings || [];
+      const srv = BCOL.load() || [];
+      const have = {};
+      srv.forEach(function (b) { if (b && b.id) have[b.id] = true; });
+      state.bookings = srv.concat(mine.filter(function (b) { return b && b.id && !have[b.id]; }));
+      if (state.bookings.length !== srv.length) write();   /* 얹은 것을 올립니다 */
+    }
     return state;
   }
 
@@ -49,6 +62,9 @@ window.Store = (function () {
   }
 
   function write() {
+    /* 예약은 중앙 DB 로 (서버 모드일 때만 — local 모드에서는 아래 덩어리에
+       이미 들어 있습니다) */
+    try { BCOL.save(); } catch (e) {}
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
     catch (e) { /* private mode / quota — state still works for this session */ }
   }
@@ -171,18 +187,44 @@ window.Store = (function () {
     state.events.push({ id: uid("ev"), date: date || today(), ko: label, kind, status: "완료", ref });
   }
 
-  /* ── Bookings ────────────────────────────────────────────────────────── */
+  /* ── Bookings ─────────────────────────────────────────────────────────
+     ★ 예약만 중앙 DB 로 올립니다. 이 Store 의 나머지(배양 기록 · 정제 · 분석)는
+       지금까지처럼 이 브라우저에 둡니다.
+
+     예약을 나눠야 하는 이유는 겹침 검사입니다. 예전에는 이 Store 가 사용자
+     이메일마다 따로 저장되어, **남의 예약이 아예 보이지 않았습니다.** 그래서
+     conflict() 가 늘 "안 겹친다" 고 답했고, 두 사람이 같은 장비를 같은 시간에
+     예약해도 아무도 몰랐습니다. 한곳에 모아야 검사가 성립합니다. */
+  const BCOL = window.Collections.bind({
+    kind: "booking",
+    key: "hub.bookings.v1",
+    localNoop: true,              /* local 모드에서는 Store 덩어리가 맡습니다 */
+    list: () => (state && state.bookings) || [],
+    setList: (l) => { if (state) state.bookings = l || []; },
+    seed: () => []
+  });
+
+  /* 지운 것은 표시만 남습니다 (collections.js 참고) */
+  function liveBookings() { return window.Collections.live(state.bookings); }
 
   function bookings(equipId, date) {
-    return state.bookings.filter(b =>
+    return liveBookings().filter(b =>
       (!equipId || b.equip === equipId) && (!date || b.date === date));
   }
 
   // Overlap test: [aStart, aEnd) vs [bStart, bEnd) on the same equipment+date.
   function conflict(equip, date, start, end, ignoreId) {
-    return state.bookings.find(b =>
+    return liveBookings().find(b =>
       b.equip === equip && b.date === date && b.id !== ignoreId &&
       start < b.end && end > b.start) || null;
+  }
+
+  /* 서버에서 받은 예약으로 갈아 끼웁니다 (bootstrap · 폴링) */
+  function hydrateBookings(records) {
+    if (!state) return false;
+    if (!BCOL.hydrate(records)) return false;
+    subs.forEach(fn => { try { fn("booking", state); } catch (e) {} });
+    return true;
   }
 
   function book(b) {
@@ -329,7 +371,7 @@ window.Store = (function () {
     batches, cultureRows, purifRuns, analyses,
     eventsOn, eventsBetween,
     saveCultureRow, addBatch, completeHarvest, savePurifRun, saveAnalysis,
-    bookings, conflict, book, cancelBooking,
+    bookings, conflict, book, cancelBooking, hydrateBookings,
     addNote, removeNote, notesFor, notesForStudy,
     addAction, toggleAction, removeAction, actionsFor, actionsForStudy,
     studyDataset,

@@ -31,11 +31,17 @@ window.Todos = (function () {
   const subs = [];
   let state;
 
-  function load() {
-    try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; }
-    catch (e) { return null; }
-  }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  /* 저장 위치는 Collections 가 압니다 — 서버면 레코드 한 줄씩, 아니면
+     지금까지처럼 이 브라우저에. */
+  const COL = window.Collections.bind({
+    kind: "todo", key: KEY,
+    list: () => (state && state.list) || [],
+    setWhole: (w) => { state = w; },
+    seed: () => seed()
+  });
+
+  function load() { const got = COL.load(); return got ? (got.list ? got : { list: got }) : null; }
+  function save() { COL.save(); }
   function emit() { save(); subs.slice().forEach(fn => { try { fn(state); } catch (e) {} }); }
   function subscribe(fn) {
     subs.push(fn);
@@ -70,7 +76,9 @@ window.Todos = (function () {
 
   /* ── 직접 추가한 할 일 ──────────────────────────────────────────────── */
   function userTodos(team) {
-    return state.list
+    /* 지운 것은 표시만 남아 있습니다 (레코드 단위 동기화 때문에 실제로
+       지우지 않습니다 — collections.js 참고). 화면에는 내보내지 않습니다. */
+    return window.Collections.live(state.list)
       .filter(t => !team || t.team === team)
       .map(t => Object.assign({}, t, {
         kind: "user", action: "toggle",
@@ -268,5 +276,13 @@ window.Todos = (function () {
 
   function reset() { state = { list: seed() }; emit(); }
 
-  return { list, counts, add, toggle, remove, check, subscribe, reset, state: () => state };
+  /* 서버에서 받은 한 벌로 갈아 끼웁니다 (bootstrap · 폴링) */
+  function hydrate(records) {
+    if (!COL.hydrate(records)) return false;
+    subs.slice().forEach(fn => { try { fn(state); } catch (e) {} });
+    return true;
+  }
+
+  return { list, counts, add, toggle, remove, check, subscribe, reset, hydrate,
+           state: () => state };
 })();

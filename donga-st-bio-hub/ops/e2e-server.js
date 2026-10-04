@@ -60,32 +60,39 @@ window.E2EServer = (function () {
        데이터인지 알 수 없습니다. */
   async function run() {
     const R = Run();
-    const cleanup = [];
+    const cleanup = [];                 /* 값 키 */
+    const cleanupRec = [];              /* [kind, id] 레코드 */
     try {
-      await body(R, cleanup);
+      await body(R, cleanup, cleanupRec);
     } catch (e) {
       R.check("!! 검사 중단", "검사가 끝까지 돌지 못함", false,
         (e && e.message) || String(e));
     } finally {
-      await sweep(R, cleanup);
+      await sweep(R, cleanup, cleanupRec);
     }
     return R.rows;
   }
 
-  /* 검사가 만든 키만 지웁니다 — cleanup 에 적어 둔 것뿐입니다 */
-  async function sweep(R, cleanup) {
-    if (!cleanup.length) return;
+  /* 검사가 만든 것만 지웁니다 — cleanup 에 적어 둔 것뿐입니다 */
+  async function sweep(R, cleanup, cleanupRec) {
+    if (!cleanup.length && !(cleanupRec && cleanupRec.length)) return;
     const G = "검사 흔적 치우기";
     try {
       const nulls = {};
       cleanup.forEach(function (k) { nulls[k] = null; });
-      const d = await http(API, { method: "POST", body: JSON.stringify({ values: nulls }) });
+      const d = await http(API, { method: "POST", body: JSON.stringify({
+        values: nulls, deleteRecords: cleanupRec || [] }) });
       const chk = await http(API, { method: "GET" });
       const left = cleanup.filter(function (k) {
         return chk.body && chk.body.values && chk.body.values[k];
       });
-      R.check(G, "검사용 키를 DB 에서 지움", d.status === 200 && left.length === 0,
-        "남은 키=" + left.length);
+      const recLeft = (cleanupRec || []).filter(function (p) {
+        const list = (chk.body && chk.body.records && chk.body.records[p[0]]) || [];
+        return list.some(function (r) { return r && r.id === p[1]; });
+      });
+      R.check(G, "검사용 키를 DB 에서 지움",
+        d.status === 200 && left.length === 0 && recLeft.length === 0,
+        "남은 값=" + left.length + " · 남은 레코드=" + recLeft.length);
 
       /* DB 에서만 지우면 이 브라우저 메모리에는 남고, 다음 저장에서
          되살아납니다. 서버에서 다시 받아 메모리까지 맞춥니다. */
@@ -94,8 +101,11 @@ window.E2EServer = (function () {
         window.HubBoot.adopt();
         const memLeft = cleanup.filter(function (k) {
           return window.HubServer.mem().values[k];
+        }).length + (cleanupRec || []).filter(function (p) {
+          return (window.HubServer.recordsOf(p[0]) || [])
+            .some(function (r) { return r && r.id === p[1]; });
         }).length;
-        R.check(G, "메모리 작업본에서도 사라짐", memLeft === 0, "남은 키=" + memLeft);
+        R.check(G, "메모리 작업본에서도 사라짐", memLeft === 0, "남은 것=" + memLeft);
       } else {
         R.skip(G, "메모리 작업본 정리", "HubBoot.adopt 가 이 화면에 없습니다");
       }
@@ -106,7 +116,7 @@ window.E2EServer = (function () {
     }
   }
 
-  async function body(R, cleanup) {
+  async function body(R, cleanup, cleanupRec) {
 
     /* ───────────────────────────────────────────────────────────────────
        1. 서버 · DB 연결
@@ -338,6 +348,75 @@ window.E2EServer = (function () {
       cleanup.push(wsKey);
     } else {
       R.skip(G5, "실제 배치 쓰기 왕복", "Entries 가 이 화면에 없습니다");
+    }
+
+    /* ───────────────────────────────────────────────────────────────────
+       7. 목록형 저장소 — 일정 · 이슈 · 의뢰 · 할 일 · 회의 · 예약
+
+       측정값과 달리 레코드 한 줄씩 맞춥니다. 여기서 확인할 것은 세 가지입니다.
+
+         (가) 추가한 것이 DB 에 레코드로 들어가는가
+         (나) **동시에 추가해도 서로 덮지 않는가** ← 이것 때문에 이 구조를 씀
+         (다) 지운 것이 남의 사본 때문에 되살아나지 않는가
+       ─────────────────────────────────────────────────────────── */
+    const G7 = "7. 목록형 저장소 (일정·이슈·의뢰·할 일·회의·예약)";
+
+    if (!window.Collections) {
+      R.skip(G7, "전체", "Collections 가 이 화면에 없습니다");
+      return;
+    }
+
+    R.check(G7, "등록된 종류", window.Collections.kinds().length >= 4,
+      window.Collections.kinds().join(", "));
+
+    const kind = "todo";
+    const recA = { id: "E2E-A-" + Date.now(), text: "E2E 가 만든 항목 A", done: false };
+    const recB = { id: "E2E-B-" + Date.now(), text: "E2E 가 만든 항목 B", done: false };
+    cleanupRec.push([kind, recA.id]);
+    cleanupRec.push([kind, recB.id]);
+
+    /* (가) 한 줄 올리고 다시 읽기 */
+    await http(API, { method: "POST", body: JSON.stringify({ records: { [kind]: [recA] } }) });
+    let snap7 = await http(API, { method: "GET" });
+    let rows7 = (snap7.body && snap7.body.records && snap7.body.records[kind]) || [];
+    R.check(G7, "추가한 레코드가 DB 에 들어감",
+      !!rows7.find(function (r) { return r.id === recA.id; }), "id=" + recA.id);
+
+    /* (나) 두 사람이 거의 동시에 하나씩 추가 — 둘 다 남아야 합니다.
+       덩어리로 저장했다면 나중 것이 앞 것을 통째로 덮어 A 가 사라집니다. */
+    await http(API, { method: "POST", body: JSON.stringify({ records: { [kind]: [recB] } }) });
+    snap7 = await http(API, { method: "GET" });
+    rows7 = (snap7.body && snap7.body.records && snap7.body.records[kind]) || [];
+    const hasA = !!rows7.find(function (r) { return r.id === recA.id; });
+    const hasB = !!rows7.find(function (r) { return r.id === recB.id; });
+    R.check(G7, "동시 추가에서 둘 다 살아남음 (덮어쓰기 없음)", hasA && hasB,
+      "A=" + hasA + " B=" + hasB);
+
+    /* (다) 지운 것은 표시만 남고, 화면에는 나오지 않아야 합니다 */
+    const gone = Object.assign({}, recA, { deleted: true, deletedAt: "E2E" });
+    await http(API, { method: "POST", body: JSON.stringify({ records: { [kind]: [gone] } }) });
+    snap7 = await http(API, { method: "GET" });
+    rows7 = (snap7.body && snap7.body.records && snap7.body.records[kind]) || [];
+    const stillThere = rows7.find(function (r) { return r.id === recA.id; });
+    R.check(G7, "지운 것은 기록으로 남음 (실제 삭제 아님)",
+      !!stillThere && stillThere.deleted === true,
+      stillThere ? "deleted=" + stillThere.deleted : "레코드 자체가 사라짐");
+    R.check(G7, "지운 것은 화면 목록에서 빠짐",
+      window.Collections.live(rows7).filter(function (r) { return r.id === recA.id; }).length === 0,
+      "live 에서 제외됨");
+
+    /* 받아서 화면 저장소에 꽂히는가 */
+    if (window.HubServer && window.HubBoot && window.HubBoot.adopt && window.Todos) {
+      await window.HubServer.pull(true);
+      window.HubBoot.adopt();
+      const inStore = (window.Todos.state().list || [])
+        .filter(function (t) { return t.id === recB.id; }).length === 1;
+      R.check(G7, "받아온 레코드가 화면 저장소에 꽂힘", inStore, "B 가 Todos 에 들어옴=" + inStore);
+      const shown = window.Todos.list({}, null)
+        .filter(function (t) { return t.id === recA.id; }).length === 0;
+      R.check(G7, "지운 것은 화면 목록에 안 나옴", shown, "A 가 목록에서 빠짐=" + shown);
+    } else {
+      R.skip(G7, "화면 저장소까지", "Todos · HubBoot 가 이 화면에 없습니다");
     }
 
     /* 치우는 일은 run() 의 finally 가 합니다 — 여기서 터져도 치워야 합니다 */

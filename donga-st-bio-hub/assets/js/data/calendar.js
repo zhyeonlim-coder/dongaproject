@@ -176,26 +176,45 @@ window.HubCalendar = (function () {
     return i > -1 ? scopeKey.slice(i + 1) : scopeKey;
   }
 
-  function rawUserEvents() {
-    try { return JSON.parse(localStorage.getItem(UKEY) || "[]"); } catch (e) { return []; }
-  }
-  function saveUserEvents(list) {
-    try { localStorage.setItem(UKEY, JSON.stringify(list)); } catch (e) {}
-  }
+  /* 직접 등록한 일정 — 저장 위치는 Collections 가 압니다.
+     ★ 예전에는 부를 때마다 localStorage 를 읽었습니다. 서버 모드에서는
+       읽을 곳이 메모리 사본이므로, 목록을 여기 한 벌 들고 있습니다. */
+  let uevents = [];
+
+  const UCOL = window.Collections.bind({
+    kind: "event", key: UKEY,
+    list: () => uevents,
+    setList: (l) => { uevents = l || []; },
+    /* local 모드에서는 예전 그대로 배열 한 벌을 그 키에 씁니다 */
+    whole: () => uevents,
+    seed: () => []
+  });
+
+  (function initUserEvents() {
+    const got = UCOL.load();
+    uevents = Array.isArray(got) ? got : (got && got.list) || [];
+  })();
+
+  function rawUserEvents() { return window.Collections.live(uevents); }
+  function saveUserEvents() { UCOL.save(); }
+
   function userEvents() {
     return rawUserEvents().map(e => Object.assign({}, e, {
       src: "user", projectId: normProject(e.scopeKey), studyId: e.studyId || null
     }));
   }
   function addUserEvent(ev) {
-    const list = rawUserEvents();
-    list.push(ev);
-    saveUserEvents(list);
+    uevents.push(ev);
+    saveUserEvents();
     return ev;
   }
   function removeUserEvent(id) {
-    saveUserEvents(rawUserEvents().filter(x => x.id !== id));
+    uevents = uevents.filter(x => x.id !== id);
+    saveUserEvents();
   }
+
+  /* 서버에서 받은 한 벌로 갈아 끼웁니다 (bootstrap · 폴링) */
+  function hydrate(records) { return UCOL.hydrate(records); }
 
   /* ── 4. 레거시 (store.js) ───────────────────────────────────────────── */
   function legacyEvents() {
@@ -284,7 +303,7 @@ window.HubCalendar = (function () {
   return {
     KIND, today, addDays, parse, iso, monthStart, cadence,
     all, forProject, forSelection, eventsOn, upcoming, range, filterBy,
-    userEvents, addUserEvent, removeUserEvent,
+    userEvents, addUserEvent, removeUserEvent, hydrate,
     railSource
   };
 })();

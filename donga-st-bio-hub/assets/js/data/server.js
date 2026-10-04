@@ -140,7 +140,12 @@ window.HubServer = (function () {
       undo.forEach(function (pair) {
         const k = pair[0], was = pair[1];
         if (k.indexOf("rec:") === 0) {
-          const p = k.split(":"), kind = p[1], id = p[2];
+          /* "rec:<kind>:<id>" — id 안에 콜론이 있을 수 있으므로 앞의 둘만
+             끊어 냅니다. split(":") 로 나누면 콜론이 든 id 는 엉뚱한
+             레코드를 되돌리게 됩니다. */
+          const rest = k.slice(4);
+          const c = rest.indexOf(":");
+          const kind = rest.slice(0, c), id = rest.slice(c + 1);
           const i = mem.records[kind].findIndex(x => x && x.id === id);
           if (was === undefined) { if (i > -1) mem.records[kind].splice(i, 1); }
           else if (i > -1) mem.records[kind][i] = was;

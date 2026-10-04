@@ -35,7 +35,39 @@ window.Pins = (function () {
   let state = { pins: [], notes: [], meetings: [], agenda: [] };
   const subs = [];
 
+  /* 회의 기록은 한 상태 안에 네 묶음이 들어 있습니다. 서버에서는 네 종류로
+     나누어 레코드 한 줄씩 둡니다 — 같은 회의에 두 사람이 동시에 핀과 안건을
+     남겨도 서로 덮지 않습니다.
+
+     local 모드에서는 예전처럼 한 덩어리로 그 키에 씁니다 (PARTS 중 하나가
+     whole/setWhole 을 맡습니다 — 네 번 쓰면 같은 것을 네 번 쓰게 됩니다). */
+  const PARTS = ["pin", "note", "meeting", "agenda"];
+  const FIELD = { pin: "pins", note: "notes", meeting: "meetings", agenda: "agenda" };
+
+  const COLS = {};
+  PARTS.forEach(function (kind, i) {
+    COLS[kind] = window.Collections.bind({
+      kind: "mtg_" + kind,
+      key: KEY,
+      list: () => state[FIELD[kind]] || [],
+      setList: (l) => { state[FIELD[kind]] = l || []; },
+      /* 덩어리 저장은 한 번만 — 첫 묶음에만 맡깁니다 */
+      whole: i === 0 ? (() => state) : undefined,
+      seed: () => []
+    });
+  });
+
   function load() {
+    if (window.Persist && window.Persist.isServer()) {
+      const out = { pins: [], notes: [], meetings: [], agenda: [] };
+      let any = false;
+      PARTS.forEach(function (kind) {
+        const recs = COLS[kind].load() || [];
+        out[FIELD[kind]] = Array.isArray(recs) ? recs : [];
+        if (out[FIELD[kind]].length) any = true;
+      });
+      return any ? out : null;
+    }
     try {
       const raw = JSON.parse(localStorage.getItem(KEY) || "null");
       if (raw && raw.pins && raw.notes && raw.meetings) { raw.agenda = raw.agenda || []; return raw; }
@@ -43,9 +75,29 @@ window.Pins = (function () {
     return null;
   }
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    PARTS.forEach(function (kind) { COLS[kind].save(); });
   }
+
+  /* 서버에서 받은 한 벌로 갈아 끼웁니다 (bootstrap · 폴링) */
+  function hydrate(records) {
+    const r = records || {};
+    let touched = false;
+    PARTS.forEach(function (kind) {
+      if (r["mtg_" + kind]) { COLS[kind].hydrate(r["mtg_" + kind]); touched = true; }
+    });
+    if (touched) subs.slice().forEach(f => { try { f(); } catch (e) {} });
+    return touched;
+  }
+
   function emit() { save(); subs.slice().forEach(f => { try { f(); } catch (e) {} }); }
+
+  /* 지운 것은 표시만 남습니다 (collections.js 참고). 화면으로 나가는 길은
+     모두 이 넷을 지납니다 — state 를 직접 읽으면 지운 것이 섞입니다. */
+  const L = window.Collections.live;
+  function P() { return L(state.pins); }
+  function N() { return L(state.notes); }
+  function M() { return L(state.meetings); }
+  function A() { return L(state.agenda); }
   function subscribe(fn) {
     subs.push(fn);
     return () => { const i = subs.indexOf(fn); if (i > -1) subs.splice(i, 1); };
@@ -67,7 +119,7 @@ window.Pins = (function () {
   let openId = null;          // 지금 열려 있는 회의 (메모리에만 둡니다)
 
   function currentMeeting() {
-    return openId ? state.meetings.find(m => m.id === openId) || null : null;
+    return openId ? M().find(m => m.id === openId) || null : null;
   }
 
   /* 첫 기록이 생길 때 호출됩니다 — 빈 회의를 만들지 않기 위해 */
@@ -100,7 +152,7 @@ window.Pins = (function () {
 
   /* 회의 모드를 다시 열었을 때 방금 전 회의를 이어서 씁니다 (30분 이내) */
   function resumeRecent(ctx) {
-    const last = state.meetings.slice().sort((a, b) =>
+    const last = M().slice().sort((a, b) =>
       String(b.startedAt).localeCompare(String(a.startedAt)))[0];
     if (!last) return null;
     const t = Date.parse(String(last.endedAt || last.startedAt).replace(" ", "T"));
@@ -113,7 +165,7 @@ window.Pins = (function () {
   }
 
   function meetings() {
-    return state.meetings.slice().sort((a, b) =>
+    return M().slice().sort((a, b) =>
       String(b.startedAt).localeCompare(String(a.startedAt)));
   }
 
@@ -155,9 +207,9 @@ window.Pins = (function () {
     return { ok: true, pin: rec, meeting: m };
   }
 
-  function all() { return state.pins.slice(); }
-  function get(id) { return state.pins.find(p => p.id === id) || null; }
-  function forBatch(batchId) { return state.pins.filter(p => p.batchId === batchId); }
+  function all() { return P().slice(); }
+  function get(id) { return P().find(p => p.id === id) || null; }
+  function forBatch(batchId) { return P().filter(p => p.batchId === batchId); }
 
   /* 회의 모드용 — "그룹id.항목key" */
   function metricId(p) { return p.groupId + "." + p.itemKey; }
@@ -168,12 +220,12 @@ window.Pins = (function () {
   }
 
   function forCell(batchId, groupId, itemKey) {
-    return state.pins.filter(p =>
+    return P().filter(p =>
       p.batchId === batchId && p.groupId === groupId && p.itemKey === itemKey);
   }
   /* 화면이 fieldKey 밖에 모를 때 (EBR · 데이터 조회) */
   function forField(batchId, fieldKey) {
-    return state.pins.filter(p => p.batchId === batchId && fieldKeyOf(p) === fieldKey);
+    return P().filter(p => p.batchId === batchId && fieldKeyOf(p) === fieldKey);
   }
 
   /* 핀을 트러블슈팅 사례로 승격했을 때 연결을 남깁니다 —
@@ -250,10 +302,10 @@ window.Pins = (function () {
     return { ok: true, note: rec, meeting: m };
   }
 
-  function notes() { return state.notes.slice(); }
-  function notesOf(meetingId) { return state.notes.filter(n => n.meetingId === meetingId); }
+  function notes() { return N().slice(); }
+  function notesOf(meetingId) { return N().filter(n => n.meetingId === meetingId); }
   function removeNote(id) {
-    const n = state.notes.find(x => x.id === id);
+    const n = N().find(x => x.id === id);
     state.notes = state.notes.filter(x => x.id !== id);
     /* To-Do 로 넘어간 조치는 To-Do 쪽에서 지워야 실제로 사라집니다 */
     if (n && n.todoId && window.Todos && window.Todos.remove) window.Todos.remove(n.todoId);
@@ -270,7 +322,7 @@ window.Pins = (function () {
     const todos = (window.Todos && window.Todos.state && window.Todos.state().list) || [];
     const byId = {};
     todos.forEach(t => { byId[t.id] = t; });
-    return state.notes
+    return N()
       .filter(n => n.kind === "action" && n.meetingId !== exceptMeetingId)
       .map(function (n) {
         const t = n.todoId ? byId[n.todoId] : null;
@@ -284,13 +336,13 @@ window.Pins = (function () {
      회의록
      ══════════════════════════════════════════════════════════════════════ */
   function minutes(meetingId) {
-    const m = state.meetings.find(x => x.id === meetingId) || currentMeeting();
+    const m = M().find(x => x.id === meetingId) || currentMeeting();
     if (!m) return null;
     const ns = notesOf(m.id);
     return {
       meeting: m,
       agenda: agenda(m.id),
-      pins: state.pins.filter(p => p.meetingId === m.id),
+      pins: P().filter(p => p.meetingId === m.id),
       decisions: ns.filter(n => n.kind === "decision"),
       actions: ns.filter(n => n.kind === "action")
     };
@@ -399,7 +451,7 @@ window.Pins = (function () {
     const title = String(input.title || "").trim();
     if (title.length < 2) return { ok: false, reason: "안건을 2자 이상 입력하세요" };
     const m = ensureMeeting(input.context);
-    const mine = state.agenda.filter(a => a.meetingId === m.id);
+    const mine = A().filter(a => a.meetingId === m.id);
     const rec = {
       id: uid("AG"),
       meetingId: m.id,
@@ -418,12 +470,12 @@ window.Pins = (function () {
   function agenda(meetingId) {
     const id = meetingId || (currentMeeting() ? currentMeeting().id : null);
     if (!id) return [];
-    return state.agenda.filter(a => a.meetingId === id)
+    return A().filter(a => a.meetingId === id)
       .slice().sort((a, b) => a.order - b.order);
   }
 
   function toggleAgenda(id) {
-    const a = state.agenda.find(x => x.id === id);
+    const a = A().find(x => x.id === id);
     if (!a) return false;
     a.done = !a.done;
     a.doneAt = a.done ? now() : null;
@@ -489,6 +541,6 @@ window.Pins = (function () {
     ensureMeeting, endMeeting, currentMeeting, resumeRecent, meetings,
     addAgenda, agenda, toggleAgenda, removeAgenda, moveAgenda,
     setCurrentAgenda, currentAgenda, carryOverAgenda,
-    minutes, minutesText
+    minutes, minutesText, hydrate
   };
 })();

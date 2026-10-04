@@ -65,6 +65,9 @@
 
 <!-- Excel 데이터 계층만 사용 (lab.js · rnd.js · store.js 미사용) -->
 <!-- 저장 위치 결정 · 중앙 서버 (data 계층보다 먼저 와야 합니다) -->
+<!-- 목록형 저장소(일정·이슈·의뢰·할 일·회의·예약)를 중앙 DB 와 맞추는 한 겹 —
+     이 줄들보다 먼저 와야 합니다 -->
+<script src="assets/js/data/collections.js"></script>
 <script src="assets/js/data/persist.js"></script>
 <script src="assets/js/data/server.js"></script>
 <script src="assets/js/data/labels.js"></script>
