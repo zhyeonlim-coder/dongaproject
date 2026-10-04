@@ -51,7 +51,7 @@ window.Auth = (function () {
   }
 
   /* INTEGRATION: replace with an identity-provider redirect + callback. */
-  function signIn(email, password) {
+  function signIn(email, password, serverSecret) {
     const e = String(email || "").trim().toLowerCase();
     const user = window.HUB.USERS.find(u => u.email.toLowerCase() === e);
 
@@ -71,22 +71,32 @@ window.Auth = (function () {
 
     /* ── 서버 세션도 함께 엽니다 ────────────────────────────────────────
        데이터가 서버에 있으면 화면 로그인만으로는 부족합니다 — 서버는 쿠키를
-       봅니다. 여기서 같은 비밀번호를 서버에도 보내 쿠키를 받아 둡니다.
+       봅니다.
 
-       그래서 HUB_ACCESS_SECRET 은 **팀이 쓰는 이 비밀번호와 같은 값**으로
-       넣으면 됩니다. 입력란을 둘로 늘리지 않으려는 것입니다.
+       ★ 위 비밀번호를 보내지 않습니다. 그 값은 data.js 안에 있고 data.js 는
+         누구에게나 내려가는 파일입니다. 그것으로 서버를 지키면 페이지 소스를
+         열어 본 사람 누구나 데이터에 닿습니다. 그래서 서버 비밀값은 따로
+         받습니다 (로그인 화면의 '서버 접속 비밀값').
 
-       기다리지 않습니다. 서버가 없거나 비밀값이 다르면 화면은 그대로 열리고
-       (이 브라우저 저장으로) 동작합니다 — 로그인 자체가 막히지는 않습니다.
-       서버에 붙었는지는 각 화면이 HubBoot.note() 로 알 수 있습니다. */
-    if (window.HubBoot && window.HubBoot.signIn) {
-      try { window.HubBoot.signIn(password); } catch (e) {}
-    } else if (window.HubServer && window.HubServer.signIn) {
-      try { window.HubServer.signIn(password); } catch (e) {}
+       호출한 쪽이 결과를 기다릴 수 있도록 약속을 함께 돌려줍니다. 서버가
+       켜져 있는데 비밀값이 틀렸다면, 로그인 화면이 통과시키지 않고 되묻습니다
+       — 틀린 채 들어가면 이 브라우저의 옛 데이터를 서버 데이터로 착각합니다. */
+    let server = Promise.resolve({ ok: true, skipped: true });
+    if (serverSecret && window.HubBoot && window.HubBoot.signIn) {
+      try { server = Promise.resolve(window.HubBoot.signIn(serverSecret)); }
+      catch (e) { server = Promise.resolve({ ok: false, reason: "모듈 오류" }); }
+    } else if (serverSecret && window.HubServer && window.HubServer.signIn) {
+      try { server = Promise.resolve(window.HubServer.signIn(serverSecret)); }
+      catch (e) { server = Promise.resolve({ ok: false, reason: "모듈 오류" }); }
     }
 
-    return { ok: true, user: session };
+    return { ok: true, user: session, server: server };
   }
+
+  /* 화면 세션만 되돌립니다 — 서버 비밀값이 틀려 로그인을 취소할 때 씁니다.
+     signOut() 과 달리 페이지를 옮기지 않습니다 (로그인 화면에 그대로 남아
+     비밀값을 다시 묻기 위해서). */
+  function signOutLocal() { sessionStorage.removeItem(KEY); }
 
   function signOut() {
     sessionStorage.removeItem(KEY);
@@ -112,5 +122,5 @@ window.Auth = (function () {
     return u;
   }
 
-  return { current, role, can, denial, signIn, signOut, requireSession, switchRole };
+  return { current, role, can, denial, signIn, signOut, signOutLocal, requireSession, switchRole };
 })();

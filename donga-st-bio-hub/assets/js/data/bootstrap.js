@@ -101,14 +101,16 @@ window.HubBoot = (function () {
     return note();
   }
 
-  /* 로그인 화면이 부릅니다 — 비밀값이 맞으면 쿠키를 받고 바로 붙습니다 */
+  /* 로그인 화면이 부릅니다 — 비밀값이 맞으면 쿠키를 받고 바로 붙습니다.
+     ★ 여기 오는 값은 로그인 비밀번호가 아니라 '서버 접속 비밀값' 입니다.
+       로그인 비밀번호는 data.js 안에 있어 누구나 읽을 수 있습니다. */
   async function signIn(secret) {
     const S = window.HubServer;
     if (!S) return { ok: false, reason: "서버 모듈 없음" };
     const r = await S.signIn(secret);
     if (!r.ok) return r;
     await start();
-    return { ok: true, mode: state.mode };
+    return { ok: true, mode: state.mode, serverReady: state.serverReady };
   }
 
   const ready = start();

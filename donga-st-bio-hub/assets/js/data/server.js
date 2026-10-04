@@ -75,7 +75,9 @@ window.HubServer = (function () {
       await call(SESSION, { method: "POST", body: JSON.stringify({ secret: secret }) });
       return { ok: true };
     } catch (e) {
-      return { ok: false, reason: e.message, code: e.code };
+      /* status 까지 돌려줍니다 — 로그인 화면이 "비밀값이 틀렸다"(401) 와
+         "서버에 닿지 못했다"(그 밖) 를 구분해 안내해야 합니다. */
+      return { ok: false, reason: e.message, code: e.code, status: e.status };
     }
   }
   async function signOut() {

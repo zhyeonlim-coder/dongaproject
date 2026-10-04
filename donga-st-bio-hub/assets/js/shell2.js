@@ -100,6 +100,53 @@ window.Shell = (function () {
   }
 
   /* ── Mount ──────────────────────────────────────────────────────────── */
+  /* ── 데이터가 어디 있는지 ────────────────────────────────────────────────
+     세 가지뿐입니다.
+
+       서버      중앙 DB 를 읽고 씁니다. 다른 PC 와 같은 데이터입니다.
+       이 브라우저  서버가 꺼져 있습니다. 나만 보는 데이터입니다.
+       끊김      서버는 켜져 있는데 이 브라우저가 닿지 못했습니다. ← 위험
+
+     세 번째를 말해 주는 것이 이 표시의 목적입니다. 화면은 멀쩡해 보이는데
+     보고 있는 값이 남들과 다른 상태이고, 말해 주지 않으면 알 수 없습니다. */
+  function paintStore() {
+    const el = document.getElementById("storemode");
+    if (!el || !window.HubBoot) return;
+
+    function draw() {
+      const n = window.HubBoot.note();
+      let cls, txt, tip;
+
+      if (n.mode === "server" && n.serverReady) {
+        cls = "badge badge-ok"; txt = "서버";
+        tip = "중앙 데이터베이스를 읽고 씁니다. 다른 PC 와 같은 데이터입니다.";
+      } else if (n.mode === "server") {
+        cls = "badge badge-risk"; txt = "서버 끊김";
+        tip = "서버에서 데이터를 읽지 못했습니다 (" + (n.reason || "") + "). " +
+              "지금 보이는 값은 최신이 아닐 수 있습니다. 새로 고쳐 보세요.";
+      } else if (n.reason === "로그인 필요") {
+        cls = "badge badge-risk"; txt = "서버 미연결";
+        tip = "서버는 켜져 있지만 이 브라우저는 연결되지 않았습니다. " +
+              "다시 로그인해 '서버 접속 비밀값' 을 입력하세요.";
+      } else {
+        cls = "badge"; txt = "이 브라우저";
+        tip = "중앙 서버가 설정되지 않았습니다 (" + (n.reason || "") + "). " +
+              "데이터는 이 브라우저에만 저장되며 다른 PC 에서는 보이지 않습니다.";
+      }
+
+      el.className = cls;
+      el.setAttribute("title", tip);
+      el.textContent = txt;
+    }
+
+    draw();
+    /* 부팅이 끝나면 다시 그립니다 — 처음 그릴 때는 아직 "init" 입니다 */
+    if (window.HubBoot.ready && window.HubBoot.ready.then) {
+      window.HubBoot.ready.then(draw).catch(function () {});
+    }
+    if (window.HubServer && window.HubServer.subscribe) window.HubServer.subscribe(draw);
+  }
+
   function mount(opts) {
     const o = opts || {};
     const user = window.Auth.requireSession();
@@ -134,6 +181,10 @@ window.Shell = (function () {
         '<select class="prj-select" id="scope-select">' + scopeOptionsMarkup() + '</select>' +
         '<span class="badge badge-warn" style="flex:none" title="이 화면의 모든 수치는 예시입니다">' +
           '<span class="badge-dot"></span>샘플<span class="badge-sample-en"> 데이터</span></span>' +
+        /* 데이터가 어디 있는지 — 아래 paintStore() 가 채웁니다.
+           이것이 없으면, 서버가 켜져 있는데 이 브라우저만 떨어져 나와도
+           아무 표시 없이 다른 데이터를 보게 됩니다. */
+        '<span id="storemode" style="flex:none"></span>' +
         '<span class="avatar" style="background:var(--c-accent-hi);color:#0A192F" title="' + esc(user.name) + '">' +
           esc(user.initials) + '</span>' +
         '<button class="btn-icon" id="topbackup" aria-label="데이터 내보내기 및 가져오기" ' +
@@ -162,6 +213,8 @@ window.Shell = (function () {
       const i = v.indexOf(":");
       window.Scope.setScope(v.slice(0, i), v.slice(i + 1));
     });
+    paintStore();
+
     const bk = document.getElementById("topbackup");
     if (bk && window.Backup) bk.addEventListener("click", () => window.Backup.open());
     document.getElementById("signout").addEventListener("click", () => window.Auth.signOut());
