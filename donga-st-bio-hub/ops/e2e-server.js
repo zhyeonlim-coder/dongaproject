@@ -52,8 +52,20 @@ window.E2EServer = (function () {
     };
   }
 
+  /* 바깥에서 부르는 쪽. 중간에 터져도 **거기까지 확인한 것은 보여 줍니다** —
+     전부 잃어버리면 어디까지 되고 어디서 깨졌는지를 알 수 없습니다. */
   async function run() {
     const R = Run();
+    try {
+      await body(R);
+    } catch (e) {
+      R.check("!! 검사 중단", "검사가 끝까지 돌지 못함", false,
+        (e && e.message) || String(e));
+    }
+    return R.rows;
+  }
+
+  async function body(R) {
     const cleanup = [];
 
     /* ───────────────────────────────────────────────────────────────────
@@ -70,7 +82,7 @@ window.E2EServer = (function () {
       R.skip(G1, "서버 API 존재", "이 주소에는 /api 가 없습니다 (정적 미리보기). " +
                                   "Vercel 배포 주소에서 돌리세요.");
       R.skip(G1, "이후 전체", "API 가 없어 더 진행하지 않습니다");
-      return R.rows;
+      return;
     }
 
     R.check(G1, "GET /api/session 이 200", st.status === 200, "status=" + st.status);
@@ -90,7 +102,7 @@ window.E2EServer = (function () {
 
     if (!(st.body && st.body.configured && st.body.db && st.body.signedIn)) {
       R.skip(G1, "이후 전체", "서버가 켜져 있고 로그인된 상태가 아니라 더 진행하지 않습니다");
-      return R.rows;
+      return;
     }
 
     const snap = await http(API, { method: "GET" });
@@ -220,7 +232,12 @@ window.E2EServer = (function () {
 
     /* 화면의 읽기 경로가 서버를 지나는가 — 쓰지 않고 확인합니다.
        Repo.valueOf 가 돌려주는 값이 서버 스냅샷의 값과 같아야 합니다. */
-    const batches = (window.Repo && window.Repo.getBatches) ? window.Repo.getBatches() : [];
+    /* Repo 의 목록 함수들은 약속(Promise)을 돌려줍니다 — 저장소가 서버로
+       바뀌어도 같은 이름을 쓰기 위해 처음부터 그렇게 되어 있습니다. */
+    let batches = [];
+    if (window.Repo && window.Repo.getBatches) {
+      try { batches = (await window.Repo.getBatches()) || []; } catch (e) { batches = []; }
+    }
     const b = batches.find(function (x) { return x && x.id; });
 
     if (b && window.Repo && window.HubServer) {
@@ -313,7 +330,7 @@ window.E2EServer = (function () {
       }
     }
 
-    return R.rows;
+    return;
   }
 
   /* ── 표로 ────────────────────────────────────────────────────────────── */
