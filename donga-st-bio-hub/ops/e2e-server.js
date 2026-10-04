@@ -53,20 +53,60 @@ window.E2EServer = (function () {
   }
 
   /* 바깥에서 부르는 쪽. 중간에 터져도 **거기까지 확인한 것은 보여 줍니다** —
-     전부 잃어버리면 어디까지 되고 어디서 깨졌는지를 알 수 없습니다. */
+     전부 잃어버리면 어디까지 되고 어디서 깨졌는지를 알 수 없습니다.
+
+     ★ 그리고 터지더라도 **반드시 치웁니다**. 검사가 도중에 멈추면서 쓰다 만
+       값을 진짜 DB 에 남기고 가면, 다음 사람이 그게 검사 찌꺼기인지 실제
+       데이터인지 알 수 없습니다. */
   async function run() {
     const R = Run();
+    const cleanup = [];
     try {
-      await body(R);
+      await body(R, cleanup);
     } catch (e) {
       R.check("!! 검사 중단", "검사가 끝까지 돌지 못함", false,
         (e && e.message) || String(e));
+    } finally {
+      await sweep(R, cleanup);
     }
     return R.rows;
   }
 
-  async function body(R) {
-    const cleanup = [];
+  /* 검사가 만든 키만 지웁니다 — cleanup 에 적어 둔 것뿐입니다 */
+  async function sweep(R, cleanup) {
+    if (!cleanup.length) return;
+    const G = "검사 흔적 치우기";
+    try {
+      const nulls = {};
+      cleanup.forEach(function (k) { nulls[k] = null; });
+      const d = await http(API, { method: "POST", body: JSON.stringify({ values: nulls }) });
+      const chk = await http(API, { method: "GET" });
+      const left = cleanup.filter(function (k) {
+        return chk.body && chk.body.values && chk.body.values[k];
+      });
+      R.check(G, "검사용 키를 DB 에서 지움", d.status === 200 && left.length === 0,
+        "남은 키=" + left.length);
+
+      /* DB 에서만 지우면 이 브라우저 메모리에는 남고, 다음 저장에서
+         되살아납니다. 서버에서 다시 받아 메모리까지 맞춥니다. */
+      if (window.HubServer && window.HubBoot && window.HubBoot.adopt) {
+        await window.HubServer.pull(true);
+        window.HubBoot.adopt();
+        const memLeft = cleanup.filter(function (k) {
+          return window.HubServer.mem().values[k];
+        }).length;
+        R.check(G, "메모리 작업본에서도 사라짐", memLeft === 0, "남은 키=" + memLeft);
+      } else {
+        R.skip(G, "메모리 작업본 정리", "HubBoot.adopt 가 이 화면에 없습니다");
+      }
+    } catch (e) {
+      R.check(G, "검사 흔적 치우기", false,
+        "치우지 못했습니다: " + ((e && e.message) || String(e)) +
+        " — 남은 키: " + cleanup.join(", "));
+    }
+  }
+
+  async function body(R, cleanup) {
 
     /* ───────────────────────────────────────────────────────────────────
        1. 서버 · DB 연결
@@ -300,37 +340,7 @@ window.E2EServer = (function () {
       R.skip(G5, "실제 배치 쓰기 왕복", "Entries 가 이 화면에 없습니다");
     }
 
-    /* ───────────────────────────────────────────────────────────────────
-       6. 치운다
-       ─────────────────────────────────────────────────────────────── */
-    const G6 = "6. 검사 흔적 치우기";
-    const nulls = {};
-    cleanup.forEach(function (k) { nulls[k] = null; });
-    if (Object.keys(nulls).length) {
-      const d = await http(API, { method: "POST", body: JSON.stringify({ values: nulls }) });
-      const chk = await http(API, { method: "GET" });
-      const left = cleanup.filter(function (k) {
-        return chk.body && chk.body.values && chk.body.values[k];
-      });
-      R.check(G6, "검사용 키를 DB 에서 지움", d.status === 200 && left.length === 0,
-        "남은 키=" + left.length);
-
-      /* ★ DB 에서만 지우면 이 브라우저 메모리에는 남고, 다음 저장에서 되살아
-         납니다. 서버에서 다시 받아 메모리까지 맞춥니다. */
-      let memLeft = null;
-      if (window.HubServer && window.HubBoot && window.HubBoot.adopt) {
-        await window.HubServer.pull(true);
-        window.HubBoot.adopt();
-        memLeft = cleanup.filter(function (k) {
-          return window.HubServer.mem().values[k];
-        }).length;
-        R.check(G6, "메모리 작업본에서도 사라짐", memLeft === 0, "남은 키=" + memLeft);
-      } else {
-        R.skip(G6, "메모리 작업본 정리", "HubBoot.adopt 가 이 화면에 없습니다");
-      }
-    }
-
-    return;
+    /* 치우는 일은 run() 의 finally 가 합니다 — 여기서 터져도 치워야 합니다 */
   }
 
   /* ── 표로 ────────────────────────────────────────────────────────────── */
