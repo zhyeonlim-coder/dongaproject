@@ -8,3 +8,7 @@ Batch_Data_example.xlsx
 # 개발용 회귀 테스트 — 배포 사이트에 올릴 이유가 없습니다.
 # 로컬에서 tests/ask-regression.html 을 열어 돌립니다.
 donga-st-bio-hub/tests/
+
+# 중앙 서버 E2E 검사는 donga-st-bio-hub/ops/ 에 둡니다 (배포됩니다).
+# 이 검사만 실제 API 와 실제 DB 가 있어야 돌 수 있어서, 배포된 주소에서
+# 돌려야 합니다. 로그인한 쿠키가 없으면 아무것도 하지 않고 멈춥니다.

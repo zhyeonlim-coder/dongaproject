@@ -165,7 +165,7 @@ await fetch('/api/data', { method: 'DELETE', credentials: 'same-origin' })
 로그인해 서버에 연결한 뒤 엽니다.
 
 ```
-https://<배포주소>/tests/e2e-server.html
+https://<배포주소>/ops/e2e-server.html
 ```
 
 여섯 그룹을 봅니다 — 서버·DB 연결 / 영속성(쓰기→DB→읽기) / 다중 PC 공유 /
