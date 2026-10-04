@@ -288,7 +288,8 @@
       }));
     });
 
-    const all = base.concat(narrowMeasures(measure, sel));
+    /* Data 입력에서 직접 더한 항목 · 열 */
+    const all = base.concat(narrowMeasures(measure.concat(customCols(opts && opts.batches)), sel));
     if (opts && opts.all) return all;
 
     /* 마지막 한 컬럼까지 숨기지는 않습니다 — 빈 표가 되면 되돌릴 손잡이가
@@ -296,6 +297,46 @@
        잘못됐는지 알기 어렵습니다). */
     const shown = all.filter(c => !grid.hidden[c.key]);
     return shown.length ? shown : all;
+  }
+
+  /* ── Data 입력에서 직접 더한 항목 ─────────────────────────────────────
+     워크시트에서 [행추가 ↓] · [열추가 →] 로 만든 칸은 ws_<행>@<열> 키로
+     저장됩니다. 그 값이 입력 화면에만 머물면, 적어 놓고도 조회할 수 없는
+     데이터가 생깁니다 — 적은 사람만 아는 숫자입니다.
+
+     스키마에 없는 항목이라 **실제로 값이 있는 것만** 컬럼으로 세웁니다.
+     있지도 않은 조합까지 열을 세우면 43개 컬럼짜리 표가 조합 수만큼
+     넓어집니다.
+
+     ★ 컬럼 키는 cust.<저장키> 입니다. 점이 들어가지만 분석 그룹 키("그룹.항목")
+       와 섞이지 않도록 cellValue 에서 cust. 를 먼저 가릅니다. */
+  function customCols(batches) {
+    if (!window.Entries || !window.Entries.getScopeValues) return [];
+    const seen = {};
+    (batches || []).forEach(function (b) {
+      const vals = window.Entries.getScopeValues("batch:" + b.id) || {};
+      Object.keys(vals).forEach(function (k) {
+        if (k.indexOf("ws_") !== 0) return;
+        const at = k.indexOf("@");
+        if (at < 0 || seen[k]) return;
+        seen[k] = { key: "cust." + k, label: customLabel(k.slice(3, at)) + " · " + k.slice(at + 1),
+                    type: "n", dp: 2, w: 110 };
+      });
+    });
+    return Object.keys(seen).sort().map(k => seen[k]);
+  }
+
+  /* 행 이름 — 스키마 항목이면 그 라벨을, 사용자가 만든 항목이면 이름 그대로 */
+  function customLabel(rowKey) {
+    let hit = null;
+    (window.DATA_ANALYTE_GROUPS || []).some(function (g) {
+      const it = (g.items || []).find(x => window.Repo.fieldKey(g.id, x.key) === rowKey);
+      if (it) { hit = it.label; return true; }
+      return false;
+    });
+    if (hit) return hit;
+    if (rowKey === "titer") return (window.DATA_TITER_ITEM || {}).label || "Titer";
+    return rowKey;
   }
 
   /* Data 분류 선택 → 그 분류의 컬럼만.
@@ -324,6 +365,12 @@
   function cellValue(row, key) {
     if (["projectLabel","studyName","teamLabel","sampleName","id","initialDate","endDate","cultureDays"].indexOf(key) > -1)
       return row[key];
+    /* Data 입력에서 더한 항목 — 배치 범위에 ws_ 키로 들어 있습니다.
+       아래 "그룹.항목" 가르기보다 먼저 봐야 합니다 (키에 점이 있습니다). */
+    if (key.indexOf("cust.") === 0) {
+      const rec = window.Entries.getValue("batch:" + (row.batchId || row.id), key.slice(5));
+      return rec ? window.VAL.numeric(window.VAL.coerce(rec.value)) : null;
+    }
     if (key.indexOf("titer.") === 0) return row.upstream?.titer?.[key.slice(6)] ?? null;
     /* 정제 값은 batch.downstream 에 있습니다 (downstream.js 가 채움) */
     if (key.indexOf("downstream.") === 0)
@@ -517,7 +564,7 @@
           cmpPicked.length + "개 비교 (최대 " + CMP_MAX + ")";
         $("#sample-bar").innerHTML = "";
         $("#sort-chips").innerHTML = "";
-        paintGridTools(null);
+        paintGridTools(null, batches);
         $("#table-host").innerHTML = compareView(batches);
         $$("[data-cmp]").forEach(b => b.addEventListener("click", function () {
           const id = b.dataset.cmp;
@@ -536,7 +583,7 @@
       rows = applyColFilters(rows);
       rows = applySort(rows);
 
-      const cols = columns(titerDays);
+      const cols = columns(titerDays, { batches: batches });
       const sortLabel = window.Repo.SORTS[sel.sort] || window.Repo.SORTS[window.Repo.DEFAULT_SORT];
       const undated = window.Repo.undatedExcluded(sel);
       $("#count").textContent = rows.length + (groupBy === "sample" ? "행 (시료별)" : "개 배치") +
@@ -549,9 +596,9 @@
       /* 숨긴 컬럼으로 정렬·필터가 걸려 있을 수 있습니다. 보이는 컬럼만
          넘기면 칩에 라벨 대신 내부 키("projectLabel")가 뜨고, 왜 이렇게
          정렬됐는지 읽을 수 없게 됩니다. */
-      paintSortChips(columns(titerDays, { all: true }));
+      paintSortChips(columns(titerDays, { all: true, batches: batches }));
 
-      paintGridTools(titerDays);
+      paintGridTools(titerDays, batches);
 
       /* 폭을 <colgroup> 으로 못박고 table-layout:fixed 를 씁니다.
          자동 배치로 두면 드래그로 폭을 바꿔도 브라우저가 내용에 맞춰 다시
@@ -630,7 +677,7 @@
      대여섯 행밖에 안 보여, 배치끼리 견주려면 스크롤을 오르내리며 앞서 본
      숫자를 외우게 됩니다. 그 외움이 곧 오독입니다.
      ══════════════════════════════════════════════════════════════════════ */
-  function paintGridTools(titerDays) {
+  function paintGridTools(titerDays, batches) {
     const host = $("#grid-tools");
     if (!host) return;
     if (groupBy === "compare") {
@@ -639,7 +686,7 @@
       wireDensity(host);
       return;
     }
-    const all = columns(titerDays || [], { all: true });
+    const all = columns(titerDays || [], { all: true, batches: batches });
     const hid = hiddenCount(all);
 
     host.innerHTML = densityToggle() +
@@ -792,7 +839,7 @@
       const batches = res[0], studies = res[1];
       const titerDays = window.DATA_TITER_DAYS.filter(d =>
         batches.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
-      const cols = columns(titerDays);
+      const cols = columns(titerDays, { batches: batches });
       const rows = applySort(applyColFilters(buildRows(batches, studies)));
       cols.forEach(c => { grid.width[c.key] = measureCol(c, rows); });
       saveGrid();
@@ -1028,9 +1075,9 @@
          빼면 어제 숨긴 것을 잊은 채 내보내 컬럼이 빠진 파일이 나가고,
          무조건 다 넣으면 일부러 추린 줄 알았던 사람이 전체 컬럼을 받습니다.
          받는 사람은 둘 다 알 길이 없으므로, 내보내는 사람이 한 번 정합니다. */
-      const allCols = columns(titerDays, { all: true });
+      const allCols = columns(titerDays, { all: true, batches: batches });
       const hid = allCols.filter(c => grid.hidden[c.key]);
-      let cols = columns(titerDays);
+      let cols = columns(titerDays, { batches: batches });
       if (hid.length) {
         const take = window.confirm(
           "화면에서 숨긴 컬럼이 " + hid.length + "개 있습니다.\n" +
@@ -1137,6 +1184,14 @@
     render();
   });
   window.Entries.subscribe(render);
+
+  /* 다른 탭에서 바뀐 것 · 레코드가 늘어난 것도 받습니다 —
+     값 변경은 Entries 가, Study·Batch 추가는 Repo 가 알려 줍니다. */
+  if (window.Repo && window.Repo.subscribe) {
+    window.Repo.subscribe(function (what) {
+      if (what === "remote" || what === "dataset") render();
+    });
+  }
   $("#export").addEventListener("click", exportCSV);
   paintClassFilter();
   syncSelectHook();

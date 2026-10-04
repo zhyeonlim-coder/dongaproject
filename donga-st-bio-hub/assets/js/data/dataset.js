@@ -272,11 +272,24 @@ window.Dataset = (function () {
     return { ok: true };
   }
 
+  /* 저장소에서 다시 읽어 들입니다 — 다른 탭이 Study · Batch 를 만들었을 때
+     씁니다. 쓰지 않고 읽기만 합니다 (방금 읽은 것을 되쓰면 그 탭의 더
+     새로운 쓰기를 덮습니다). */
+  function reload() {
+    if (SEED_ONLY) return false;
+    const next = load();
+    if (!next) return false;
+    state = next;
+    applyToGlobals();
+    subs.slice().forEach(function (f) { try { f("reload", true); } catch (e) {} });
+    return true;
+  }
+
   applyToGlobals();
 
   return {
     addStudy, addBatch, patch, deactivate,
-    originOf, isUserMade, subscribe, resetToSeed,
+    originOf, isUserMade, subscribe, resetToSeed, reload,
     emptyUpstream, emptyDownstream,
     seed: () => clone(SEED),
     all: () => state,

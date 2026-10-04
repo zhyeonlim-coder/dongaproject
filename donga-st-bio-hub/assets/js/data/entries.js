@@ -241,12 +241,26 @@ window.Entries = (function () {
 
   function reset() { state = JSON.parse(JSON.stringify(EMPTY)); emit("reset"); }
 
+  /* 저장소에서 다시 읽어 들입니다 — 다른 탭이 값을 바꿨을 때 씁니다.
+     메모리 사본을 그대로 두면 그 탭은 자기가 들고 있던 옛 값을 계속
+     보여 주고, 두 화면이 서로 다른 숫자를 띄운 채 둘 다 그럴듯합니다. */
+  function reload() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      state = raw ? Object.assign({}, EMPTY, JSON.parse(raw)) : JSON.parse(JSON.stringify(EMPTY));
+    } catch (e) { return false; }
+    /* save() 를 부르지 않고 구독자에게만 알립니다 — 방금 읽은 것을
+       되쓰면 다른 탭의 더 새로운 쓰기를 덮을 수 있습니다. */
+    subs.slice().forEach(fn => { try { fn("reload", state); } catch (e) {} });
+    return true;
+  }
+
   return {
     getSamples, getSamplesByStudy, addSample, deactivateSample,
     getGroups, addGroup, removeGroup,
     getValue, getScopeValues, setValue, needsReason, REASON_PRESETS,
     caption, hasHistory, stamp, stampHuman, who,
-    subscribe, reset,
+    subscribe, reset, reload,
     state: () => state
   };
 })();

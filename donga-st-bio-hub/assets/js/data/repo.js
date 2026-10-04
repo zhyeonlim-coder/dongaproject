@@ -190,6 +190,26 @@ window.Repo = (function () {
   /* 저장소가 스스로 바뀐 경우(다른 탭 · 나중엔 서버 push)도 흘려보냅니다 */
   store.onChange(function (what) { if (what === "value") notify("value"); });
 
+  /* ── 다른 탭에서 바뀐 것 받아오기 ──────────────────────────────────
+     이 앱은 화면마다 페이지가 따로입니다. 대시보드를 한 탭에, Data 입력을
+     다른 탭에 띄워 두고 쓰는 일이 흔한데, 지금까지는 입력한 쪽만 바뀌고
+     보고 있던 쪽은 새로고침해야 따라왔습니다. 두 화면이 서로 다른 숫자를
+     띄운 채 둘 다 그럴듯해서, 어느 쪽이 맞는지 알 수 없었습니다.
+
+     storage 이벤트는 **다른 탭**에서 바뀔 때만 옵니다 (자기 탭은 안 옵니다).
+     그래서 받은 쪽은 읽기만 하고 되쓰지 않습니다 — 되쓰면 더 새로운 쓰기를
+     덮습니다. */
+  if (typeof window !== "undefined" && window.addEventListener) {
+    window.addEventListener("storage", function (e) {
+      if (!e.key || String(e.key).indexOf("hub.") !== 0) return;
+      let moved = false;
+      if (window.Entries && window.Entries.reload) moved = window.Entries.reload() || moved;
+      if (window.Dataset && window.Dataset.reload) moved = window.Dataset.reload() || moved;
+      if (window.Aliases && window.Aliases.apply) window.Aliases.apply();
+      notify("remote");
+    });
+  }
+
   /* ── Entries 키 규칙 ──────────────────────────────────────────────────
      EBR 이 쓰는 키와 조회가 읽는 키가 같아야 합니다. 예전에는 달랐습니다 —
      일자별 Titer 를 EBR 은 "titer_D10" 으로 저장하는데 조회는 "D10" 을

@@ -301,11 +301,73 @@ window.Backup = (function () {
 
         '<div class="bk-sec-h" style="margin-top:var(--s-6)">가져오기</div>' +
         (pending ? importPreview() : importPicker()) +
+
+        resetSection() +
       '</div>' +
 
       '<div class="modal-foot">' +
         '<button class="btn btn-ghost btn-sm" id="bk-close">닫기</button>' +
       '</div></div>';
+  }
+
+  /* ── 기본 데이터로 초기화 ─────────────────────────────────────────────
+     되돌릴 수 없는 동작이라 두 가지를 지켰습니다.
+
+       · 무엇을 지울지 고릅니다. 표 모양만 되돌리고 값은 지키는 일이 실제로
+         제일 잦습니다 — 열을 잘못 늘렸다고 측정값까지 버릴 이유가 없습니다.
+       · 지우기 전에 내려받기를 권합니다. 이 자리를 내보내기 바로 아래에
+         둔 것도 그 때문입니다.
+
+     여기서 지우는 것은 **이 브라우저에 쌓인 것** 입니다. 원본 Excel 에서
+     온 씨앗은 코드에 있으므로 초기화하면 그 상태로 돌아갑니다. */
+  const RESET_PARTS = [
+    { id: "values", ko: "입력한 값과 변경 이력",
+      keys: ["hub.entries.v1"],
+      note: "칸에 적은 숫자 · 사유 · 누가 언제 고쳤는지" },
+    { id: "records", ko: "직접 만든 Study · Batch · 시료",
+      keys: ["hub.dataset.v1"],
+      note: "원본 Excel 의 28개 배치는 그대로 돌아옵니다" },
+    { id: "shape", ko: "표 모양 (열 · 행 · 고친 이름)",
+      keys: ["hub.ws.cols", "hub.ws.rows", "hub.ws.rows.cols", "hub.ws.axis",
+             "hub.aliases.v1", "hub.data.grid", "hub.ebr.live"],
+      note: "늘린 열 · 추가한 항목 · 바꾼 이름 · 보기 설정" }
+  ];
+
+  function resetSection() {
+    return '<div class="bk-sec-h" style="margin-top:var(--s-6)">기본 데이터로 초기화</div>' +
+      '<div class="bk-reset">' +
+        RESET_PARTS.map(p =>
+          '<label class="bk-reset-row">' +
+            '<input type="checkbox" data-rs="' + esc(p.id) + '">' +
+            '<span><b>' + esc(p.ko) + '</b><br>' +
+              '<span class="bk-reset-note">' + esc(p.note) + '</span></span>' +
+          '</label>').join("") +
+        '<p class="bk-note">되돌릴 수 없습니다. 지우기 전에 위 [JSON 파일로 내려받기] 로 ' +
+          '한 벌 받아 두시길 권합니다.</p>' +
+        '<button class="btn btn-ghost btn-sm" id="bk-reset" ' +
+          'style="border-color:var(--c-risk);color:var(--c-risk)">선택한 항목 초기화</button>' +
+      '</div>';
+  }
+
+  function doReset(ids) {
+    const parts = RESET_PARTS.filter(p => ids.indexOf(p.id) > -1);
+    if (!parts.length) { msg = "지울 항목을 하나 이상 고르세요."; msgTone = "warn"; repaint(); return; }
+
+    const names = parts.map(p => p.ko).join(" · ");
+    if (!window.confirm("다음을 이 브라우저에서 지웁니다.\n\n· " +
+        parts.map(p => p.ko).join("\n· ") +
+        "\n\n되돌릴 수 없습니다. 계속할까요?")) return;
+
+    parts.forEach(p => p.keys.forEach(function (k) {
+      try { localStorage.removeItem(k); } catch (e) {}
+    }));
+
+    /* 메모리 사본까지 비워야 이 탭이 살아 있는 동안에도 돌아갑니다.
+       지우고 새로고침하지 않으면 화면은 옛 값을 계속 들고 있습니다. */
+    msg = names + " 을(를) 초기화했습니다. 화면을 새로 불러옵니다.";
+    msgTone = "ok";
+    repaint();
+    setTimeout(() => window.location.reload(), 600);
   }
 
   function importPicker() {
@@ -358,6 +420,14 @@ window.Backup = (function () {
       msg = "내려받았습니다. 이 파일이 있으면 캐시를 지워도 되돌릴 수 있습니다.";
       msgTone = "ok";
       repaint();
+    });
+
+    const rs = $("#bk-reset");
+    if (rs) rs.addEventListener("click", function () {
+      const picked = Array.prototype.slice
+        .call(document.querySelectorAll("[data-rs]"))
+        .filter(cb => cb.checked).map(cb => cb.dataset.rs);
+      doReset(picked);
     });
 
     const drop = $("#bk-drop"), file = $("#bk-file");

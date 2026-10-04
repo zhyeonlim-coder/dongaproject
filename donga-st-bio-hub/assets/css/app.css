@@ -3132,3 +3132,22 @@ body.is-colresize { cursor: col-resize; user-select: none; }
   border: 0; border-radius: 50%; background: transparent; color: var(--c-text-soft);
 }
 .live-chip button:hover { background: #FBEBEB; color: var(--c-risk); }
+
+/* 대시보드 — 직접 추가한 항목 고르기 */
+.dash-custpick {
+  display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap;
+  margin-bottom: var(--s-3); font-size: 11.5px; color: var(--c-text-mute);
+}
+.dash-custpick select { min-height: 30px; font-size: 12px; max-width: 300px; }
+
+/* 백업 창 — 기본 데이터로 초기화 */
+.bk-reset {
+  border: 1px solid #F0D4D4; border-radius: var(--r-md);
+  background: #FEFAFA; padding: var(--s-4);
+}
+.bk-reset-row {
+  display: flex; gap: 9px; align-items: flex-start;
+  padding: var(--s-2) 0; font-size: 12.5px; cursor: pointer;
+}
+.bk-reset-row input { margin-top: 3px; flex: none; }
+.bk-reset-note { font-size: 11px; color: var(--c-text-mute); line-height: 1.6; }

@@ -513,6 +513,76 @@
      이 화면의 view 를 따릅니다. */
   function currentTeam() { return view; }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     직접 추가한 항목 — Data 입력에서 만든 행 · 열
+
+     스키마에 없는 항목이라 고정 그래프에 자리가 없습니다. 그렇다고 입력
+     화면에만 두면 적어 놓고도 비교할 수 없는 숫자가 됩니다.
+
+     그래서 드롭다운 하나와 그래프 하나를 둡니다. 고를 거리는 **실제로
+     값이 있는 항목** 뿐입니다 — 없는 조합까지 늘어놓으면 목록이 조합 수만큼
+     길어지고, 고르면 빈 그래프가 나옵니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  let customPick = null;
+
+  function customMetrics(batches) {
+    if (!window.Entries || !window.Entries.getScopeValues) return [];
+    const seen = {};
+    (batches || []).forEach(function (b) {
+      const vals = window.Entries.getScopeValues("batch:" + b.id) || {};
+      Object.keys(vals).forEach(function (k) {
+        if (k.indexOf("ws_") !== 0 || k.indexOf("@") < 0) return;
+        if (!seen[k]) seen[k] = { key: k, label: customLabel(k) };
+      });
+    });
+    return Object.keys(seen).sort().map(k => seen[k]);
+  }
+  function customLabel(storeKey) {
+    const at = storeKey.indexOf("@");
+    const rowKey = storeKey.slice(3, at), col = storeKey.slice(at + 1);
+    let name = rowKey;
+    (window.DATA_ANALYTE_GROUPS || []).some(function (g) {
+      const it = (g.items || []).find(x => window.Repo.fieldKey(g.id, x.key) === rowKey);
+      if (it) { name = it.label; return true; }
+      return false;
+    });
+    if (rowKey === "titer") name = (window.DATA_TITER_ITEM || {}).label || "Titer";
+    return name + " · " + col;
+  }
+
+  function customSection(batches) {
+    const list = customMetrics(batches);
+    if (!list.length) return "";
+    if (!customPick || !list.some(m => m.key === customPick)) customPick = list[0].key;
+
+    const rows = (batches || []).map(function (b) {
+      const rec = window.Entries.getValue("batch:" + b.id, customPick);
+      const n = rec ? window.VAL.numeric(window.VAL.coerce(rec.value)) : null;
+      return { id: b.id, v: (n === null || n === undefined) ? NaN : n };
+    }).filter(r => isFinite(r.v));
+
+    const picker =
+      '<div class="dash-custpick">' +
+        '<label for="dash-cust"><b>항목</b></label>' +
+        '<select class="input" id="dash-cust">' +
+          list.map(m => '<option value="' + esc(m.key) + '"' +
+            (m.key === customPick ? " selected" : "") + '>' + esc(m.label) + '</option>').join("") +
+        '</select>' +
+        '<span>Data 입력에서 직접 추가한 항목입니다</span>' +
+      '</div>';
+
+    const inner = rows.length
+      ? C.bars({ cats: rows.map(r => r.id),
+                 series: [{ name: "값", data: rows.map(r => r.v), color: "#6D28D9" }],
+                 h: CH_H, w: 820 })
+      : '<div class="empty"><div class="empty-title">이 항목에 적힌 값이 없습니다</div></div>';
+
+    return '<div class="dash-teamhead" style="border-left-color:#6D28D9">직접 추가한 항목</div>' +
+      picker +
+      card("배치별 비교", "원본 서식에 없는 항목이라 따로 모았습니다 · 값이 있는 배치만",
+        inner, "#6D28D9");
+  }
+
   function chartSections(team, batches, samples) {
     if (!batches.length) {
       return '<div class="empty"><div class="empty-title">' + esc(L.noResult) + '</div>' +
@@ -630,9 +700,11 @@
         studyPicker(studies, sel) +
         (teamEmpty
           ? teamEmptyState(teamKo, desc.study, teamSet)
-          : chartSections(view, batches, samples));
+          : chartSections(view, batches, samples) + customSection(batches));
 
       wireCommon();
+      const cp = document.getElementById("dash-cust");
+      if (cp) cp.addEventListener("change", function () { customPick = this.value; render(); });
       const back = document.getElementById("dash-toall");
       if (back) back.addEventListener("click", () => setView(null));
     });
@@ -673,5 +745,13 @@
      없고, 남겨 두면 값이 바뀔 때마다 그래프를 통째로 다시 그립니다. */
   window.Scope.subscribe(render);
   window.Entries.subscribe(render);
+
+  /* 다른 탭에서 바뀐 것 · 레코드가 늘어난 것도 받습니다 —
+     값 변경은 Entries 가, Study·Batch 추가는 Repo 가 알려 줍니다. */
+  if (window.Repo && window.Repo.subscribe) {
+    window.Repo.subscribe(function (what) {
+      if (what === "remote" || what === "dataset") render();
+    });
+  }
   render();
 })();

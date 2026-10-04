@@ -2116,6 +2116,14 @@
   window.StudySelector.mount($("#selector"), { mode: "pick" });
   window.Scope.subscribe(function () { batchId = null; sampleId = null; render(); });
   window.Entries.subscribe(render);
+
+  /* 다른 탭에서 바뀐 것 · 레코드가 늘어난 것도 받습니다 —
+     값 변경은 Entries 가, Study·Batch 추가는 Repo 가 알려 줍니다. */
+  if (window.Repo && window.Repo.subscribe) {
+    window.Repo.subscribe(function (what) {
+      if (what === "remote" || what === "dataset") render();
+    });
+  }
   window.Requests.subscribe(render);
   render();
 })();
