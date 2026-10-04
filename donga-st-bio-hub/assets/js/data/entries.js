@@ -32,7 +32,7 @@ window.Entries = (function () {
   "use strict";
 
   const KEY = "hub.entries.v1";
-  /* 서버 모드에서 시료00b7묶음을 담는 설정 키 */
+  /* 서버 모드에서 시료·묶음을 담는 설정 키 */
   const AUX_KEY = "hub.entries.aux";
   const EMPTY = { samples: [], values: {}, groups: [] };
   const subs = [];

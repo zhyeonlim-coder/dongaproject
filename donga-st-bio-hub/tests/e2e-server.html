@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>중앙 서버 E2E 검사 · Bio Knowledge Hub</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 24px; background: #0A192F; color: #E6ECF5;
+         font: 13px/1.6 "IBM Plex Mono", ui-monospace, Consolas, monospace; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .sub { color: #8FA2BB; font-size: 12px; margin-bottom: 18px; max-width: 76ch; }
+  .verdict { display: inline-block; padding: 4px 12px; border-radius: 999px;
+             font-weight: 700; margin-bottom: 16px; }
+  .ok { background: #123A2A; color: #6EE7B7; }
+  .no { background: #3A1218; color: #FCA5A5; }
+  .unk { background: #3A2E12; color: #FCD34D; }
+  pre { white-space: pre-wrap; overflow-x: auto; background: #0E2340; border: 1px solid #1E3A5F;
+        border-radius: 8px; padding: 14px; }
+  .warn { background: #2A1A0E; border: 1px solid #7C4A12; border-radius: 8px;
+          padding: 12px 14px; margin-bottom: 18px; color: #FCD34D; max-width: 76ch; }
+  .hint { color: #8FA2BB; font-size: 12px; margin-top: 14px; line-height: 1.8; }
+  code { background: #0E2340; padding: 1px 5px; border-radius: 4px; }
+  button { font: inherit; background: #1E3A5F; color: #E6ECF5; border: 1px solid #2E4E78;
+           border-radius: 6px; padding: 7px 14px; cursor: pointer; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+
+<h1>중앙 서버 E2E 검사</h1>
+<p class="sub">
+  Vercel Postgres 에 실제로 쓰고, 실제로 다시 읽고, 저장이 실패할 때 되돌아가는지
+  확인합니다. 다른 검사들은 모두 가짜 저장소 위에서 돌지만 이 검사만 진짜 DB 를
+  건드립니다.
+</p>
+
+<div class="warn">
+  <b>이 검사는 로그인한 상태에서만 의미가 있습니다.</b>
+  먼저 로그인 화면에서 <b>서버 접속 비밀값</b>을 넣어 서버에 연결한 뒤 이 페이지를 여세요.
+  연결되어 있지 않으면 1번 그룹만 보고 멈춥니다.<br><br>
+  쓰기는 모두 <code>batch:__E2E__</code> 라는 어느 화면에도 없는 범위에 하고, 끝나면 지웁니다.
+  실제 배치에는 <code>ws_E2E검사@v</code> 라는 추가 열 하나만 적었다가 되돌립니다 —
+  원본 Excel 항목은 읽기만 합니다. 씨앗 심기와 전체 비우기는 돌리지 않습니다.
+</div>
+
+<button id="again">다시 실행</button>
+
+<div id="verdict"></div>
+<pre id="out">실행 중…</pre>
+
+<p class="hint">
+  콘솔에서 직접: <code>await E2EServer.run()</code> ·
+  <code>E2EServer.text(await E2EServer.run())</code><br>
+  설정 방법은 <code>tests/SERVER-SETUP.md</code> 에 있습니다.
+</p>
+
+<!-- 데이터 계층 — 실제 화면과 같은 순서로 싣습니다.
+     ★ 다른 검사들과 달리 HUB_DATASET_SEED_ONLY 를 켜지 않습니다. 이 검사는
+       실제 저장 경로를 확인하는 것이 목적이므로, 실제 화면과 같아야 합니다. -->
+<script src="../assets/js/data.js"></script>
+<script src="../assets/js/auth.js"></script>
+<script src="../assets/js/data/provenance.js"></script>
+<script src="../assets/js/data/persist.js"></script>
+<script src="../assets/js/data/server.js"></script>
+<script src="../assets/js/data/labels.js"></script>
+<script src="../assets/js/data/value.js"></script>
+<script src="../assets/js/data/projects.js"></script>
+<script src="../assets/js/data/studies.js"></script>
+<script src="../assets/js/data/batches.js"></script>
+<script src="../assets/js/data/downstream.js"></script>
+<script src="../assets/js/data/samples.js"></script>
+<script src="../assets/js/data/dataset.js"></script>
+<script src="../assets/js/data/aliases.js"></script>
+<script src="../assets/js/data/entries.js"></script>
+<script src="../assets/js/data/repo.js"></script>
+<script src="../assets/js/data/bootstrap.js"></script>
+
+<script src="e2e-server.js"></script>
+<script>
+(async function () {
+  const out = document.getElementById("out");
+  const vd  = document.getElementById("verdict");
+
+  async function go() {
+    out.textContent = "실행 중…";
+    vd.innerHTML = "";
+    /* 부팅이 끝나기를 기다립니다 — 서버에서 한 벌 받아오기 전에 돌리면
+       아직 씨앗만 보고 있는 상태를 검사하게 됩니다. */
+    try { if (window.HubBoot && window.HubBoot.ready) await window.HubBoot.ready; } catch (e) {}
+
+    let rows;
+    try {
+      rows = await window.E2EServer.run();
+    } catch (e) {
+      out.textContent = "검사 자체가 중단되었습니다: " + (e && e.message);
+      vd.innerHTML = '<span class="verdict no">중단</span>';
+      return;
+    }
+
+    out.textContent = window.E2EServer.text(rows);
+    const v = window.E2EServer.verdict(rows);
+    vd.innerHTML = v === "pass"
+      ? '<span class="verdict ok">전체 통과</span>'
+      : (v === "unknown"
+          ? '<span class="verdict unk">확인 못 한 항목 있음 (UNKNOWN)</span>'
+          : '<span class="verdict no">실패 있음</span>');
+  }
+
+  document.getElementById("again").addEventListener("click", go);
+  go();
+})();
+</script>
+</body>
+</html>
