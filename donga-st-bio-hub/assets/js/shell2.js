@@ -155,24 +155,35 @@ window.Shell = (function () {
 
      <span id="store-note" data-subject="예약"> 처럼 주어만 적어 두면
      나머지는 실제 상태를 읽어 채웁니다. */
+  /* 은/는 고르기. 주어가 화면마다 달라서 하나로 못박을 수 없습니다 —
+     "예약는", "일정는" 처럼 적히면 읽는 사람이 먼저 그것부터 봅니다.
+     한글 음절은 (코드 - 0xAC00) % 28 이 0 이 아니면 받침이 있습니다. */
+  function topic(word) {
+    const s = String(word || "");
+    const c = s.charCodeAt(s.length - 1);
+    if (c >= 0xAC00 && c <= 0xD7A3) return ((c - 0xAC00) % 28) ? "은" : "는";
+    return "는";                      /* 한글이 아니면 무난한 쪽으로 */
+  }
+
   function paintStoreNote() {
     const el = document.getElementById("store-note");
     if (!el || !window.HubBoot) return;
     const what = el.getAttribute("data-subject") || "입력 데이터";
+    const eun = what + topic(what);
 
     function draw() {
       const n = window.HubBoot.note();
       if (n.mode === "server" && n.serverReady) {
-        el.textContent = what + "는 중앙 데이터베이스에 저장됩니다 — 다른 PC·다른 사람도 같은 내용을 봅니다.";
+        el.textContent = eun + " 중앙 데이터베이스에 저장됩니다 — 다른 PC·다른 사람도 같은 내용을 봅니다.";
       } else if (n.mode === "server") {
         el.textContent = "서버에서 데이터를 읽지 못했습니다 (" + (n.reason || "") +
                          "). 지금 보이는 내용은 최신이 아닐 수 있으니 새로 고쳐 보세요.";
       } else if (n.reason === "로그인 필요") {
         el.textContent = "서버는 켜져 있지만 이 브라우저는 연결되지 않았습니다 — 다시 로그인해 " +
-                         "'서버 접속 비밀값' 을 입력하세요. 그 전까지 " + what + "는 이 브라우저에만 남습니다.";
+                         "'서버 접속 비밀값' 을 입력하세요. 그 전까지 " + eun + " 이 브라우저에만 남습니다.";
       } else {
-        el.textContent = "중앙 서버가 설정되지 않아 " + what +
-                         "는 이 브라우저에만 저장됩니다 — 다른 PC 에서는 보이지 않습니다.";
+        el.textContent = "중앙 서버가 설정되지 않아 " + eun +
+                         " 이 브라우저에만 저장됩니다 — 다른 PC 에서는 보이지 않습니다.";
       }
     }
 
