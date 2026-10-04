@@ -11,16 +11,24 @@
    ========================================================================== */
 
 const A = require("./_auth");
+const DB = require("./_db");
 const S = require("./_shared");
 
 module.exports = async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
 
   if (req.method === "GET") {
-    return res.status(200).json({
+    /* 진단까지 함께 돌려줍니다. 설정한 사람이 "넣었는데 왜 안 되지" 에서
+       멈추지 않도록, 무엇이 비어 있는지는 알려 줍니다.
+       ★ 비밀값도 그 길이도 담지 않습니다 — 없음 / 너무 짧음 구분까지입니다.
+       ★ db 는 Postgres 가 붙었는지 여부(참·거짓)일 뿐 접속 정보가 아닙니다. */
+    const out = {
       configured: A.configured(),
-      signedIn: A.configured() && A.validToken(A.readCookie(req, A.COOKIE))
-    });
+      signedIn: A.configured() && A.validToken(A.readCookie(req, A.COOKIE)),
+      db: DB.configured()
+    };
+    if (!out.configured) { out.reason = A.why(); out.minSecretLength = A.MIN_SECRET; }
+    return res.status(200).json(out);
   }
 
   if (req.method === "DELETE") {
@@ -36,7 +44,10 @@ module.exports = async function handler(req, res) {
   if (!A.configured()) {
     return res.status(503).json({
       error: "not-configured",
-      message: "HUB_ACCESS_SECRET 환경변수가 없습니다."
+      reason: A.why(),
+      message: A.why() === "secret-too-short"
+        ? "HUB_ACCESS_SECRET 이 너무 짧습니다 (" + A.MIN_SECRET + "자 이상)."
+        : "HUB_ACCESS_SECRET 환경변수가 없습니다."
     });
   }
 

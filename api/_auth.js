@@ -26,14 +26,28 @@ const crypto = require("crypto");
 const COOKIE = "hub_session";
 const MAX_AGE = 60 * 60 * 12;          /* 12시간 — 하루 일과보다 조금 깁니다 */
 
+const MIN_SECRET = 16;
+
 function secret() {
   const s = process.env.HUB_ACCESS_SECRET;
-  if (!s || typeof s !== "string" || s.length < 16) return null;
+  if (!s || typeof s !== "string" || s.length < MIN_SECRET) return null;
   return s;
 }
 
 /* 설정 여부만 돌려줍니다 — 값은 어디로도 나가지 않습니다 */
 function configured() { return !!secret(); }
+
+/* 왜 꺼져 있는가 — 설정한 사람이 스스로 고칠 수 있도록.
+
+   ★ 값도, 실제 길이도 내보내지 않습니다. "없음" 과 "너무 짧음" 둘 중
+     하나만 구분합니다. 이 구분이 없으면 환경변수를 넣고도 왜 안 되는지
+     알 방법이 없어, 결국 기능을 꺼 둔 채 끝납니다. */
+function why() {
+  const s = process.env.HUB_ACCESS_SECRET;
+  if (!s || typeof s !== "string" || !s.length) return "secret-missing";
+  if (s.length < MIN_SECRET) return "secret-too-short";
+  return null;
+}
 
 function sign(payload) {
   return crypto.createHmac("sha256", secret()).update(payload).digest("base64url");
@@ -92,7 +106,10 @@ function guard(req, res) {
   if (!configured()) {
     res.status(503).json({
       error: "not-configured",
-      message: "HUB_ACCESS_SECRET 환경변수가 없습니다. 서버 데이터 기능이 꺼져 있습니다."
+      reason: why(),
+      message: why() === "secret-too-short"
+        ? "HUB_ACCESS_SECRET 이 너무 짧습니다 (" + MIN_SECRET + "자 이상). 서버 데이터 기능이 꺼져 있습니다."
+        : "HUB_ACCESS_SECRET 환경변수가 없습니다. 서버 데이터 기능이 꺼져 있습니다."
     });
     return false;
   }
@@ -104,6 +121,6 @@ function guard(req, res) {
 }
 
 module.exports = {
-  COOKIE, MAX_AGE, configured, makeToken, validToken,
+  COOKIE, MAX_AGE, MIN_SECRET, configured, why, makeToken, validToken,
   readCookie, setCookie, clearCookie, secretMatches, guard
 };
