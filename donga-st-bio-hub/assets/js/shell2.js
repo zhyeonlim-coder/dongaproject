@@ -147,6 +147,42 @@ window.Shell = (function () {
     if (window.HubServer && window.HubServer.subscribe) window.HubServer.subscribe(draw);
   }
 
+  /* 화면 아래 "이 데이터가 어디 저장되나" 한 줄.
+
+     ★ 못박아 두지 않습니다. 예전에는 "브라우저에 저장되며 공유되지 않습니다"
+       라고 적혀 있었고, 서버가 켜진 뒤로는 그것이 거짓말이었습니다. 사용자가
+       그 말을 믿으면 공유되는 데이터를 안 된다고 여기고 따로 또 저장합니다.
+
+     <span id="store-note" data-subject="예약"> 처럼 주어만 적어 두면
+     나머지는 실제 상태를 읽어 채웁니다. */
+  function paintStoreNote() {
+    const el = document.getElementById("store-note");
+    if (!el || !window.HubBoot) return;
+    const what = el.getAttribute("data-subject") || "입력 데이터";
+
+    function draw() {
+      const n = window.HubBoot.note();
+      if (n.mode === "server" && n.serverReady) {
+        el.textContent = what + "는 중앙 데이터베이스에 저장됩니다 — 다른 PC·다른 사람도 같은 내용을 봅니다.";
+      } else if (n.mode === "server") {
+        el.textContent = "서버에서 데이터를 읽지 못했습니다 (" + (n.reason || "") +
+                         "). 지금 보이는 내용은 최신이 아닐 수 있으니 새로 고쳐 보세요.";
+      } else if (n.reason === "로그인 필요") {
+        el.textContent = "서버는 켜져 있지만 이 브라우저는 연결되지 않았습니다 — 다시 로그인해 " +
+                         "'서버 접속 비밀값' 을 입력하세요. 그 전까지 " + what + "는 이 브라우저에만 남습니다.";
+      } else {
+        el.textContent = "중앙 서버가 설정되지 않아 " + what +
+                         "는 이 브라우저에만 저장됩니다 — 다른 PC 에서는 보이지 않습니다.";
+      }
+    }
+
+    draw();
+    if (window.HubBoot.ready && window.HubBoot.ready.then) {
+      window.HubBoot.ready.then(draw).catch(function () {});
+    }
+    if (window.HubServer && window.HubServer.subscribe) window.HubServer.subscribe(draw);
+  }
+
   function mount(opts) {
     const o = opts || {};
     const user = window.Auth.requireSession();
@@ -214,6 +250,7 @@ window.Shell = (function () {
       window.Scope.setScope(v.slice(0, i), v.slice(i + 1));
     });
     paintStore();
+    paintStoreNote();
 
     const bk = document.getElementById("topbackup");
     if (bk && window.Backup) bk.addEventListener("click", () => window.Backup.open());
