@@ -169,6 +169,14 @@ window.GlobalAI = (function () {
   function route(q, ctx) {
     const t = String(q || "");
 
+    /* ★ 목록형 기록(이슈 · 의뢰 · 일정 · 할 일 · 예약)을 먼저 봅니다.
+       이 갈래가 없을 때는 "열린 이슈 몇 건이야" 가 아래 측정 데이터 엔진까지
+       흘러가 **배치 개수인 28건**을 답했습니다. 묻지 않은 표의 숫자를 답으로
+       내는 것이라, 화면만 봐서는 틀렸다는 걸 알 수 없었습니다. */
+    if (window.AIRecords && window.AIRecords.detect(t)) {
+      return { tool: "searchRecords", args: { question: t } };
+    }
+
     if (LIT_WORDS.some(w => has(t, w))) {
       return { tool: "searchLiterature", args: { query: litQuery(t) } };
     }

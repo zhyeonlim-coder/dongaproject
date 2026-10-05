@@ -220,6 +220,18 @@ window.AITools = (function () {
   /* ── 12~13. 문헌 — 기존 LitAPI 그대로 ───────────────────────────────
      Europe PMC · Crossref 실제 응답만 씁니다. DOI 가 없는 논문은 없는 채로
      둡니다 — 지어내면 그 순간 이 기능의 쓸모가 사라집니다. */
+  /* 이슈 · 의뢰 · 일정 · 할 일 · 예약 — 저장소에 있는 것만 셉니다 */
+  function searchRecords(args) {
+    const q = String((args && args.question) || "").trim();
+    if (!window.AIRecords) return no("기록 조회 모듈이 로드되지 않았습니다.");
+    const a = window.AIRecords.answer(q);
+    if (!a) return no("어떤 기록을 찾으시는지 알아듣지 못했습니다.");
+    /* 읽을 수 없는 화면이면 그렇다고 말합니다 — 0건이라고 답하지 않습니다.
+       "이 화면에서 못 본다" 와 "없다" 는 전혀 다른 말입니다. */
+    return ok(a, { source: a.source || "사내 기록",
+      rows: a.ok && a.facts && a.facts[2] ? parseInt(a.facts[2].v, 10) : null });
+  }
+
   function searchLiterature(args) {
     const q = String((args && args.query) || "").trim();
     if (!q) return Promise.resolve(no("무엇을 찾을지 알려 주세요."));
@@ -511,6 +523,11 @@ window.AITools = (function () {
     { name: "searchExperimentData", ko: "실험 데이터 조회",
       description: "사내 실험 데이터에서 조회·필터·집계·최고/최저·비교·추이를 수행합니다. 자연어 질문을 그대로 넘깁니다.",
       params: { question: "string" }, run: searchExperimentData },
+    /* 측정 데이터가 아닌 기록 — 이슈 · 의뢰 · 일정 · 할 일 · 장비 예약.
+       읽기만 합니다 (이슈를 닫거나 예약을 잡지 않습니다). */
+    { name: "searchRecords", ko: "기록 조회",
+      description: "이슈 · 시험 의뢰 · 일정 · 할 일 · 장비 예약 기록을 조회합니다. 측정 데이터가 아닙니다.",
+      params: { question: "string" }, run: searchRecords },
     { name: "getExperiment", ko: "배치 상세",
       description: "배치 하나의 모든 기록된 값을 가져옵니다.",
       params: { batch: "string" }, run: getExperiment },

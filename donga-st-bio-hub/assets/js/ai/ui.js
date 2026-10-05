@@ -361,6 +361,7 @@ window.GlobalAIUI = (function () {
       return '<div class="gai-a"><div class="gai-headline">' + esc(out.headline) + "</div>" +
         srcHTML(out.meta) + "</div>" + suggHTML(out.suggestions);
     }
+    if (out.kind === "records") return recordsHTML(out);
     if (out.kind === "action-proposal") return actionHTML(out);
     if (out.kind === "formatted") return formattedHTML(out);
     if (out.kind === "literature") return litHTML(out);
@@ -611,6 +612,29 @@ window.GlobalAIUI = (function () {
         "결국 규칙 경로로 답했습니다</span>");
     }
     return '<div class="gai-src">' + parts.join("") + "</div>";
+  }
+
+  /* 이슈 · 의뢰 · 일정 · 할 일 · 예약 — 측정 데이터와 다른 표임을 밝힙니다 */
+  function recordsHTML(out) {
+    const d = out.data;
+    if (!d || !d.headline) return incompleteHTML("기록 조회", out);
+
+    let h = '<div class="gai-headline">' + esc(d.headline) + "</div>";
+    if (d.facts && d.facts.length) {
+      h += '<div class="gai-tbl-wrap"><table class="gai-tbl"><tbody>' +
+        d.facts.map(f => "<tr><th>" + esc(f.k) + "</th><td>" + esc(f.v) + "</td></tr>").join("") +
+        "</tbody></table></div>";
+    }
+    if (d.rows && d.rows.length && d.evidenceCols && d.evidenceCols.length) {
+      h += '<div class="gai-tbl-wrap"><table class="gai-tbl"><thead><tr>' +
+        d.evidenceCols.map(c => "<th>" + esc(c.label) + "</th>").join("") +
+        "</tr></thead><tbody>" +
+        d.rows.map(r => "<tr>" + d.evidenceCols.map(c =>
+          "<td>" + esc(r[c.key] == null ? "—" : r[c.key]) + "</td>").join("") + "</tr>").join("") +
+        "</tbody></table></div>";
+    }
+    if (d.note) h += '<div class="gai-note">' + esc(d.note) + "</div>";
+    return h + srcHTML(out.meta) + suggHTML(d.suggestions);
   }
 
   /* 화면 조작 — 제안만 하고 사용자가 누를 때만 실행 */

@@ -3,6 +3,7 @@
   "_security": "이 파일은 배포 시점에 서버 번들에 포함됩니다. 요청으로 바꿀 수 없으므로, '클라이언트가 보낸 도구 목록을 그대로 믿지 않는다' 는 성질은 그대로입니다.",
   "tools": [
     "searchExperimentData",
+    "searchRecords",
     "getExperiment",
     "calculateStatistics",
     "calculateCV",

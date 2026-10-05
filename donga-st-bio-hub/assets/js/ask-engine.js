@@ -127,6 +127,28 @@ window.AskEngine = (function () {
     return !(before && /[a-z0-9]/.test(before)) && !(after && /[a-z0-9]/.test(after));
   }
 
+  /* ── 일반어 별칭 ──────────────────────────────────────────────────────
+     "수율" · "yield" 처럼 **한 분야 전체를 가리키는 말**입니다. 이런 말이
+     더 구체적인 말보다 글자 수가 길면, 길이 점수만으로는 일반어가 이깁니다.
+
+     실제로 그랬습니다 —
+       "CEX Step Yield 평균"  →  "cex"(3) 보다 "yield"(5) 가 길어서
+                                 **Total Yield 를 답했습니다.** 89.8% 를
+                                 물었는데 79.6% 가 나오고, 틀렸다는 표시도
+                                 없었습니다.
+
+     그래서 일반어는 **다른 항목이 함께 걸렸을 때 집니다.** 혼자 걸렸을
+     때만 제 값을 합니다 ("수율 평균" 은 여전히 Total Yield). */
+  const GENERIC_ALIAS = {
+    downstream_totalYield: ["수율", "yield", "회수율", "recovery"],
+    titerHCCF: ["생산량"],
+    finalViability: ["viability", "생존율", "생존도", "세포 생존"]
+  };
+  function isGeneric(key, alias) {
+    const list = GENERIC_ALIAS[key];
+    return !!list && list.indexOf(alias) > -1;
+  }
+
   function detectMetrics(text, table) {
     if (table.kind === "upload") return detectUploadColumns(text, table);
     const hits = [];
@@ -140,10 +162,15 @@ window.AskEngine = (function () {
       if (!col) return;
       const list = (ALIAS[key] || []).concat(extra[key] || []);
       /* 가장 긴 별칭이 걸린 것을 그 항목의 점수로 씁니다 */
-      let best = 0;
-      list.forEach(a => { if (has(text, a) && a.length > best) best = a.length; });
-      if (best) hits.push({ col, score: best });
+      let best = 0, bestAlias = null;
+      list.forEach(a => { if (has(text, a) && a.length > best) { best = a.length; bestAlias = a; } });
+      if (best) hits.push({ col, score: best, generic: isGeneric(key, bestAlias) });
     });
+
+    /* 일반어로만 걸린 항목은, 구체적인 항목이 함께 걸렸으면 내려놓습니다 */
+    if (hits.some(h => !h.generic)) {
+      for (let i = hits.length - 1; i >= 0; i--) if (hits[i].generic) hits.splice(i, 1);
+    }
     /* "D14 값" 처럼 일자만 적은 경우 — 별칭에 안 걸렸어도 받아 줍니다 */
     const dm = String(text).match(DAY_ONLY);
     if (dm) {
@@ -976,7 +1003,19 @@ window.AskEngine = (function () {
     if (v === null || v === undefined || !isFinite(v)) return "미입력";
     const dp = col && typeof col.dp === "number" ? col.dp
       : (Math.abs(v) >= 100 ? 1 : Math.abs(v) >= 1 ? 2 : 3);
-    const s = Number(v).toFixed(dp).replace(/\.?0+$/, "");
+    /* ★ 꼬리 0 은 **소수점 뒤에서만** 떼어 냅니다.
+       예전에는 /\.?0+$/ 로 한 번에 떼어 냈는데, dp 가 0 이면 소수점이
+       아예 없어서 **정수의 끝자리 0 까지 먹었습니다.**
+
+         Titer D13 1600 mg/L  →  "16 mg/L"   (100배 차이)
+         Titer D14 1400 mg/L  →  "14 mg/L"
+         Titer D11   20 mg/L  →  "2 mg/L"
+
+       일자별 Titer 11개 컬럼이 전부 dp=0 이라, 실제로 14개 값이 틀리게
+       표시되고 있었습니다. 검증기가 "근거를 확인하지 못한 수치" 로 잡아
+       문장을 막고 있었는데, 막힌 이유가 이것이었습니다. */
+    let s = Number(v).toFixed(dp);
+    if (s.indexOf(".") > -1) s = s.replace(/0+$/, "").replace(/\.$/, "");
     const out = s === "" || s === "-" ? "0" : s;
     const base = col && col.unit ? out + " " + col.unit : out;
     return (col && col.generated) ? base + GEN_MARK : base;
@@ -1480,6 +1519,30 @@ window.AskEngine = (function () {
       /* 목록을 보여 주더라도 "무엇을 못 알아들었는지"는 반드시 말합니다.
          질문을 못 읽은 채 전체를 펼쳐 놓고 잠자코 있으면, 그것도 조용한
          오답입니다 — 사용자는 자기 질문이 반영된 결과라고 믿게 됩니다. */
+      /* ★ "못 알아들었다" 가 늘 맞는 말은 아닙니다.
+         사용자가 **표에 그대로 있는 항목 이름**을 적었는데도 여기 왔다면,
+         못 알아들은 것이 아니라 그 이름에 별칭이 없었을 뿐입니다.
+         (Monomer · LC · HC · 2H1L 처럼 짧은 이름은 서로 잘못 걸릴까 봐
+         별칭을 비워 두었고, 그 결과 배치 목록이 나오고 있었습니다.) */
+      const byLabel = labelFallback(text, table);
+      if (byLabel.col) {
+        metrics = [byLabel.col];
+      } else if (byLabel.choices) {
+        /* 같은 이름이 여러 항목에 걸립니다 — 추측하지 않고 되묻습니다.
+           ("Monomer" 는 CE-SDS NR 과 SEC-HPLC 양쪽에 있습니다.) */
+        return decorate(Object.assign(base, {
+          ok: false, kind: "ambiguous-ref",
+          headline: "\"" + byLabel.word + "\" 에 해당하는 항목이 " +
+            byLabel.choices.length + "개입니다 — 어느 것인지 알려 주세요.",
+          facts: byLabel.choices.map(c => ({ k: "후보", v: c })),
+          choices: byLabel.choices,
+          note: "이름이 겹쳐서 하나로 좁히지 못했습니다. 추측해서 답하지 않았습니다.",
+          suggestions: byLabel.choices.map(c => c + " 평균")
+        }), cond, table);
+      }
+    }
+
+    if (!metrics.length && intent !== "missing" && intent !== "count") {
       cond.unhandled.push(scope.label.length
         ? "조회할 항목을 특정하지 못했습니다 — 범위만 적용하고 그 안의 기록을 그대로 펼쳤습니다"
         : "질문에서 조회할 항목도 범위(과제 · Study · 배치)도 찾지 못했습니다 — 전체 목록을 보여 드립니다");
@@ -1926,6 +1989,44 @@ window.AskEngine = (function () {
         "특정 항목만 보시려면 항목 이름을 넣어 다시 물어봐 주세요.",
       suggestions: suggestList(table)
     });
+  }
+
+  /* ── 컬럼 이름 자체를 별칭처럼 ────────────────────────────────────────
+     별칭 사전에 없는 항목이라도, 표에 적힌 이름 그대로 물으면 찾아 줍니다.
+     목록을 코드에 적어 두지 않고 **표에서 읽습니다** — 분석 항목이 늘면
+     하드코딩한 목록만 옛날 이야기를 하게 되기 때문입니다.
+
+     두 번 봅니다.
+       1) 전체 이름이 그대로 들어 있는가 ("SEC-HPLC Monomer")
+       2) 이름의 **끝말**이 들어 있는가 ("monomer")
+          끝말이 여러 항목에 걸리면 고르지 않고 되묻습니다. */
+  function labelFallback(text, table) {
+    const cols = (table.columns || []).filter(c => c.group !== "base" && c.label);
+
+    /* 1) 전체 이름 — 여럿이면 가장 긴(= 가장 구체적인) 것 */
+    const full = cols.filter(c => has(text, String(c.label).toLowerCase()));
+    if (full.length) {
+      full.sort((a, b) => String(b.label).length - String(a.label).length);
+      return { col: full[0] };
+    }
+
+    /* 2) 끝말 — "SE-HPLC Main" 과 "IE-HPLC Main" 의 "main" */
+    const byTail = {};
+    cols.forEach(function (c) {
+      const parts = String(c.label).trim().split(/\s+/);
+      const tail = parts[parts.length - 1].toLowerCase();
+      if (tail.length < 2) return;
+      (byTail[tail] = byTail[tail] || []).push(c);
+    });
+    const tails = Object.keys(byTail)
+      .filter(t => has(text, t))
+      .sort((a, b) => b.length - a.length);
+    if (!tails.length) return {};
+
+    const hitCols = byTail[tails[0]];
+    if (hitCols.length === 1) return { col: hitCols[0] };
+    return { word: hitCols[0].label.split(/\s+/).pop(),
+             choices: hitCols.map(c => c.label) };
   }
 
   /* 항목 없이 물었을 때의 기본 답 — 범위를 유지한 채 있는 것을 보여 줍니다 */
