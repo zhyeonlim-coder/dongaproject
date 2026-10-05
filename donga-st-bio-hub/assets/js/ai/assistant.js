@@ -30,6 +30,47 @@ window.GlobalAI = (function () {
      엔진에게 넘깁니다. 엔진이 못 읽으면 엔진이 스스로 그렇게 답합니다. */
   const LIT_WORDS = ["논문", "문헌", "paper", "publication", "pubmed", "doi",
                      "저널", "journal", "학술", "레퍼런스", "reference"];
+
+  /* ── 사내 데이터로는 답할 수 없는 말투 ────────────────────────────────
+     "관류배양 수율 올리는 법" 에는 "논문" 이라는 낱말이 없습니다. 그래서
+     사내 데이터 조회로 가서 **배치 28건을 표로 뿌리고 있었습니다.** 묻지
+     않은 표가 답처럼 보이는 상태입니다.
+
+     여기 있는 말들은 "값" 이 아니라 "방법 · 원인 · 동향" 을 묻습니다.
+     우리 표에는 그런 것이 없고, 문헌에는 있습니다.
+
+     ★ 이 목록만으로 문헌에 보내지 않습니다. **규칙이 질문을 아예 읽지
+       못했을 때만** 봅니다 (ruleMissed). 그래서 "역가 평균" 처럼 제대로
+       읽히는 질문은 이 말이 섞여 있어도 사내 데이터로 갑니다. */
+  const KNOWLEDGE_WORDS = [
+    "방법", "어떻게", "하는 법", "하는법", "방안", "전략",
+    "개선", "향상", "높이는", "높이려", "올리는", "올리려", "줄이", "낮추",
+    "원인", "왜 ", "이유", "때문",
+    "동향", "트렌드", "최신 연구", "연구 사례", "사례가", "일반적",
+    "알려진", "권장", "가이드라인", "가이드라인은",
+    "이란", "란 무엇", "뭐야", "무엇인가", "정의"
+  ];
+  function looksKnowledge(t) {
+    const s = String(t || "").toLowerCase();
+    return KNOWLEDGE_WORDS.some(w => s.indexOf(w) > -1);
+  }
+
+  /* 이 질문이 "우리 표의 값" 이 아니라 "지식" 을 묻고 있는가.
+
+     말투만 보면 모자랍니다 — "HCP 줄이는 방법" 은 HCP 라는 **우리 항목
+     이름**을 포함하므로 엔진이 HCP 통계를 내놓습니다. 그럴듯하지만 답이
+     아닙니다. 물은 것은 값이 아니라 방법이기 때문입니다.
+
+     그래서 엔진이 **무엇을 묻는 것으로 읽었는지**를 함께 봅니다.
+       stat · max · min · compare …  값을 콕 집어 물은 것 → 사내 데이터
+       list (기본값)                 값을 물은 게 아님   → 지식 질문일 수 있음 */
+  function looksKnowledgeAsk(question) {
+    if (!looksKnowledge(question)) return false;
+    try {
+      const r = window.AskEngine.answer(question, { table: window.AskTables.internal() });
+      return r.intent === "list" || r.kind === "overview";
+    } catch (e) { return false; }
+  }
   const DOE_WORDS = ["anova", "분산분석", "회귀", "regression", "최적 조건", "최적조건",
                      "최적화", "optimi", "설계", "doe", "인자", "factor"];
   const CALC_WORDS = ["물질수지", "mass balance", "feed", "seed", "희석", "dilution"];
@@ -377,7 +418,21 @@ window.GlobalAI = (function () {
     const started = Date.now();
     const koOf = n => ((window.AITools.SPEC.find(s => s.name === n) || {}).ko || n);
 
-    const willAsk = ruleMissed(question, rulePlan);
+    let willAsk = ruleMissed(question, rulePlan);
+
+    /* ★ 규칙이 질문을 못 읽었는데 말투가 "방법 · 원인 · 동향" 이면,
+       그건 우리 표에 없는 것을 묻고 있다는 뜻입니다. 배치 목록을 뿌리는
+       대신 문헌에서 찾습니다 — 실제 논문이고 출처가 함께 옵니다.
+
+       왜 여기냐면, 이 자리에서야 "규칙이 읽었는가" 를 알 수 있기 때문입니다.
+       route() 단계에서 말투만 보고 보내면 "역가 올리는 법" 처럼 항목이
+       분명한 질문까지 문헌으로 가 버립니다. */
+    if (rulePlan.tool === "searchExperimentData" && looksKnowledgeAsk(question)) {
+      rulePlan.tool = "searchLiterature";
+      rulePlan.args = { query: litQuery(question), viaFallback: true };
+      willAsk = false;
+    }
+
     if (willAsk) stage({ stage: "llm", tool: null, ko: null, via: "llm" });
     else stage({ stage: "tool", tool: rulePlan.tool, ko: koOf(rulePlan.tool), via: "rule" });
 

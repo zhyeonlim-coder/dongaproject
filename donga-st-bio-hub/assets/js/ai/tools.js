@@ -243,7 +243,12 @@ window.AITools = (function () {
         return no("\"" + q + "\" 로 검색된 논문이 없습니다.",
           { source: "Europe PMC · Crossref", rows: 0 });
       }
-      return ok({ kind: "literature", query: q, items: arr },
+      return ok({ kind: "literature", query: q, items: arr,
+        /* 왜 갑자기 논문이 나왔는지 밝힙니다. 사용자는 "논문" 이라고
+           말한 적이 없으므로, 말해 주지 않으면 엉뚱한 결과로 읽힙니다. */
+        why: (args && args.viaFallback)
+          ? "사내 실험 데이터에는 이 질문에 답할 항목이 없어 문헌에서 찾았습니다."
+          : null },
         { source: "Europe PMC · Crossref", rows: arr.length, external: true });
     }).catch(function (e) {
       return no("문헌 검색에 실패했습니다 — " + ((e && e.message) || "네트워크 오류") +

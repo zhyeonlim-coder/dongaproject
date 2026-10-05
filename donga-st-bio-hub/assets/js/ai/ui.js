@@ -734,6 +734,8 @@ window.GlobalAIUI = (function () {
     const items = out.data.items;
     return '<div class="gai-headline">"' + esc(out.data.query) + '" 검색 결과 ' +
       esc(items.length) + "건</div>" +
+      /* 사용자가 "논문" 이라고 하지 않았는데 논문이 나온 경우 — 이유를 먼저 */
+      (out.data.why ? '<div class="gai-note">' + esc(out.data.why) + "</div>" : "") +
       items.slice(0, 8).map(function (p) {
         return '<div class="gai-stat" style="padding:var(--s-3)">' +
           '<div style="font-weight:600;font-size:12.5px">' + esc(p.title) + "</div>" +

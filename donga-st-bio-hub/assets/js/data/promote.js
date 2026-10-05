@@ -51,7 +51,12 @@ window.Promote = (function () {
     { q: "최근 3개월 Titer 평균", rows: 26 },
     { q: "미디어 스크리닝 결과", scope: "Media screening test", rows: 6 },
     { q: "지난달 Titer 평균", unhandled: /지난달/ },
-    { q: "10일차 Titer 알려줘", unhandled: /D10/ },
+    /* 배양 경과일이 달력 기간으로 읽히면 안 됩니다 (rows 가 줄면 그런 것).
+       예전에는 "미처리 표시에 D10 이 있는가" 로 봤습니다 — 그때는 일자별
+       컬럼을 조회하지 못해 "읽었지만 못 쓴다" 가 맞는 말이었기 때문입니다.
+       지금은 titerDay_D10 으로 실제로 답하므로, 그 컬럼으로 답했는지를
+       직접 봅니다. */
+    { q: "10일차 Titer 알려줘", rows: 28, metric: "Titer D10" },
     { q: "배지 뭐가 제일 좋았어?", intent: "max", kind: "extreme" },
     { q: "Titer 평균", rows: 28 }
   ];
@@ -64,6 +69,12 @@ window.Promote = (function () {
     if (c.scope && r.scopeLabel !== c.scope) fail.push(c.q + ": scope=" + r.scopeLabel + " 기대=" + c.scope);
     if (c.applied && !c.applied.test((r.applied || []).join(" "))) fail.push(c.q + ": 해석 조건 없음");
     if (c.unhandled && !c.unhandled.test((r.unhandled || []).join(" "))) fail.push(c.q + ": 미처리 표시 없음");
+    /* 어느 항목으로 답했는가 — 의도·건수가 같아도 엉뚱한 컬럼을 집으면
+       잘못된 승격입니다 (실제로 "CEX Step Yield" 가 Total Yield 로 가던
+       적이 있었습니다). */
+    if (c.metric && (!r.metric || r.metric.label !== c.metric)) {
+      fail.push(c.q + ": 항목=" + ((r.metric && r.metric.label) || "없음") + " 기대=" + c.metric);
+    }
     return fail;
   }
 
