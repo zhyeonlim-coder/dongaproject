@@ -174,13 +174,21 @@ window.GlobalAIUI = (function () {
   function toggle() { open ? close() : show(); }
 
   /* ── 첫 화면 ─────────────────────────────────────────────────────────── */
+  /* 첫 인사도 대화의 일부로 둡니다 — 말풍선 바깥에 떠 있으면 대화가
+     어디서 시작하는지 흐려집니다. 추천 질문은 말풍선 아래에 둡니다
+     (답이 아니라 다음에 누를 것이므로). */
   function welcome() {
     const s = window.GlobalAI.suggestions();
     body.innerHTML =
-      '<div class="gai-empty">무엇을 도와드릴까요?<br>' +
-      '지금 보고 계신 화면을 기준으로 답합니다. 답에 쓰인 수치는 모두 ' +
-      '실제 데이터에서 계산한 뒤 다시 대조합니다 — 없는 값은 만들지 않습니다.</div>' +
-      suggHTML(s);
+      '<div class="gai-msg">' +
+        '<div class="gai-row is-ai">' + avatarHTML() +
+          '<div class="gai-bub is-ai"><div class="gai-a">무엇을 도와드릴까요?<br>' +
+          '지금 보고 계신 화면을 기준으로 답합니다. 답에 쓰인 수치는 모두 ' +
+          '실제 데이터에서 계산한 뒤 다시 대조합니다 — 없는 값은 만들지 않습니다.' +
+          "</div></div>" +
+        "</div>" +
+        '<div class="gai-row is-ai gai-row-sub">' + suggHTML(s) + "</div>" +
+      "</div>";
     wireSugg();
   }
   function suggHTML(list) {
@@ -204,10 +212,11 @@ window.GlobalAIUI = (function () {
 
     const msg = document.createElement("div");
     msg.className = "gai-msg";
-    msg.innerHTML = '<div class="gai-q">' + esc(question) + "</div>" +
-      '<div class="gai-a" data-slot>' + statusHTML("질문을 해석하는 중…") + "</div>";
+    msg.innerHTML =
+      '<div class="gai-row is-me"><div class="gai-bub is-me">' + esc(question) + "</div></div>" +
+      aiRowHTML(statusHTML("질문을 해석하는 중…"));
     body.appendChild(msg);
-    scroll();
+    scroll(true);
 
     const slot = msg.querySelector("[data-slot]");
     /* 도구 실행 단계를 알려 줍니다 — 무엇을 하고 있는지 보여야 기다립니다.
@@ -243,6 +252,26 @@ window.GlobalAIUI = (function () {
 
   function statusHTML(t) {
     return '<div class="gai-status"><span class="gai-dot"></span>' + esc(t) + "</div>";
+  }
+
+  /* ── 말풍선 한 줄 ────────────────────────────────────────────────────
+     답변은 아이콘 + 말풍선 한 쌍입니다. 답을 채워 넣는 자리는 말풍선
+     자체(data-slot)이고, 안에 들어가는 조각들(표 · 근거 · 추천 질문)은
+     지금까지 쓰던 그대로입니다 — 그리는 함수들을 건드리지 않습니다. */
+  function aiRowHTML(inner) {
+    return '<div class="gai-row is-ai">' + avatarHTML() +
+      '<div class="gai-bub is-ai" data-slot>' + inner + "</div></div>";
+  }
+
+  /* 회사 로고를 쓰지 않습니다 — 로고를 붙이면 회사가 한 말처럼 보입니다.
+     답을 만든 것은 엔진이고, 해설은 외부 모델이 쓸 수도 있습니다. */
+  function avatarHTML() {
+    return '<div class="gai-ava" aria-hidden="true">' +
+      '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M12 3v4M12 17v4M3 12h4M17 12h4"/>' +
+      '<path d="M12 8.5 13.3 11l2.7 1-2.7 1-1.3 2.5L10.7 13 8 12l2.7-1z"/>' +
+      "</svg></div>";
   }
 
   /* ── 해설 스트리밍 ───────────────────────────────────────────────────
@@ -299,7 +328,21 @@ window.GlobalAIUI = (function () {
       scroll();
     }).catch(function () { box.remove(); });
   }
-  function scroll() { body.scrollTop = body.scrollHeight; }
+  /* ── 따라 내려가기 ──────────────────────────────────────────────────
+     무조건 맨 아래로 끌어내리지 않습니다. 해설이 흐르는 동안 이 함수가
+     여러 번 불리는데, 그때마다 끌어내리면 **위를 읽고 있던 사람이 계속
+     아래로 끌려갑니다.** 바닥 근처에 있을 때만 따라갑니다.
+
+     force 는 새 질문을 보낸 순간에만 씁니다 — 그때는 사용자가 방금 보낸
+     것을 보고 싶어 하는 게 분명합니다. */
+  const NEAR = 80;
+  function atBottom() {
+    return body.scrollHeight - body.scrollTop - body.clientHeight <= NEAR;
+  }
+  function scroll(force) {
+    if (!force && !atBottom()) return;
+    body.scrollTop = body.scrollHeight;
+  }
 
   /* ── 답변 그리기 ─────────────────────────────────────────────────────
      여기 오는 값은 이미 검증을 통과했습니다. 그리는 쪽에서 숫자를 만들지

@@ -36,6 +36,9 @@
 }
 .gai-panel.is-open { transform: translateX(0); }
 .gai-panel.is-full { width: 100vw; border-left: none; }
+/* 전체 화면에서는 말풍선이 모니터 끝까지 늘어나지 않도록 대화 폭을 묶습니다 —
+   한 줄이 길어지면 다음 줄 첫 글자를 눈으로 찾기 어려워집니다. */
+.gai-panel.is-full .gai-body > * { max-width: 860px; margin-inline: auto; }
 
 .gai-head {
   flex: none; display: flex; align-items: center; gap: var(--s-3);
@@ -49,7 +52,13 @@
 }
 .gai-head-actions { margin-left: auto; display: flex; gap: var(--s-1); flex: none; }
 
-.gai-body { flex: 1 1 auto; overflow-y: auto; padding: var(--s-5); }
+.gai-body {
+  flex: 1 1 auto; overflow-y: auto; padding: var(--s-5);
+  scroll-behavior: smooth;
+  /* 새 답이 붙을 때 위쪽 내용이 덜컥 밀리지 않도록 */
+  overflow-anchor: auto;
+}
+@media (prefers-reduced-motion: reduce) { .gai-body { scroll-behavior: auto; } }
 .gai-foot {
   flex: none; border-top: 1px solid var(--c-border);
   padding: var(--s-3) var(--s-4); background: var(--c-paper);
@@ -63,16 +72,57 @@
 }
 .gai-input:focus { outline: 2px solid var(--c-accent-mid); outline-offset: -1px; }
 
-/* ── 메시지 ──────────────────────────────────────────────────────────── */
-.gai-msg { margin-bottom: var(--s-5); }
-.gai-q {
-  display: inline-block; max-width: 92%;
-  padding: var(--s-2) var(--s-3); border-radius: var(--r-lg);
-  background: var(--c-accent-bg); border: 1px solid var(--c-accent-bg-2);
-  font-size: 13px; color: var(--c-text);
+/* ── 메시지 · 말풍선 ──────────────────────────────────────────────────
+   한 쌍(질문 + 답)이 .gai-msg 하나입니다. 쌍과 쌍 사이를 쌍 안쪽보다 넓게
+   띄웁니다 — 간격이 같으면 어디까지가 한 번의 대화인지 읽히지 않습니다.
+
+   글자색은 양쪽 다 검정입니다. 구분은 **색이 아니라 좌우 정렬**이 맡고,
+   색은 거들기만 합니다 (색만으로 구분하면 색을 구별하기 어려운 사람에게는
+   구분이 사라집니다). */
+.gai-msg + .gai-msg { margin-top: var(--s-7); }
+.gai-msg:last-child { margin-bottom: var(--s-2); }
+
+.gai-row { display: flex; align-items: flex-start; gap: var(--s-2); }
+.gai-row + .gai-row { margin-top: var(--s-3); }
+.gai-row.is-me { justify-content: flex-end; }
+/* 추천 질문처럼 말풍선이 아닌 줄 — 아이콘 자리만큼 들여 맞춥니다 */
+.gai-row-sub { padding-left: calc(28px + var(--s-2)); margin-top: var(--s-2); }
+
+.gai-ava {
+  flex: none; width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--c-accent-bg); color: var(--c-accent);
+  border: 1px solid var(--c-accent-bg-2); margin-top: 2px;
 }
+
+.gai-bub {
+  --gai-pad: var(--s-3);
+  position: relative; max-width: 86%;
+  padding: var(--s-3) var(--gai-pad);
+  border-radius: var(--r-xl);
+  font-size: 13px; line-height: 1.7; color: var(--c-text);
+  overflow-wrap: anywhere;
+  /* 표가 말풍선 끝까지 늘어나므로, 맨 위나 맨 아래에 올 때 둥근 모서리를
+     네모로 덮지 않도록 잘라 냅니다. (표 자체의 가로 스크롤은 안쪽
+     .gai-tbl-wrap 이 맡으므로 영향받지 않습니다.) */
+  overflow: hidden;
+}
+/* 사용자 — 오른쪽, 연한 하늘색, 검은 글씨 */
+.gai-bub.is-me {
+  background: var(--c-accent-bg-2); border: 1px solid #C7E2F5;
+  border-top-right-radius: var(--r-sm);
+}
+/* AI — 왼쪽, 연한 회색, 검은 글씨. 답변이 길고 표까지 들어가므로
+   사용자 말풍선보다 넓게 씁니다. */
+.gai-bub.is-ai {
+  background: var(--c-paper-2); border: 1px solid var(--c-border);
+  border-top-left-radius: var(--r-sm);
+  max-width: calc(100% - 28px - var(--s-2));
+  flex: 1 1 auto; min-width: 0;
+}
+
 .gai-a { font-size: 13px; line-height: 1.7; color: var(--c-text); }
-.gai-a .gai-headline { font-weight: 600; margin-bottom: var(--s-2); }
+.gai-a .gai-headline, .gai-bub .gai-headline { font-weight: 600; margin-bottom: var(--s-2); }
 .gai-note { font-size: 12px; color: var(--c-text-mute); margin-top: var(--s-2); line-height: 1.7; }
 .gai-warn {
   font-size: 12px; color: var(--c-warn); background: var(--c-warn-bg);
@@ -112,6 +162,48 @@
 }
 .gai-tbl th { color: var(--c-text-soft); font-weight: 600; background: var(--c-paper); }
 .gai-tbl td.mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+/* ── 말풍선 안에서는 표만 좌우 여백을 넘어 끝까지 ─────────────────────
+   패널이 460px 이고 표는 그 안에서도 이미 가로로 넘칩니다. 말풍선 안쪽
+   여백까지 빼면 읽을 수 있는 폭이 더 줄어듭니다. 그래서 글은 여백을
+   지키고 표만 말풍선 끝까지 늘립니다.
+
+   첫 칸·끝 칸에는 여백을 돌려줘서 글자가 말풍선 테두리에 붙지 않게 합니다 —
+   배경과 선만 끝까지 가고 내용은 본문과 같은 선에서 시작합니다. */
+.gai-bub .gai-tbl-wrap {
+  margin-inline: calc(var(--gai-pad) * -1);
+  width: calc(100% + var(--gai-pad) * 2);
+  background: var(--c-surface);
+  border-top: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
+}
+.gai-bub .gai-tbl th:first-child, .gai-bub .gai-tbl td:first-child {
+  padding-left: var(--gai-pad);
+}
+.gai-bub .gai-tbl th:last-child, .gai-bub .gai-tbl td:last-child {
+  padding-right: var(--gai-pad);
+}
+.gai-bub .gai-tbl tr:last-child th, .gai-bub .gai-tbl tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── 말풍선 안의 부가 요소는 카드로 묶습니다 ──────────────────────────
+   회색 바탕 위에 흰 카드가 떠 있는 모양이라, 어디까지가 답이고 어디부터가
+   근거·다음 행동인지 눈으로 끊깁니다. */
+.gai-bub .gai-stat,
+.gai-bub .gai-action { background: var(--c-surface); }
+.gai-bub .gai-src,
+.gai-bub .gai-followup,
+.gai-bub .gai-narr {
+  margin-inline: calc(var(--gai-pad) * -1);
+  padding-inline: var(--gai-pad);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--c-border);
+}
+.gai-bub .gai-src { border-top-style: solid; }
+.gai-bub .gai-chip,
+.gai-bub .gai-src-tag,
+.gai-bub .gai-sugg button { background: var(--c-surface); }
 
 /* 근거 카드 */
 .gai-src {
