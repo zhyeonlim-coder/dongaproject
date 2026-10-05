@@ -51,6 +51,14 @@
 <input type="file" id="file" accept="application/json">
 <button id="restore" class="danger" disabled>이 파일로 복원</button>
 
+<h2>3. 초기화 (예시 엑셀 데이터 비우기)</h2>
+<p class="sub">
+  DB 를 전부 비웁니다. 다음 접속부터 <b>빈 시스템</b>으로 시작하고,
+  기본 지표(배양 5 · 정제 4 · 분석 4)만 남습니다.<br>
+  <b>스냅샷을 먼저 내려받아야 눌립니다</b> — 되돌릴 자리 없이 지우는 길을 두지 않습니다.
+</p>
+<button id="wipe" class="danger" disabled>DB 비우기</button>
+
 <h2>기록</h2>
 <pre id="log">준비 중…</pre>
 
@@ -125,7 +133,20 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     say("내려받았습니다 — " + name + "  (" + out._counts + ")", "ok");
     document.getElementById("dumpNote").textContent = name;
+    /* 받아 둔 뒤에야 비우기가 열립니다 */
+    document.getElementById("wipe").disabled = false;
     this.disabled = false;
+  });
+
+  document.getElementById("wipe").addEventListener("click", async function () {
+    if (!confirm("DB 를 전부 비웁니다. 되돌리려면 방금 내려받은 파일로 복원해야 합니다.\n\n계속할까요?")) return;
+    this.disabled = true;
+    say("비우는 중…");
+    const r = await api("DELETE");
+    if (!r.ok) { say("비우지 못했습니다 (HTTP " + r.status + ")", "no"); this.disabled = false; return; }
+    const after = await api("GET");
+    say("비웠습니다 — " + (after.ok ? counts(after.body) : "확인 실패"), "ok");
+    say("화면을 새로 고치면 빈 시스템으로 시작합니다. Study 부터 만드시면 됩니다.");
   });
 
   let picked = null;
