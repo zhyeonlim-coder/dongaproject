@@ -77,63 +77,54 @@ window.DATA_STUDIES = [
 
    cumulative: true 인 항목은 배양이 진행되며 쌓이는 값이라 전일보다
    낮아지면 경고합니다. */
+/* ── 기본 지표 (2026-10 재설정) ──────────────────────────────────────────
+   세 팀이 실제로 쓰는 항목만 남겼습니다. 예시 엑셀을 그대로 옮기면서 생긴
+   항목들(IE-HPLC · N-glycan · CE-SDS · HCP · Residual DNA · qP)은 뺐습니다 —
+   쓰지 않는 칸이 많으면 "미입력" 이 기본 상태가 되고, 그러면 미입력이
+   신호가 아니라 배경이 됩니다.
+
+   ★ 여기 없는 항목도 쓸 수 있습니다. Data 입력에서 열을 더하면 조회 ·
+     대시보드 · AI 가 코드 수정 없이 따라옵니다. 이 목록은 "처음부터 있는
+     것" 이지 "쓸 수 있는 전부" 가 아닙니다. */
 window.DATA_ANALYTE_GROUPS = [
   { id: "upstream", team: "upstream", label: "배양", items: [
     { key: "ivcd",           label: "IVCD",            unit: "10⁶ cells/mL", dp: 1, lo: 0, hi: 5000, cumulative: true },
     { key: "maxVCD",         label: "Max VCD",         unit: "10⁶ cells/mL", dp: 2, lo: 0, hi: 200 },
     { key: "finalVCD",       label: "Final VCD",       unit: "10⁶ cells/mL", dp: 2, lo: 0, hi: 200 },
+    /* 키는 titerHCCF 그대로 둡니다 — 이미 저장된 값과 별칭이 이 키를 가리킵니다.
+       화면에 보이는 이름만 "Titer" 로 바꿉니다. */
+    { key: "titerHCCF",      label: "Titer",           unit: "mg/L",         dp: 1, lo: 0, hi: 20000 },
     { key: "finalViability", label: "Final Viability", unit: "%",            dp: 1, lo: 0, hi: 100 }
-  ]},
-  { id: "titer", team: "upstream", label: "Titer & qP", items: [
-    { key: "titerHCCF", label: "Titer HCCF", unit: "mg/L",        dp: 1, lo: 0, hi: 20000 },
-    { key: "qP",        label: "qP",         unit: "pg/cell·day", dp: 2, lo: 0, hi: 500 }
   ]},
 
   { id: "downstream", team: "downstream", label: "정제",
     note: "Protein A → CEX → AEX 3-step 정제", items: [
-    { key: "proteinAYield", label: "Protein A Step Yield", unit: "%",     dp: 1, lo: 0, hi: 100 },
-    { key: "cexYield",      label: "CEX Step Yield",       unit: "%",     dp: 1, lo: 0, hi: 100 },
-    { key: "aexYield",      label: "AEX Step Yield",       unit: "%",     dp: 1, lo: 0, hi: 100 },
-    { key: "totalYield",    label: "Total Yield",          unit: "%",     dp: 1, lo: 0, hi: 100 },
-    { key: "monomerPurity", label: "SEC-HPLC Monomer",     unit: "%",     dp: 2, lo: 0, hi: 100 },
-    { key: "hcp",           label: "HCP",                  unit: "ppm",   dp: 1, lo: 0, hi: 1000000 },
-    { key: "residualDNA",   label: "Residual DNA",         unit: "pg/mg", dp: 2, lo: 0, hi: 100000 }
+    { key: "proteinAYield", label: "Protein A Step Yield", unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "cexYield",      label: "CEX Step Yield",       unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "aexYield",      label: "AEX Step Yield",       unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "totalYield",    label: "Total Yield",          unit: "%", dp: 1, lo: 0, hi: 100 }
   ]},
 
   { id: "seHPLC", team: "analytics", label: "SE-HPLC", note: "간이정제(Protein A) 후", items: [
-    { key: "hmw",  label: "HMW",  unit: "%", dp: 1, lo: 0, hi: 100 },
-    { key: "main", label: "Main", unit: "%", dp: 1, lo: 0, hi: 100 },
-    { key: "lmw",  label: "LMW",  unit: "%", dp: 1, lo: 0, hi: 100 }
+    { key: "hmw",  label: "HMW",     unit: "%", dp: 1, lo: 0, hi: 100 },
+    /* 키는 main 그대로 — SE-HPLC 주피크가 곧 단량체입니다. 이름만 Monomer 로. */
+    { key: "main", label: "Monomer", unit: "%", dp: 1, lo: 0, hi: 100 },
+    { key: "lmw",  label: "LMW",     unit: "%", dp: 1, lo: 0, hi: 100 }
   ]},
-  { id: "ieHPLC", team: "analytics", label: "IE-HPLC", note: "간이정제(Protein A) 후", items: [
-    { key: "acidic",       label: "Acidic",             unit: "%", dp: 1, lo: 0, hi: 100 },
-    { key: "main",         label: "Main",               unit: "%", dp: 1, lo: 0, hi: 100 },
-    { key: "basic",        label: "Basic",              unit: "%", dp: 1, lo: 0, hi: 100 },
-    { key: "basicUnknown", label: "Basic Unknown Peak", unit: "%", dp: 1, lo: 0, hi: 100 }
-  ]},
-  { id: "nGlycan", team: "analytics", label: "N-glycan", items: [
-    { key: "g0f",          label: "G0F",               unit: "%", dp: 1, lo: 0, hi: 100 },
-    { key: "g1f",          label: "G1F",               unit: "%", dp: 1, lo: 0, hi: 100 },
-    { key: "highMannose",  label: "High mannose",      unit: "%", dp: 1, lo: 0, hi: 100 },
-    { key: "sialicAcid",   label: "Sialic acid",       unit: "%", dp: 1, lo: 0, hi: 100 },
-    { key: "afucosylated", label: "Afucosylated form", unit: "%", dp: 1, lo: 0, hi: 100 }
-  ]},
-  { id: "ceSdsNR", team: "analytics", label: "CE-SDS NR", items: [
-    { key: "monomer", label: "Monomer", unit: "%", dp: 1, lo: 0, hi: 100 },
-    { key: "h2l1",    label: "2H1L",    unit: "%", dp: 1, lo: 0, hi: 100 }
-  ]},
-  { id: "ceSdsR", team: "analytics", label: "CE-SDS R", items: [
-    { key: "lc",   label: "LC",    unit: "%", dp: 2, lo: 0, hi: 100 },
-    { key: "hc",   label: "HC",    unit: "%", dp: 2, lo: 0, hi: 100 },
-    { key: "lcHc", label: "LC+HC", unit: "%", dp: 2, lo: 0, hi: 100 },
-    { key: "nghc", label: "NGHC",  unit: "%", dp: 2, lo: 0, hi: 100 }
+  { id: "potency", team: "analytics", label: "Potency", items: [
+    /* lo/hi 는 합격 기준이 아니라 오타·단위 착각을 잡는 그물입니다.
+       0.95 (소수를 % 로 잘못 넣음) 와 1850 을 걸러냅니다. */
+    { key: "potency", label: "Potency", unit: "%", dp: 1, lo: 50, hi: 200 }
   ]}
 ];
 
-/* 일자별 Titer 입력 범위 — 배양이 진행되며 쌓이는 누적값입니다 */
+/* 일자별 Titer 입력 범위 — 배양이 진행되며 쌓이는 누적값입니다.
+   ★ 일자축은 쓰지 않기로 했습니다 (DATA_TITER_DAYS = []). Titer 는 배치당
+     한 값입니다. 정의 자체는 남겨 둡니다 — 일자축이 다시 필요해지면 여기
+     배열만 채우면 화면·차트·AI 가 그대로 따라옵니다. */
 window.DATA_TITER_ITEM = { label: "Titer", unit: "mg/L", dp: 0, lo: 0, hi: 20000, cumulative: true };
 
-window.DATA_TITER_DAYS = ["D10","D11","D12","D13","D14","D15","D16","D17","D18","D19","D20"];
+window.DATA_TITER_DAYS = [];
 
 /* ── Data 분류 ──────────────────────────────────────────────────────────
    검색·필터에서 쓰는 "무엇을 측정한 값인가" 축입니다. Study 유형(DOE ·

@@ -2027,6 +2027,29 @@ window.AskEngine = (function () {
       return { col: full[0] };
     }
 
+    /* 1.5) 추가 항목의 앞 이름 — "삼투압 · v" 의 "삼투압".
+       Data 입력에서 더한 칸은 "<항목> · <열>" 로 이름이 붙습니다. 사용자는
+       열 이름까지 붙여 묻지 않습니다 ("삼투압 평균"). 앞 이름만으로 하나로
+       좁혀지면 그것으로 답하고, 여러 열에 걸치면 어느 열인지 되묻습니다. */
+    const SEP = " · ";
+    const headMap = {};
+    cols.forEach(function (c) {
+      const s = String(c.label);
+      const i = s.indexOf(SEP);
+      if (i < 1) return;
+      const head = s.slice(0, i).toLowerCase();
+      if (head.length < 2) return;
+      (headMap[head] = headMap[head] || []).push(c);
+    });
+    const heads = Object.keys(headMap).filter(h => has(text, h))
+      .sort((a, b) => b.length - a.length);
+    if (heads.length) {
+      const hit = headMap[heads[0]];
+      if (hit.length === 1) return { col: hit[0] };
+      return { word: String(hit[0].label).split(SEP)[0],
+               choices: hit.map(c => c.label) };
+    }
+
     /* 2) 끝말 — "SE-HPLC Main" 과 "IE-HPLC Main" 의 "main" */
     const byTail = {};
     cols.forEach(function (c) {

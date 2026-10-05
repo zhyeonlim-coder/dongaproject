@@ -84,6 +84,36 @@ window.AskTables = (function () {
       });
     });
 
+    /* ── Data 입력에서 직접 더한 항목 · 열 ────────────────────────────
+       워크시트에서 [행추가] · [열추가] 로 만든 칸은 ws_<행>@<열> 키로
+       쌓입니다. 데이터 조회 표는 이미 이것을 컬럼으로 올리는데, AI 가 보는
+       표에는 올라오지 않아 **새 항목을 물으면 "찾지 못했습니다" 라고
+       답했습니다.** 화면에는 보이는 값을 AI 만 못 보는 상태였습니다.
+
+       여기 올려 두면 조회 · 통계 · 최고/최저 · 비교가 전부 따라옵니다 —
+       별칭을 따로 적지 않아도 컬럼 이름으로 찾아갑니다. */
+    const custom = {};
+    if (window.Entries && window.Entries.getScopeValues) {
+      batches.forEach(function (b) {
+        const vals = window.Entries.getScopeValues("batch:" + b.id) || {};
+        Object.keys(vals).forEach(function (k) {
+          if (k.indexOf("ws_") !== 0) return;
+          const at = k.indexOf("@");
+          if (at < 0 || custom[k]) return;
+          custom[k] = { row: k.slice(3, at), col: k.slice(at + 1) };
+        });
+      });
+    }
+    const customKeys = Object.keys(custom).sort();
+    customKeys.forEach(function (k) {
+      const c = custom[k];
+      columns.push({
+        key: "cust_" + k, label: customItemLabel(c.row) + " · " + c.col,
+        unit: "", dp: 2, type: "num", group: "custom", groupLabel: "추가 항목",
+        team: null, generated: false, customKey: k
+      });
+    });
+
     /* 라벨이 겹치는 컬럼은 그룹 이름을 붙여 구분합니다.
        SE-HPLC 와 IE-HPLC 둘 다 항목 이름이 "Main" 이라, 표에 "Main" 이
        두 번 나오면 어느 쪽 값인지 알 수 없었습니다. */
@@ -95,6 +125,20 @@ window.AskTables = (function () {
         c.label = c.groupLabel + " " + c.label;
       }
     });
+
+    /* 행 이름 — 스키마 항목이면 그 라벨을, 사용자가 만든 항목이면 이름 그대로 */
+    function customItemLabel(rowKey) {
+      let hit = null;
+      (window.DATA_ANALYTE_GROUPS || []).some(function (g) {
+        const it = (g.items || []).find(x =>
+          (R ? R.fieldKey(g.id, x.key) : g.id + "_" + x.key) === rowKey);
+        if (it) { hit = it.label; return true; }
+        return false;
+      });
+      if (hit) return hit;
+      if (rowKey === "titer") return (window.DATA_TITER_ITEM || {}).label || "Titer";
+      return rowKey;
+    }
 
     const rows = batches.map(b => {
       /* studyOf 는 배치 객체를 받습니다 (studyId 가 아니라) */
@@ -121,6 +165,12 @@ window.AskTables = (function () {
          숫자가 보이게 됩니다. */
       (window.DATA_TITER_DAYS || []).forEach(function (d) {
         row["titerDay_" + d] = R ? numeric(R.valueOf(b, "titer", d)) : null;
+      });
+      /* 추가 항목 — Entries 에 적힌 그대로 */
+      customKeys.forEach(function (k) {
+        const rec = window.Entries ? window.Entries.getValue("batch:" + b.id, k) : null;
+        row["cust_" + k] = rec && window.VAL
+          ? numeric(window.VAL.numeric(window.VAL.coerce(rec.value))) : null;
       });
       return row;
     });

@@ -307,8 +307,18 @@ window.Dataset = (function () {
     return true;
   }
 
-  /* 씨앗 한 벌 — 서버가 비어 있을 때 올려 보냅니다 */
+  /* ── 씨앗 한 벌 — 서버가 비어 있을 때 올려 보냅니다 ────────────────────
+     ★ 2026-10 부터 **예시 엑셀을 심지 않습니다.** 빈 시스템으로 시작합니다.
+
+     왜냐면 예시 수치가 실제 입력과 섞이면 둘을 구별할 방법이 없고, 예시의
+     옛 범위 때문에 멀쩡한 입력에 범위 경고가 붙었습니다.
+
+     엑셀 정의(batches.js · studies.js · samples.js)는 지웁니다가 아니라
+     **그대로 둡니다** — 검사 스위트가 늘 같은 입력에서 돌아야 하고
+     (HUB_DATASET_SEED_ONLY), 되돌리고 싶을 때 돌아올 자리이기 때문입니다.
+     켜려면 화면을 열기 전에 window.HUB_SEED_EXCEL = true 를 두면 됩니다. */
   function seedPayload() {
+    if (!window.HUB_SEED_EXCEL) return { study: [], batch: [], sample: [] };
     return { study: clone(SEED.studies), batch: clone(SEED.batches), sample: clone(SEED.samples) };
   }
 

@@ -58,54 +58,52 @@
   let reqOpen = null;
   let reqFilter = "open";
 
-  /* ── 팀별 필드 세트 ─────────────────────────────────────────────────── */
+  /* ── 팀별 필드 세트 ───────────────────────────────────────────────────
+     측정 항목은 **전부 studies.js 의 스키마에서 읽습니다.** 화면에 따로
+     적어 두면 지표를 바꿀 때 이 화면만 옛 항목을 보여 줍니다 — 실제로
+     upstream 이 그랬습니다. 지표를 재설정했는데 Data 입력에는 Titer HCCF 와
+     qP 가 그대로 남아 있었고, 조회·대시보드와 서로 다른 항목을 보여 주는
+     상태였습니다.
+
+     키는 Repo.fieldKey 가 정합니다 — 여기서 다시 규칙을 적으면 또 갈립니다.
+
+     기록 칸(Harvest 일자 · Resin · 특이사항)만 화면 고유로 남깁니다.
+     측정값이 아니라 이 화면에서만 적는 메모이기 때문입니다. */
+  function schemaFields(team) {
+    const fk = (gid, k) => (window.Repo ? window.Repo.fieldKey(gid, k) : gid + "_" + k);
+    return (window.DATA_ANALYTE_GROUPS || [])
+      .filter(g => g.team === team && !g.empty && (g.items || []).length)
+      .map(g => ({ g: g.label, items: g.items.map(it => ({
+        k: fk(g.id, it.key), label: it.label, unit: it.unit, dp: it.dp,
+        src: [g.id, it.key], spec: team === "analytics"
+      })) }));
+  }
+
+  /* 일자별 Titer — DATA_TITER_DAYS 를 쓸 때만 나타납니다 (기본은 안 씀) */
+  function titerDayFields() {
+    const days = (window.DATA_TITER_DAYS || []).filter(d =>
+      (window.DATA_BATCHES || []).some(b => (b.upstream?.titer?.[d] ?? null) !== null));
+    if (!days.length) return [];
+    const ti = window.DATA_TITER_ITEM || { unit: "mg/L", dp: 0 };
+    return [{ g: "Titer (일자별)", items: days.map(d => ({
+      k: "titer_" + d, label: "Titer " + d, unit: ti.unit, dp: ti.dp, src: ["titer", d] })) }];
+  }
+
   const FIELDS = {
     upstream: function () {
-      const days = window.DATA_TITER_DAYS.filter(d =>
-        window.DATA_BATCHES.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
-      return [
-        { g: "배양 지표", items: [
-          { k: "ivcd",           label: "IVCD",            unit: "10⁶ cells/mL", dp: 1, src: ["upstream","ivcd"] },
-          { k: "maxVCD",         label: "Max VCD",         unit: "10⁶ cells/mL", dp: 2, src: ["upstream","maxVCD"] },
-          { k: "finalVCD",       label: "Final VCD",       unit: "10⁶ cells/mL", dp: 2, src: ["upstream","finalVCD"] },
-          { k: "finalViability", label: "Final Viability", unit: "%",            dp: 1, src: ["upstream","finalViability"] }
-        ]},
-        { g: "Titer (일자별)", items: days.map(d => ({
-            k: "titer_" + d, label: "Titer " + d, unit: "mg/L", dp: 0, src: ["titer", d] })) },
-        { g: "Harvest", items: [
-          { k: "titerHCCF", label: "Titer HCCF", unit: "mg/L",        dp: 1, src: ["upstream","titerHCCF"] },
-          { k: "qP",        label: "qP",         unit: "pg/cell·day", dp: 2, src: ["upstream","qP"] },
+      return schemaFields("upstream")
+        .concat(titerDayFields())
+        .concat([{ g: "Harvest", items: [
           { k: "harvestDate", label: "Harvest 일자", unit: "", type: "date", src: ["meta","endDate"] }
-        ]}
-      ];
+        ]}]);
     },
-    /* 정제 항목은 studies.js 의 downstream 그룹 스키마를 그대로 씁니다.
-       화면마다 필드를 따로 적어 두면 대시보드 · 데이터 조회 · EBR 이
-       서로 다른 항목을 보여주게 됩니다. */
     downstream: function () {
-      const g = window.DATA_ANALYTE_GROUPS.find(x => x.id === "downstream");
-      if (!g || !g.items.length) return [];
-      const pick = keys => g.items.filter(it => keys.indexOf(it.key) > -1).map(it => ({
-        k: "downstream_" + it.key, label: it.label, unit: it.unit, dp: it.dp,
-        src: ["downstream", it.key]
-      }));
-      return [
-        { g: "단계별 수율",   items: pick(["proteinAYield", "cexYield", "aexYield", "totalYield"]) },
-        { g: "순도 · 불순물", items: pick(["monomerPurity", "hcp", "residualDNA"]) },
-        { g: "정제 기록", items: [
-          { k: "dsResin", label: "Resin",       unit: "", type: "text" },
-          { k: "dsNote",  label: "특이사항",    unit: "", type: "text" }
-        ]}
-      ];
+      return schemaFields("downstream").concat([{ g: "정제 기록", items: [
+        { k: "dsResin", label: "Resin",    unit: "", type: "text" },
+        { k: "dsNote",  label: "특이사항", unit: "", type: "text" }
+      ]}]);
     },
-    analytics: function () {
-      return window.DATA_ANALYTE_GROUPS
-        .filter(g => g.team === "analytics" && !g.empty)
-        .map(g => ({ g: g.label, items: g.items.map(it => ({
-          k: g.id + "_" + it.key, label: it.label, unit: it.unit, dp: it.dp,
-          src: [g.id, it.key], spec: true
-        })) }));
-    }
+    analytics: function () { return schemaFields("analytics"); }
   };
 
   /* ── 값 조회 — Entries 우선, 없으면 Excel ───────────────────────────── */
@@ -673,7 +671,13 @@
 
   function seedCols(team, batch) {
     if (team === "upstream") {
-      return (window.DATA_TITER_DAYS || []).map(d => ({
+      const days = window.DATA_TITER_DAYS || [];
+      /* 일자축을 쓰지 않으면(기본) 배치당 한 칸입니다. 배열을 채우면 그때
+         부터 일자 열이 생깁니다 — 여기 코드를 고칠 필요는 없습니다. */
+      if (!days.length) {
+        return [{ id: "v", name: "값", sub: "배치 단위", dayKey: null, seeded: true }];
+      }
+      return days.map(d => ({
         id: d, name: d, sub: "배양 " + d.slice(1) + "일차", dayKey: d, seeded: true }));
     }
     if (team === "analytics") {

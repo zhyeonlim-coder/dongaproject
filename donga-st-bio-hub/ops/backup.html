@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DB 스냅샷 · 백업과 복원 · Bio Knowledge Hub</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 24px; background: #0A192F; color: #E6ECF5;
+         font: 13px/1.7 "IBM Plex Mono", ui-monospace, Consolas, monospace; max-width: 90ch; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  h2 { font-size: 13px; margin: 26px 0 8px; color: #8FA2BB; letter-spacing: .04em; }
+  .sub { color: #8FA2BB; font-size: 12px; margin-bottom: 20px; }
+  pre { white-space: pre-wrap; background: #0E2340; border: 1px solid #1E3A5F;
+        border-radius: 8px; padding: 14px; }
+  button { font: inherit; background: #1E3A5F; color: #E6ECF5; border: 1px solid #2E4E78;
+           border-radius: 6px; padding: 8px 15px; cursor: pointer; margin: 0 6px 8px 0; }
+  button:hover { border-color: #38BDF8; }
+  button.danger { background: #3A1218; border-color: #7C2430; color: #FCA5A5; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .warn { background: #2A1A0E; border: 1px solid #7C4A12; border-radius: 8px;
+          padding: 12px 14px; margin: 14px 0; color: #FCD34D; }
+  .ok { color: #6EE7B7; } .no { color: #FCA5A5; }
+  code { background: #0E2340; padding: 1px 5px; border-radius: 4px; }
+  input[type=file] { font: inherit; color: #8FA2BB; }
+</style>
+</head>
+<body>
+
+<h1>DB 스냅샷 — 백업과 복원</h1>
+<p class="sub">
+  중앙 DB(<code>records</code> · <code>entry_values</code> · <code>meta</code>) 전체를 파일 하나로 내려받고,
+  그 파일로 그대로 되돌립니다.
+</p>
+
+<div class="warn">
+  <b>로그인한 상태에서만 동작합니다.</b> 쿠키가 없으면 서버가 401 로 막습니다.<br>
+  내려받은 파일에는 <b>실험 데이터 전체</b>가 들어 있습니다 — 사외로 내보내지 마세요.
+</div>
+
+<h2>1. 지금 상태 내려받기</h2>
+<button id="dump">스냅샷 내려받기</button>
+<span id="dumpNote" class="sub"></span>
+
+<h2>2. 파일로 되돌리기</h2>
+<p class="sub">
+  내려받은 파일을 고르면 <b>지금 DB 를 전부 비우고</b> 그 파일의 내용으로 채웁니다.
+  되돌린 뒤의 상태는 파일을 만든 시점과 같아집니다.
+</p>
+<input type="file" id="file" accept="application/json">
+<button id="restore" class="danger" disabled>이 파일로 복원</button>
+
+<h2>기록</h2>
+<pre id="log">준비 중…</pre>
+
+<script>
+(function () {
+  "use strict";
+  const log = document.getElementById("log");
+  let lines = [];
+  function say(s, cls) {
+    lines.push((cls === "no" ? "✗ " : cls === "ok" ? "✓ " : "· ") + s);
+    log.textContent = lines.join("\n");
+  }
+
+  async function api(method, body) {
+    const r = await fetch("/api/data", {
+      method: method, credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    let j = null;
+    try { j = await r.json(); } catch (e) {}
+    return { status: r.status, ok: r.ok, body: j };
+  }
+
+  function counts(snap) {
+    const rec = snap.records || {};
+    const kinds = Object.keys(rec).map(k => k + " " + (rec[k] || []).length).join(" · ");
+    return kinds + " | 값 " + Object.keys(snap.values || {}).length +
+           " | meta " + Object.keys(snap.meta || {}).length;
+  }
+
+  /* 상태 먼저 — 로그인 안 되어 있으면 버튼을 눌러 봐야 401 입니다 */
+  (async function () {
+    const st = await fetch("/api/session", { credentials: "same-origin" })
+      .then(r => r.json()).catch(() => null);
+    if (!st) { say("서버에 닿지 못했습니다.", "no"); return; }
+    if (!st.configured) { say("HUB_ACCESS_SECRET 이 설정되지 않았습니다.", "no"); return; }
+    if (!st.db) { say("Postgres 가 연결되지 않았습니다.", "no"); return; }
+    if (!st.signedIn) {
+      say("로그인되어 있지 않습니다 — 로그인 화면에서 '서버 접속 비밀값' 을 넣고 다시 여세요.", "no");
+      return;
+    }
+    say("서버 연결됨 · 로그인됨", "ok");
+    const snap = await api("GET");
+    if (snap.ok) say("지금 DB: " + counts(snap.body), "ok");
+  })();
+
+  document.getElementById("dump").addEventListener("click", async function () {
+    this.disabled = true;
+    say("스냅샷을 받는 중…");
+    const r = await api("GET");
+    if (!r.ok) { say("받지 못했습니다 (HTTP " + r.status + ")", "no"); this.disabled = false; return; }
+
+    /* 되돌릴 때 필요한 것만이 아니라, 언제 어디서 받은 것인지도 함께 적습니다 —
+       파일만 보고 "이게 어느 시점 것인가" 를 알 수 있어야 합니다. */
+    const out = {
+      _kind: "bio-knowledge-hub/db-snapshot",
+      _version: 1,
+      _takenAt: new Date().toISOString(),
+      _origin: location.origin,
+      _counts: counts(r.body),
+      records: r.body.records || {},
+      values: r.body.values || {},
+      meta: r.body.meta || {}
+    };
+    const name = "backup_snapshot_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".json";
+    const blob = new Blob([JSON.stringify(out, null, 1)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    say("내려받았습니다 — " + name + "  (" + out._counts + ")", "ok");
+    document.getElementById("dumpNote").textContent = name;
+    this.disabled = false;
+  });
+
+  let picked = null;
+  document.getElementById("file").addEventListener("change", function () {
+    const f = this.files && this.files[0];
+    document.getElementById("restore").disabled = true;
+    picked = null;
+    if (!f) return;
+    const fr = new FileReader();
+    fr.onload = function () {
+      try {
+        const j = JSON.parse(fr.result);
+        if (j._kind !== "bio-knowledge-hub/db-snapshot") {
+          say("이 파일은 이 시스템의 스냅샷이 아닙니다.", "no"); return;
+        }
+        picked = j;
+        say("파일 확인 — " + (j._takenAt || "시점 미상") + " · " + (j._counts || ""), "ok");
+        document.getElementById("restore").disabled = false;
+      } catch (e) { say("JSON 을 읽지 못했습니다.", "no"); }
+    };
+    fr.readAsText(f);
+  });
+
+  document.getElementById("restore").addEventListener("click", async function () {
+    if (!picked) return;
+    if (!confirm("지금 DB 를 전부 비우고 이 파일로 되돌립니다. 계속할까요?\n\n" +
+                 "파일 시점: " + (picked._takenAt || "미상") + "\n" + (picked._counts || ""))) return;
+    this.disabled = true;
+
+    /* 되돌리기 전에 지금 것을 한 번 더 받아 둡니다 — 복원이 잘못되었을 때
+       돌아올 자리가 없으면 안 됩니다. */
+    say("되돌리기 전 지금 상태를 먼저 받습니다…");
+    const before = await api("GET");
+    if (before.ok) {
+      const b = new Blob([JSON.stringify(Object.assign(
+        { _kind: "bio-knowledge-hub/db-snapshot", _version: 1,
+          _takenAt: new Date().toISOString(), _origin: location.origin,
+          _note: "복원 직전 자동 백업" }, before.body), null, 1)],
+        { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(b);
+      a.download = "backup_before_restore_" +
+        new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".json";
+      a.click();
+      say("복원 직전 백업을 내려받았습니다.", "ok");
+    }
+
+    say("DB 를 비우는 중…");
+    const w = await api("DELETE");
+    if (!w.ok) { say("비우지 못했습니다 (HTTP " + w.status + ")", "no"); this.disabled = false; return; }
+
+    say("파일 내용을 올리는 중…");
+    const r = await api("POST", { records: picked.records, values: picked.values, meta: picked.meta });
+    if (!r.ok) { say("올리지 못했습니다 (HTTP " + r.status + ")", "no"); this.disabled = false; return; }
+
+    const after = await api("GET");
+    say("복원 완료 — " + (after.ok ? counts(after.body) : "확인 실패"), "ok");
+    say("화면을 새로 고치면 반영됩니다.");
+    this.disabled = false;
+  });
+})();
+</script>
+</body>
+</html>

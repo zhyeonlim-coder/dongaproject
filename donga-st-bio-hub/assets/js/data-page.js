@@ -268,24 +268,29 @@
 
     const measure = [];
 
+    /* 배양만 "Days" 와 일자별 Titer 를 따로 붙입니다 — 둘 다 스키마 항목이
+       아니라 배치 자체의 성질이기 때문입니다. */
     if (!team || team === "upstream") {
       measure.push({ key: "cultureDays", label: "Days", type: "n", dp: 0, w: 60 });
-      [["ivcd","IVCD",1],["maxVCD","Max VCD",2],["finalVCD","Final VCD",2],
-       ["finalViability","Viability (%)",1]].forEach(x =>
-        measure.push({ key: x[0], label: x[1], type: "n", dp: x[2], w: 92 }));
-      titerDays.forEach(d => measure.push({ key: "titer." + d, label: "Titer " + d, type: "n", dp: 0, w: 88 }));
-      measure.push({ key: "titerHCCF", label: "Titer HCCF", type: "n", dp: 1, w: 96 });
-      measure.push({ key: "qP",        label: "qP",         type: "n", dp: 2, w: 80 });
     }
 
-    /* 정제 · 분석 그룹 (배양 그룹은 위에서 일자별 Titer까지 함께 처리했습니다) */
+    /* ★ 측정 항목은 **전부 스키마에서 읽습니다.**
+       예전에는 배양 항목만 여기 따로 적어 두었고, 지표를 재설정했을 때
+       이 화면만 옛 항목(Titer HCCF · qP)을 계속 보여 줬습니다. 조회 화면이
+       Data 입력과 다른 항목을 보여 주면 어느 쪽이 맞는지 알 수 없습니다. */
     window.DATA_ANALYTE_GROUPS.forEach(g => {
-      if (g.empty || g.team === "upstream") return;
+      if (g.empty) return;
       if (team && g.team !== team) return;
       g.items.forEach(it => measure.push({
-        key: g.id + "." + it.key, label: g.label + " " + it.label,
-        type: "n", dp: it.dp, w: 108
+        /* 배양 그룹은 이름을 겹쳐 적지 않습니다 (배양 IVCD → IVCD) */
+        key: g.id + "." + it.key,
+        label: g.team === "upstream" ? it.label : g.label + " " + it.label,
+        type: "n", dp: it.dp, w: g.team === "upstream" ? 92 : 108
       }));
+      if (g.team === "upstream") {
+        titerDays.forEach(d => measure.push({
+          key: "titer." + d, label: "Titer " + d, type: "n", dp: 0, w: 88 }));
+      }
     });
 
     /* Data 입력에서 직접 더한 항목 · 열 */

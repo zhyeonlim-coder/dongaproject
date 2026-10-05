@@ -26,6 +26,17 @@
 window.AskRegression = (function () {
   "use strict";
 
+  /* ── 일자축을 쓰는가 ───────────────────────────────────────────────────
+     DATA_TITER_DAYS 가 비어 있으면 Titer 는 배치당 한 값이고, 일자별 추이 ·
+     "10일차 Titer" · Titer D14 같은 것은 **존재하지 않습니다.**
+
+     없는 기능을 "실패" 로 적으면 고칠 것이 없는데 고장난 것처럼 보이고,
+     그러면 아무도 빨간불을 안 보게 됩니다. 일자축을 켜면 그때 다시 지킵니다.
+
+     ★ 지우지 않고 조건으로 둡니다 — 설정 배열만 채우면 검사가 되살아납니다. */
+  const DAYS_ON = (window.DATA_TITER_DAYS || []).length > 0;
+  const whenDays = list => (DAYS_ON ? list : []);
+
   /* ── 20건 배터리 ───────────────────────────────────────────────────────
      expect 는 "이 정도는 지켜져야 한다"만 적습니다. 문장을 통째로 박아
      두면 표현을 조금만 다듬어도 빨간불이 떠서 아무도 안 보게 됩니다. */
@@ -49,7 +60,9 @@ window.AskRegression = (function () {
     { q: "스펙 벗어난 항목 있어?",           headline: /규격/ },
     { q: "생존율 평균이랑 편차",             intent: "stat",    kind: "stat" },
     { q: "과제별 Total Yield 비교",         intent: "compare", kind: "compare" },
-    { q: "일자별 Titer 추이",              intent: "trend",   kind: "trend" },
+  ].concat(whenDays([
+    { q: "일자별 Titer 추이",              intent: "trend",   kind: "trend" }
+  ])).concat([
     { q: "정제팀 데이터 보여줘",             kind: "group",     minRows: 1 },
     { q: "왜 B123-3만 Titer가 낮았지?",     scope: "B123-3",   unhandled: /원인/ },
     { q: "DA-1234 최고 Titer 알려줘",       intent: "max",     scope: "DA-1234" },
@@ -57,7 +70,7 @@ window.AskRegression = (function () {
        "그럼 …" 은 범위(과제)를, "그거" 는 직전 답변이 지목한 배치를 가리킵니다. */
     { q: "그럼 정제는?",                   kind: "group",  scope: "DA-1234", rows: 18, applied: /직전 질의/ },
     { q: "그거 언제 배양한 거야?",           kind: "date",   rows: 1,          applied: /지목한/ }
-  ];
+  ]);
 
   /* ── E. Phase 1 에서 통과시킨 조건 파서 — 다시 깨지지 않게 고정 ─────
      건수는 원본 28건에서 손으로 센 값입니다 (2024-08:1 · 11:5 · 12:11 · 2025-01:10). */
@@ -89,12 +102,15 @@ window.AskRegression = (function () {
        지금은 titerDay_D10 으로 **실제로 답합니다.** 그래서 "못 했다" 고 하면
        거짓말이 됩니다. 확인할 것은 그대로입니다 — 기간으로 읽혀 범위가
        좁아지지 않았는가(rows=28), 그리고 D10 컬럼으로 답했는가. */
+  ].concat(whenDays([
     { q: "10일차 Titer 알려줘",         rows: 28, headline: /Titer D10/ },
-    { q: "D10 Titer",                 rows: 28, headline: /Titer D10/ },
+    { q: "D10 Titer",                 rows: 28, headline: /Titer D10/ }
+  ])).concat([
+
     /* 오늘 기준 상대 기간은 해석을 거부하고 이유를 말합니다 */
     { q: "지난달 Titer 평균",           rows: 28, unhandled: /지난달/ },
     { q: "Fail 제외하고 수율 보여줘",      unhandled: /규격/ }
-  ];
+  ]);
 
   /* ── F. Phase 2 에서 통과시킨 어휘 · 팀 · 승계 ────────────────────── */
   const PHASE2 = [
@@ -773,7 +789,14 @@ window.AskRegression = (function () {
 
     /* 4) 생성값 — 데이터에 표식이 있고, 표시되는 경로마다 고지 */
     const gen = t.columns.filter(c => c.generated);
-    add("생성값 컬럼 표식", gen.length === 7, "generated=" + gen.length + "개 (기대 7)");
+    /* 개수를 박아 두지 않습니다 — 지표 구성이 바뀌면 그 숫자만 틀려서,
+       "표식이 빠졌다" 와 "항목이 줄었다" 를 구별할 수 없게 됩니다.
+       스키마에서 기대값을 세어 견줍니다. */
+    const wantGen = (window.DATA_ANALYTE_GROUPS || [])
+      .filter(g => window.Provenance && window.Provenance.isGeneratedColumn({ group: g.id }))
+      .reduce((n, g) => n + (g.items || []).length, 0);
+    add("생성값 컬럼 표식", wantGen > 0 && gen.length === wantGen,
+      "generated=" + gen.length + "개 (스키마 기준 기대 " + wantGen + ")");
     /* 경로를 하나라도 빼면 그 경로에서 조용히 사라집니다 — count · missing ·
        trend 가 실제로 그런 상태였습니다. 생성값이 나올 수 있는 경로를
        전부 넣습니다. */
@@ -793,8 +816,14 @@ window.AskRegression = (function () {
         !!P.GENERATED_WHY && txt.indexOf(P.GENERATED_WHY) > -1, "왜 생성했는지가 없음");
     });
     const ent = E.answer("B045-2가 어느 과제 거야?", { table: t });
-    add("생성값 · 값 옆 표식", (ent.facts || []).filter(f => /◇/.test(f.v)).length === 7,
-      "◇ " + (ent.facts || []).filter(f => /◇/.test(f.v)).length + "개");
+    /* 개수를 박지 않습니다 — 생성 그룹의 항목 수가 바뀌면 그 숫자만 틀려서,
+       "표식이 빠졌다" 와 "항목이 줄었다" 를 구별할 수 없게 됩니다. */
+    const wantMark = (window.DATA_ANALYTE_GROUPS || [])
+      .filter(g => P.isGeneratedColumn && P.isGeneratedColumn({ group: g.id }))
+      .reduce((n, g) => n + (g.items || []).length, 0);
+    const gotMark = (ent.facts || []).filter(f => /◇/.test(f.v)).length;
+    add("생성값 · 값 옆 표식", wantMark > 0 && gotMark === wantMark,
+      "◇ " + gotMark + "개 (스키마 기준 기대 " + wantMark + ")");
     add("생성값 · 표식이 겹쳐 찍히지 않음",
       !(ent.facts || []).some(f => (String(f.v).match(/◇/g) || []).length > 1),
       "◇ 가 두 번 찍힌 값이 있음");
@@ -828,28 +857,47 @@ window.AskRegression = (function () {
     /* 추이는 일자별 Titer 로만 계산합니다. 다른 항목을 물었는데 바꿔서
        답하고 그 사실을 말하지 않으면, 사용자는 Titer 그래프를 물어본
        항목으로 읽습니다. */
-    const tr = E.answer("Total Yield 추이", { table: t });
-    add("추이 · 항목 바꿔 답한 것을 밝힘",
-      /대신 일자별 Titer/.test(String(tr.headline)) &&
-      /물어보신 항목의 값이 아닙니다/.test(String(tr.note || "")),
-      "headline: " + String(tr.headline).slice(0, 70));
+    /* 일자축을 쓸 때만 성립합니다 — 추이 자체가 일자별 Titer 로만
+       계산되기 때문입니다. 축이 없으면 바꿔 답할 것도 없습니다. */
+    if (DAYS_ON) {
+      const tr = E.answer("Total Yield 추이", { table: t });
+      add("추이 · 항목 바꿔 답한 것을 밝힘",
+        /대신 일자별 Titer/.test(String(tr.headline)) &&
+        /물어보신 항목의 값이 아닙니다/.test(String(tr.note || "")),
+        "headline: " + String(tr.headline).slice(0, 70));
+    }
     const trOk = E.answer("Titer 추이", { table: t });
     add("추이 · Titer 를 물었으면 경고 없음",
       !/대신 일자별 Titer/.test(String(trOk.headline)),
       "headline: " + String(trOk.headline).slice(0, 70));
 
-    /* 5) 검증 필요 블록 — 탐지 · 통계 제외 · 고지 */
+    /* 5) 검증 필요 블록 — 탐지 · 통계 제외 · 고지.
+
+       "검증 필요" 는 원본 Excel 의 Notes 에서 전사 불확실로 표시된 구간을
+       가리킵니다. 그 표시는 N-glycan · CE-SDS 쪽에 있었고, 지표를 재설정
+       하면서 그 컬럼들이 빠져 **표시된 구간이 하나도 없습니다.**
+
+       기능은 그대로 있습니다 — 확인할 데이터가 없을 뿐입니다. 없는 것을
+       실패로 적지 않고, 표시된 구간이 생기면 그때 다시 지킵니다.
+       (어느 컬럼인지 박아 두지 않고 살아 있는 블록에서 집어 씁니다 —
+       그래야 다음에 지표가 또 바뀌어도 검사만 깨지지 않습니다.) */
     const blocks = t.unverified || [];
-    add("검증 필요 블록 탐지", blocks.length >= 3 && blocks[0].count === 7,
-      "블록 " + blocks.length + "개");
-    const g0 = E.answer("G0F 평균", { table: t });
-    const kept = t.rows.filter(r => !(r.__unverified && r.__unverified.nGlycan_g0f))
-      .map(r => r.nGlycan_g0f).filter(v => typeof v === "number");
-    add("검증 필요 · 통계에서 제외",
-      !!g0.stats && g0.stats.n === kept.length && g0.stats.n === 15,
-      "n=" + (g0.stats ? g0.stats.n : "?") + " 기대=15");
-    add("검증 필요 · 제외 건수 고지", /검증 필요 7건/.test(String(g0.note || "")),
-      "note: " + String(g0.note || "").slice(0, 60));
+    if (blocks.length) {
+      add("검증 필요 블록 탐지", blocks[0].count > 0, "블록 " + blocks.length + "개");
+      const bKey = blocks[0].column;
+      const bCol = t.columns.find(c => c.key === bKey);
+      if (bCol) {
+        const ans = E.answer(bCol.label + " 평균", { table: t });
+        const kept = t.rows.filter(r => !(r.__unverified && r.__unverified[bKey]))
+          .map(r => r[bKey]).filter(v => typeof v === "number");
+        add("검증 필요 · 통계에서 제외",
+          !!ans.stats && ans.stats.n === kept.length,
+          "n=" + (ans.stats ? ans.stats.n : "?") + " 기대=" + kept.length);
+        add("검증 필요 · 제외 건수 고지",
+          new RegExp("검증 필요 " + blocks[0].count + "건").test(String(ans.note || "")),
+          "note: " + String(ans.note || "").slice(0, 60));
+      }
+    }
     /* 실측 컬럼은 영향을 받지 않아야 합니다 */
     const ti = E.answer("Titer 평균", { table: t });
     add("실측 컬럼은 제외 안 함", !!ti.stats && ti.stats.n === 28, "n=" + (ti.stats ? ti.stats.n : "?"));
@@ -986,25 +1034,70 @@ window.AskRegression = (function () {
     add("동점 아님 · 한 건 지목", !one.tie && /B321-7/.test(one.headline),
       "headline=" + String(one.headline).slice(0, 80));
 
-    /* 4) D-day 컬럼 — 묻지 않은 컬럼으로 답하지 않는가 */
-    const d14 = E.answer("Titer D14 평균", { table: t });
-    add("D14 는 D14 로 답함", !!d14.metric && d14.metric.key === "titerDay_D14",
-      "metric=" + (d14.metric ? d14.metric.key : "없음"));
+    /* 4) D-day 컬럼 — 묻지 않은 컬럼으로 답하지 않는가.
+       일자축을 쓰지 않으면 D14 컬럼 자체가 없으므로 확인할 것이 없습니다.
+       다만 "Titer 평균" 이 Titer 로 가는지는 어느 설정에서든 지켜야 합니다. */
+    if (DAYS_ON) {
+      const d14 = E.answer("Titer D14 평균", { table: t });
+      add("D14 는 D14 로 답함", !!d14.metric && d14.metric.key === "titerDay_D14",
+        "metric=" + (d14.metric ? d14.metric.key : "없음"));
+    }
     const hccf = E.answer("Titer 평균", { table: t });
     add("D-day 승격이 Titer 를 바꾸지 않음", !!hccf.metric && hccf.metric.key === "titerHCCF",
       "metric=" + (hccf.metric ? hccf.metric.key : "없음"));
-    const d14n = t.rows.filter(r => typeof r.titerDay_D14 === "number").length;
-    add("D14 값이 실제 원본과 같음", !!d14.stats && d14.stats.n === d14n,
-      "n=" + (d14.stats ? d14.stats.n : "?") + " 기대=" + d14n);
-    const d25 = E.answer("Titer D25 평균", { table: t });
-    add("없는 일자는 밝히고 답함", (d25.unhandled || []).some(x => /D25/.test(x)),
-      "미처리: " + (d25.unhandled || []).join(" / "));
+    if (DAYS_ON) {
+      const d14b = E.answer("Titer D14 평균", { table: t });
+      const d14n = t.rows.filter(r => typeof r.titerDay_D14 === "number").length;
+      add("D14 값이 실제 원본과 같음", !!d14b.stats && d14b.stats.n === d14n,
+        "n=" + (d14b.stats ? d14b.stats.n : "?") + " 기대=" + d14n);
+      const d25 = E.answer("Titer D25 평균", { table: t });
+      add("없는 일자는 밝히고 답함", (d25.unhandled || []).some(x => /D25/.test(x)),
+        "미처리: " + (d25.unhandled || []).join(" / "));
+    }
 
-    /* 5) 라벨 구분 — SE-HPLC Main 과 IE-HPLC Main */
-    const mains = t.columns.filter(c => /Main$/.test(c.label));
-    add("Main 라벨이 서로 구분됨",
-      mains.length >= 2 && new Set(mains.map(c => c.label)).size === mains.length,
-      mains.map(c => c.label).join(" / "));
+    /* 5) 라벨 구분 — 예전에는 "SE-HPLC Main 과 IE-HPLC Main" 두 개를
+       콕 집어 봤습니다. IE-HPLC 를 빼면서 그 쌍이 사라져 검사만 깨졌습니다.
+
+       지키려던 것은 그 쌍이 아니라 **표의 이름이 서로 겹치지 않는 것**
+       입니다. 겹치면 "Main 평균" 이 어느 쪽인지 알 수 없고, AI 와 화면이
+       서로 다른 컬럼을 같은 이름으로 부르게 됩니다. 그걸 직접 봅니다. */
+    const labels = t.columns.filter(c => c.group !== "base").map(c => c.label);
+    const dupes = labels.filter((l, i) => labels.indexOf(l) !== i);
+    add("표의 항목 이름이 서로 겹치지 않음", dupes.length === 0,
+      dupes.length ? "겹침: " + Array.from(new Set(dupes)).join(" / ") : "");
+
+    /* 위 검사만으로는 부족합니다 — 지금 스키마에 겹치는 이름이 없으면
+       **겹쳤을 때 구분하는 코드가 죽어 있어도 통과합니다.** (실제로 그랬고,
+       변이 검사 M20 이 그 구멍을 잡아 줬습니다.)
+       그래서 잠깐 겹치게 만들어 보고 되돌립니다. */
+    (function dupGuard() {
+      const A = window.Aliases;
+      const G = window.DATA_ANALYTE_GROUPS || [];
+      const g1 = G.find(g => (g.items || []).length);
+      const g2 = G.find(g => g !== g1 && (g.items || []).length);
+      if (!A || !g1 || !g2) { add("같은 이름이 둘이면 구분됨", false, "이름 계층·그룹 없음"); return; }
+
+      /* 스키마 객체에 직접 쓰면 이름 계층이 되돌려 놓습니다 (원래 이름을
+         기억했다가 다시 씌웁니다). 실제 사용자가 쓰는 길 — 이름 바꾸기 —
+         로 겹치게 만듭니다. */
+      const victim = g2.items[0];
+      const id = "item:" + g2.id + "." + victim.key;
+      const was = A.originalOf(victim, "label");
+      const dup = g1.items[0].label;
+      A.set(id, dup, was);
+      try {
+        const t2 = window.AskTables.internal();
+        const l2 = t2.columns.filter(c => c.group !== "base").map(c => c.label);
+        const d2 = l2.filter((l, i) => l2.indexOf(l) !== i);
+        add("같은 이름이 둘이면 구분됨",
+          l2.filter(l => l.indexOf(dup) > -1).length >= 2 && d2.length === 0,
+          d2.length ? "겹친 채로 남음: " + Array.from(new Set(d2)).join(" / ")
+                    : "겹치게 만들지 못함");
+      } finally {
+        A.set(id, "", was);
+        try { window.AskTables.internal(); } catch (e) { /* */ }
+      }
+    })();
 
     /* 6) "배치 수" 트리거 */
     ["배치 수 알려줘", "배치수", "총 몇 배치야"].forEach(function (q) {
@@ -1207,7 +1300,9 @@ window.AskRegression = (function () {
     { id: "stat(검증필요 제외)", q: "G0F 평균" },
     { id: "list(목록)",        q: "Titer 1000 이상인 배치" },
     { id: "compare(비교)",     q: "과제별 Total Yield 비교" },
-    { id: "trend(추이)",       q: "일자별 Titer 추이" },
+  ].concat(whenDays([
+    { id: "trend(추이)",       q: "일자별 Titer 추이" }
+  ])).concat([
     { id: "missing(결측)",     q: "미입력이 가장 많은 항목은?" },
     { id: "count(건수)",       q: "DA-1234 배치 몇 개야" },
     { id: "group(지표군)",     q: "정제팀 데이터 보여줘" },
@@ -1221,7 +1316,7 @@ window.AskRegression = (function () {
     { id: "no-value(값 없음)", q: "LMW 제일 낮은 거" },
     { id: "warning(무효 조건)", q: "Titer 10 이상" },
     { id: "empty(빈 질문)",    q: "" }
-  ];
+  ]);
 
   function runCoverageChecks(t) {
     const E = window.AskEngine, V = window.AskVerify;

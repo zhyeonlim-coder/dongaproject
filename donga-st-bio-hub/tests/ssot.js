@@ -146,16 +146,29 @@ window.SSOTTest = (function () {
       const m2 = t2.rows.find(r => r.__id === b.id);
       T.add("⑧ AI·통계 반영", !!m2 && m2[FIELD.col] === v2, "표=" + (m2 ? m2[FIELD.col] : "?"));
 
-      /* ── 일자별 Titer — 예전에 키가 어긋나 있던 자리 ────────────── */
-      const dBefore = R.valueOf(b, DAY.group, DAY.key);
-      R.setValue(scope, DAY.entry, { num: TEST_DAY_VALUE }, "SSOT 일자별 검사",
-        { baseValue: dBefore, baseSource: "Excel 원본" });
-      T.add("일자별 Titer · Repo 반영",
-        R.valueOf(b, DAY.group, DAY.key) === TEST_DAY_VALUE,
-        "값=" + R.valueOf(b, DAY.group, DAY.key) + " (EBR 은 titer_D10 으로 저장합니다)");
-      T.add("일자별 Titer · 조회 표 반영",
-        tableValue(b.id, DAY.col) === TEST_DAY_VALUE,
-        "표=" + tableValue(b.id, DAY.col));
+      /* ── 일자별 Titer — 예전에 키가 어긋나 있던 자리 ──────────────
+         일자축은 설정(DATA_TITER_DAYS)에 달려 있습니다. 쓰지 않기로 하면
+         빈 배열이 되고, 그때는 확인할 대상 자체가 없습니다. 없는 것을
+         "실패" 로 적으면, 고칠 것이 없는데 고장난 것처럼 보입니다.
+
+         대신 **설정과 화면이 어긋나지 않는지**를 봅니다 — 일자축을 쓰면
+         그 키로 읽히고, 쓰지 않으면 그 컬럼이 아예 없어야 합니다. */
+      if ((window.DATA_TITER_DAYS || []).length) {
+        const dBefore = R.valueOf(b, DAY.group, DAY.key);
+        R.setValue(scope, DAY.entry, { num: TEST_DAY_VALUE }, "SSOT 일자별 검사",
+          { baseValue: dBefore, baseSource: "Excel 원본" });
+        T.add("일자별 Titer · Repo 반영",
+          R.valueOf(b, DAY.group, DAY.key) === TEST_DAY_VALUE,
+          "값=" + R.valueOf(b, DAY.group, DAY.key) + " (EBR 은 titer_D10 으로 저장합니다)");
+        T.add("일자별 Titer · 조회 표 반영",
+          tableValue(b.id, DAY.col) === TEST_DAY_VALUE,
+          "표=" + tableValue(b.id, DAY.col));
+      } else {
+        const t0 = window.AskTables.internal();
+        T.add("일자축 미사용 · 조회 표에도 일자 컬럼이 없음",
+          !t0.columns.some(c => String(c.key).indexOf("titerDay_") === 0),
+          "DATA_TITER_DAYS 가 비어 있는데 표에 일자 컬럼이 남아 있으면 설정과 화면이 어긋납니다");
+      }
 
       /* ── 이력이 남는가 (기존 정책 유지) ─────────────────────────── */
       const rec = R.recordOf(scope, FIELD.entry);
@@ -200,20 +213,27 @@ window.SSOTTest = (function () {
         try { return localStorage.getItem("hub.aliases.v1"); } catch (e) { return null; }
       })();
 
+      /* 뒷정리(finally)에서도 써야 하므로 try 밖에 둡니다 */
+      const pickG = (window.DATA_ANALYTE_GROUPS || []).find(x => (x.items || []).length);
+      const pickIt = pickG && pickG.items[0];
+      const itemId = pickG && pickIt ? "item:" + pickG.id + "." + pickIt.key : null;
+
       try {
         /* a) 스키마 항목명은 원본 객체에 반영되고, 원래 이름은 남습니다 */
-        const g = (window.DATA_ANALYTE_GROUPS || []).find(x => x.id === "ieHPLC");
-        const it = g && (g.items || []).find(x => x.key === "acidic");
-        if (!it) { T.add("⑩ 검사 대상 항목이 있음", false, "ieHPLC.acidic 없음"); return; }
+        /* 특정 항목을 이름으로 박아 두지 않습니다 — 지표 구성이 바뀌면
+           그 항목이 사라져 검사만 깨집니다 (실제로 ieHPLC.acidic 이 그랬습니다).
+           살아 있는 스키마에서 첫 항목을 집어 씁니다. */
+        const g = pickG, it = pickIt;
+        if (!it) { T.add("⑩ 검사 대상 항목이 있음", false, "스키마에 항목이 하나도 없음"); return; }
         const was = A.originalOf(it, "label");
 
-        A.set("item:ieHPLC.acidic", "검사용 산성", was);
+        A.set(itemId, "검사용 산성", was);
         T.add("⑩ 항목명이 스키마에 반영됨", it.label === "검사용 산성",
           "DATA_ANALYTE_GROUPS 의 label 이 " + it.label);
         T.add("⑩ 원래 항목명이 보존됨", A.originalOf(it, "label") === was,
           "원래 이름이 " + A.originalOf(it, "label"));
         T.add("⑩ 이름 변경이 이력에 남음",
-          A.historyOf("item:ieHPLC.acidic").some(h => h.to === "검사용 산성" && h.by && h.at),
+          A.historyOf(itemId).some(h => h.to === "검사용 산성" && h.by && h.at),
           "이력에 작성자·시각과 함께 남지 않았습니다");
 
         /* 이름을 고쳐도 값을 읽는 키는 그대로여야 합니다 */
@@ -224,7 +244,7 @@ window.SSOTTest = (function () {
           "valueOf 가 " + R.valueOf(b, FIELD.group, FIELD.key) + " (기대 " + before + ")");
 
         /* 빈 문자열은 덧씌움을 걷어 냅니다 — 되돌릴 길이 있어야 합니다 */
-        A.set("item:ieHPLC.acidic", "", was);
+        A.set(itemId, "", was);
         T.add("⑩ 빈 이름을 넣으면 원래대로 돌아옴", it.label === was,
           "되돌린 뒤 label 이 " + it.label);
 
@@ -243,7 +263,7 @@ window.SSOTTest = (function () {
       } finally {
         /* 메모리 사본까지 걷어 냅니다. localStorage 만 되돌리면 이 페이지가
            살아 있는 동안 스키마 label 이 "검사용 …" 으로 남습니다. */
-        A.set("item:ieHPLC.acidic", "", was0("ieHPLC", "acidic"));
+        if (itemId) A.set(itemId, "", was0(pickG.id, pickIt.key));
         A.set("item:upstream.maxVCD", "", was0("upstream", "maxVCD"));
         try {
           if (aSnap === null) localStorage.removeItem("hub.aliases.v1");
@@ -336,10 +356,13 @@ window.SSOTTest = (function () {
 
         /* 씨앗 배치와 키 집합이 같아야 합니다 */
         const seedB = (window.DATA_BATCHES || []).find(b => b.id !== madeId && b.upstream);
-        const seedDays = Object.keys((seedB && seedB.upstream && seedB.upstream.titer) || {});
+        /* 씨앗이 아니라 **지금 설정**과 맞는지 봅니다. 씨앗과 견주면,
+           일자축을 바꾼 순간 씨앗이 옛 설정을 들고 있어서 검사만 깨집니다.
+           새 배치의 모양은 언제나 DATA_TITER_DAYS 를 따라야 맞습니다. */
+        const wantDays = (window.DATA_TITER_DAYS || []).length;
         const newDays = Object.keys((nb.upstream && nb.upstream.titer) || {});
-        T.add("⑫ 일자 키가 씨앗과 같음", seedDays.length > 0 && newDays.length === seedDays.length,
-          "씨앗 " + seedDays.length + "개 · 새 배치 " + newDays.length + "개");
+        T.add("⑫ 일자 키가 지금 설정과 같음", newDays.length === wantDays,
+          "설정 " + wantDays + "개 · 새 배치 " + newDays.length + "개");
 
         const seedUp = Object.keys((seedB && seedB.upstream) || {}).sort().join(",");
         const newUp = Object.keys(nb.upstream || {}).sort().join(",");

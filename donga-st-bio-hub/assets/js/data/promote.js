@@ -32,7 +32,10 @@ window.Promote = (function () {
     { q: "생존율 평균이랑 편차", intent: "stat", kind: "stat" },
     { q: "정제 수율 평균이 얼마나 돼", intent: "stat" },
     { q: "과제별 Total Yield 비교", intent: "compare", kind: "compare" },
-    { q: "일자별 Titer 추이", intent: "trend", kind: "trend" },
+    /* 일자축(DATA_TITER_DAYS)을 쓸 때만 있는 기능입니다 — 비어 있으면
+       추이 자체가 없으므로 스펙에서 뺍니다. 배열을 채우면 되살아납니다. */
+    ((window.DATA_TITER_DAYS || []).length
+      ? { q: "일자별 Titer 추이", intent: "trend", kind: "trend" } : null),
     { q: "미입력이 가장 많은 항목은?", intent: "missing", kind: "missing" },
     { q: "DA-1234 배치 몇 개야", intent: "count" },
     { q: "무슨 데이터 있어?", kind: "meta" },
@@ -56,10 +59,11 @@ window.Promote = (function () {
        컬럼을 조회하지 못해 "읽었지만 못 쓴다" 가 맞는 말이었기 때문입니다.
        지금은 titerDay_D10 으로 실제로 답하므로, 그 컬럼으로 답했는지를
        직접 봅니다. */
-    { q: "10일차 Titer 알려줘", rows: 28, metric: "Titer D10" },
+    ((window.DATA_TITER_DAYS || []).length
+      ? { q: "10일차 Titer 알려줘", rows: 28, metric: "Titer D10" } : null),
     { q: "배지 뭐가 제일 좋았어?", intent: "max", kind: "extreme" },
     { q: "Titer 평균", rows: 28 }
-  ];
+  ].filter(Boolean);   /* 설정에 따라 빠지는 항목(일자축)을 걷어냅니다 */
 
   function checkOne(r, c) {
     const fail = [];
