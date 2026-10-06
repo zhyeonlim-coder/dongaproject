@@ -97,9 +97,7 @@ window.StudySelector = (function () {
               field("studyId", "Study",
                 studies.map(s => ({ v: s.id, t: s.name })), draft.studyId,
                 studies.length ? null : "하위 Study 없음") +
-              field("team", "팀",
-                (opt.team || []).map(t => ({ v: t.id, t: t.ko })), draft.team,
-                (opt.team || []).length ? null : "데이터 있는 팀 없음") +
+              field("team", "팀", teamList(), draft.team, teamGate(draft.studyId)) +
               /* Study 유형(DOE · Feasibility …) 대신 측정 항목 축을 둡니다.
                  연구자가 실제로 찾는 건 Study 의 성격이 아니라 데이터 항목입니다. */
               field("dataClass", "Data 분류",
@@ -140,7 +138,7 @@ window.StudySelector = (function () {
                         '<span style="flex:1;min-width:0">' +
                           '<span class="selector-result-name">' + esc(s.name) + '</span>' +
                           '<span class="selector-result-meta">' +
-                            (s.type ? esc(s.type) + " · " : "") + s.batchCount + "개 배치 · " +
+                            (s.type ? esc(s.type) + " · " : "") + s.batchCount + "개 시료 · " +
                             (s.startDate || window.LABELS.empty) + '</span></span>' +
                         '<span class="badge badge-' +
                           (s.status === "완료" ? "ok" : s.status === "진행중" ? "info" : "warn") +
@@ -161,21 +159,39 @@ window.StudySelector = (function () {
        "미적용 변경" 을 만들면, 사용자는 골랐는데 폼은 안 열리는 상태가
        되고 그 이유를 화면에서 알 수 없습니다. */
     function pickMarkup(studies, opt, teamSets, sel) {
-      const teams = (opt.team || []).map(t => ({ v: t.id, t: t.ko }));
       return '<div class="selector is-pick">' +
         '<div class="selector-filters" style="margin-top:0">' +
           field("studyId", "Study", studies.map(s => ({ v: s.id, t: s.name })),
                 sel.studyId, studies.length ? null : "하위 Study 없음") +
-          field("team", "팀", teams, sel.team,
-                teams.length ? null : "데이터 있는 팀 없음") +
+          field("team", "팀", teamList(), sel.team, teamGate(sel.studyId)) +
         '</div>' +
         '<div class="selector-pick-note">' +
-          (sel.studyId && sel.team
-            ? "이 Study · 팀에 기록합니다. 바꾸면 아래 입력 폼이 다시 그려집니다."
-            : "기록할 <b>Study</b> 와 <b>팀</b> 을 고르면 입력 폼이 열립니다.") +
+          (!sel.studyId
+            ? "먼저 <b>Study</b> 를 고르세요 — 팀은 그다음에 고를 수 있습니다."
+            : sel.team
+              ? "이 Study · 팀에 기록합니다. 바꾸면 아래 입력 표가 다시 그려집니다."
+              : "<b>팀</b> 을 고르면 입력 표가 열립니다.") +
         '</div>' +
         teamStrip(teamSets, sel) +
       '</div>';
+    }
+
+    /* ── 팀 드롭다운 ──────────────────────────────────────────────────────
+       ★ 팀 목록을 "데이터가 있는 팀" 에서 **고정 3팀**으로 바꿨습니다.
+
+       예전에는 그 Study 에 값이 들어 있는 팀만 고를 수 있었습니다. 그래서
+       방금 만든 Study 는 어느 팀도 고를 수 없었고 — 값을 넣으려면 팀을
+       골라야 하는데 팀을 고르려면 값이 있어야 하는 — 들어갈 수 없는 Study
+       가 만들어졌습니다.
+
+       ★ 그리고 Study 를 먼저 골라야 열립니다. 계층이 Study → 팀 → Sample
+         이므로, 팀만 고른 상태는 가리키는 대상이 없습니다. */
+    function teamList() {
+      return (window.DATA_TEAMS || []).map(t => ({ v: t.id, t: t.ko }));
+    }
+    function teamGate(studyId) {
+      if (!studyId) return "Study 를 먼저 선택하세요";
+      return (window.DATA_TEAMS || []).length ? null : "팀 정의 없음";
     }
 
     function field(key, label, list, val, emptyMsg) {
@@ -278,6 +294,14 @@ window.StudySelector = (function () {
             return;
           }
           markDirty();
+          /* 조회 바는 고른 것을 [조회] 전까지 쌓아 두지만, Study 만은
+             그 자리에서 다시 그립니다 — 팀 드롭다운이 Study 에 매달려
+             있어서, 다시 그리지 않으면 Study 를 골라도 팀이 잠긴 채입니다.
+             고른 값은 draft 에 있으므로 다시 그려도 지워지지 않습니다. */
+          if (el.dataset.d === "studyId") {
+            if (draft.team) draft.team = "";    /* 다른 Study 의 팀을 끌고 가지 않습니다 */
+            render();
+          }
         });
       });
 

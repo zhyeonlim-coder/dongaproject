@@ -84,23 +84,27 @@ window.AskTables = (function () {
       });
     });
 
-    /* ── Data 입력에서 직접 더한 항목 · 열 ────────────────────────────
-       워크시트에서 [행추가] · [열추가] 로 만든 칸은 ws_<행>@<열> 키로
-       쌓입니다. 데이터 조회 표는 이미 이것을 컬럼으로 올리는데, AI 가 보는
-       표에는 올라오지 않아 **새 항목을 물으면 "찾지 못했습니다" 라고
-       답했습니다.** 화면에는 보이는 값을 AI 만 못 보는 상태였습니다.
+    /* ── Data 입력에서 직접 더한 항목 ──────────────────────────────────
+       워크시트에서 [항목 추가 ↓] 로 만든 칸은 ws_<행이름> 키로 쌓입니다.
+       데이터 조회 표는 이미 이것을 컬럼으로 올리는데, AI 가 보는 표에는
+       올라오지 않아 **새 항목을 물으면 "찾지 못했습니다" 라고 답했습니다.**
+       화면에는 보이는 값을 AI 만 못 보는 상태였습니다.
 
        여기 올려 두면 조회 · 통계 · 최고/최저 · 비교가 전부 따라옵니다 —
-       별칭을 따로 적지 않아도 컬럼 이름으로 찾아갑니다. */
+       별칭을 따로 적지 않아도 컬럼 이름으로 찾아갑니다.
+
+       ★ 열이 시료가 되면서 키에서 @<열id> 가 빠졌습니다. 예전 모양도 계속
+         읽습니다 — 이미 적어 둔 값을 AI 가 못 보게 되면 안 됩니다. */
     const custom = {};
     if (window.Entries && window.Entries.getScopeValues) {
       batches.forEach(function (b) {
         const vals = window.Entries.getScopeValues("batch:" + b.id) || {};
         Object.keys(vals).forEach(function (k) {
-          if (k.indexOf("ws_") !== 0) return;
+          if (k.indexOf("ws_") !== 0 || custom[k]) return;
           const at = k.indexOf("@");
-          if (at < 0 || custom[k]) return;
-          custom[k] = { row: k.slice(3, at), col: k.slice(at + 1) };
+          custom[k] = at < 0
+            ? { row: k.slice(3), col: null }
+            : { row: k.slice(3, at), col: k.slice(at + 1) };
         });
       });
     }
@@ -108,7 +112,8 @@ window.AskTables = (function () {
     customKeys.forEach(function (k) {
       const c = custom[k];
       columns.push({
-        key: "cust_" + k, label: customItemLabel(c.row) + " · " + c.col,
+        key: "cust_" + k,
+        label: customItemLabel(c.row) + (c.col ? " · " + c.col : ""),
         unit: "", dp: 2, type: "num", group: "custom", groupLabel: "추가 항목",
         team: null, generated: false, customKey: k
       });

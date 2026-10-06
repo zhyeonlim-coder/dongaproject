@@ -31,8 +31,9 @@
         <p class="eyebrow" style="margin-bottom:6px">Electronic Batch Record</p>
         <h1 style="font-size:22px">Data 입력</h1>
         <p style="font-size:13px;color:var(--c-text-mute);margin:6px 0 0">
-          과제 → Study → 팀 → Batch → Sample 순으로 대상을 지정합니다.
-          팀을 고르기 전에는 입력 폼이 열리지 않습니다.
+          과제 → Study → 팀 → Sample 순으로 대상을 지정합니다.
+          Study 를 고르면 팀을 고를 수 있고, 팀을 고르면 입력 표가 열립니다.
+          <b>표의 열 하나가 Sample 하나</b>입니다 — 값을 적고 [전체 저장] 을 누르면 기록됩니다.
         </p>
         <div class="crumb" id="crumb" style="margin-top:var(--s-3)"></div>
       </div>
@@ -43,7 +44,8 @@
            밀어냅니다. 데이터를 찾는 일은 데이터 조회 화면에서 합니다. -->
       <div id="selector" style="margin-bottom:var(--s-4)"></div>
 
-      <!-- 드롭다운에 없는 Study · Batch 를 그 자리에서 만듭니다 (ebr-page 가 그립니다) -->
+      <!-- 목록에 없는 Study 를 그 자리에서 만듭니다 (ebr-page 가 그립니다).
+           시료는 여기가 아니라 입력 표의 [시료 추가 →] 로 만듭니다. -->
       <div id="entity-bar"></div>
 
       <div id="form-host"></div>

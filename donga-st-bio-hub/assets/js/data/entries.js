@@ -133,7 +133,11 @@ window.Entries = (function () {
 
     const rec = {
       id: uid("SMP"), batchId: input.batchId, studyId: input.studyId || null,
-      name: name, note: input.note || null, active: true,
+      /* 어느 팀이 만든 시료인가 — 계층이 Study → 팀 → Sample 이라
+         시료도 팀에 매달립니다. 배양팀이 만든 시료가 정제 서식에 섞여
+         나오면, 두 팀이 서로의 열에 값을 적게 됩니다. */
+      team: input.team || null,
+      name: name, note: input.note || null, stage: input.stage || null, active: true,
       createdBy: who(), createdAt: stamp()
     };
     state.samples.push(rec);
@@ -151,6 +155,45 @@ window.Entries = (function () {
     s.deactivateReason = reason || null;
     emit("sample");
     return true;
+  }
+
+  /* 되살리기 — 값과 이력은 비활성화해도 그대로 남아 있으므로, 되살리면
+     적어 둔 것이 다시 보입니다. 이 길이 없으면 열을 잘못 지운 사람에게는
+     사실상 삭제와 같습니다. */
+  function reactivateSample(id) {
+    const s = state.samples.find(x => x.id === id);
+    if (!s) return false;
+    s.active = true;
+    s.reactivatedBy = who();
+    s.reactivatedAt = stamp();
+    emit("sample");
+    return true;
+  }
+
+  /* 비활성 시료 — 되살리기 목록에 씁니다 */
+  function inactiveSamples(batchId) {
+    return state.samples.filter(s => s.active === false && (!batchId || s.batchId === batchId));
+  }
+
+  /* 한 건 찾기 (활성 여부 무관) */
+  function findSample(id) { return state.samples.find(s => s.id === id) || null; }
+
+  /* 이름 · 설명 고치기 — 시료는 Data 입력 표의 열 머리글이 곧 이름입니다.
+     Aliases 로 덧씌우지 않고 레코드를 직접 고칩니다. 열 머리글은 "같은 것을
+     다르게 부르는 별칭" 이 아니라 그 시료의 이름 자체이기 때문입니다. */
+  function renameSample(id, name, stage) {
+    const s = state.samples.find(x => x.id === id);
+    if (!s) return { ok: false, reason: "없는 시료입니다" };
+    const nm = String(name == null ? s.name : name).trim();
+    if (!nm) return { ok: false, reason: "이름을 비울 수 없습니다" };
+    const dup = state.samples.some(x => x !== s && x.active !== false &&
+      x.batchId === s.batchId && String(x.name).toLowerCase() === nm.toLowerCase());
+    if (dup) return { ok: false, reason: "같은 이름이 이미 있습니다: " + nm };
+    s.name = nm;
+    if (stage !== undefined) s.stage = String(stage || "").trim() || null;
+    s.updatedBy = who(); s.updatedAt = stamp();
+    emit("sample");
+    return { ok: true, sample: s };
   }
 
   /* ── Sample 그룹 (묶음 조회용) ──────────────────────────────────────── */
@@ -306,6 +349,7 @@ window.Entries = (function () {
 
   return {
     getSamples, getSamplesByStudy, addSample, deactivateSample,
+    reactivateSample, inactiveSamples, findSample, renameSample,
     getGroups, addGroup, removeGroup,
     getValue, getScopeValues, setValue, needsReason, REASON_PRESETS,
     caption, hasHistory, stamp, stampHuman, who,

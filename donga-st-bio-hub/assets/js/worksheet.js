@@ -187,8 +187,13 @@ window.Worksheet = (function () {
       '<table class="ws-tbl">' +
         '<thead><tr>' +
           '<th scope="col" class="ws-corner">' +
-            (o.onAddRow ? '<button class="ws-add" type="button" id="ws-addrow">행추가 ↓</button>' : "") +
-            (o.onAddCol ? '<button class="ws-add" type="button" id="ws-addcol">열추가 →</button>' : "") +
+            /* 부르는 쪽이 이름을 정합니다 — 이 표에서 한 열이 무엇인지는
+               화면마다 다릅니다. Data 입력에서는 열 하나가 시료 하나라,
+               "열추가" 라고 쓰면 무엇이 생기는지 알 수 없습니다. */
+            (o.onAddRow ? '<button class="ws-add" type="button" id="ws-addrow">' +
+              esc(o.addRowLabel || "행추가 ↓") + '</button>' : "") +
+            (o.onAddCol ? '<button class="ws-add" type="button" id="ws-addcol">' +
+              esc(o.addColLabel || "열추가 →") + '</button>' : "") +
             (!o.onAddRow && !o.onAddCol ? esc(o.cornerLabel || "항목") : "") +
           '</th>' +
           cols.map(c => colHeadHTML(c, o)).join("") +

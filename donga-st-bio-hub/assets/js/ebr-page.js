@@ -1,15 +1,42 @@
 /* ==========================================================================
-   Data 입력  [지시서 §1 §3 §5]
+   Data 입력
 
-   대상 지정 순서: 과제 → Study → 팀 → Batch → Sample
-     · 네 단계를 모두 지정해야 폼이 열립니다
-     · 팀을 고르기 전에는 폼이 열리지 않습니다 (저장 불가)
+   대상 지정 순서: 과제 → Study → 팀 → Sample
+     · Study 를 고르기 전에는 팀을 고를 수 없습니다 (계층 순서)
+     · 팀을 고르기 전에는 입력 표가 열리지 않습니다
 
-   팀에 따라 입력 필드 세트가 자동 전환됩니다.
-   모든 필드는 저장 시 작성자·시각(초 단위)이 함께 기록되며, 수정해도 이전 값을
-   덮어쓰지 않고 이력으로 쌓입니다 (Entries).
+   ── 표의 열 하나가 Sample 하나입니다 ────────────────────────────────────
+   예전에는 Batch 를 고르고, 그 안에서 시료를 고르고, 열은 "일자 · 차수 ·
+   조건" 같은 자유 축이었습니다. 단위가 셋(Batch · Sample · 열)이나 되는데
+   값이 어디에 붙는지는 조합마다 달랐습니다 — 같은 숫자가 배치에 붙기도
+   하고 시료에 붙기도 했고, 조회 화면에서는 한 줄로 묶여 어느 열의 값인지
+   알 수 없었습니다.
 
-   값의 우선순위: 사용자가 입력한 값(Entries) > Excel 원본 값
+   이제 단위는 **Sample 하나**입니다.
+
+       열을 하나 더하면   → 시료 하나가 생깁니다
+       머리글을 고치면    → 그 시료의 이름이 바뀝니다
+       열을 지우면        → 그 시료가 비활성이 됩니다 (값·이력은 남습니다)
+
+   버튼으로 만드는 길은 없앴습니다. 표에 적은 것만이 데이터입니다.
+
+   ── 값이 들어가는 자리 ──────────────────────────────────────────────────
+   시료마다 값을 담는 그릇(hidden batch)이 1:1 로 붙습니다. 값의 주소는
+   예전과 똑같이 batch:<그릇id>|<항목키> 입니다. 그래서 대시보드 · 차트 ·
+   데이터 조회 · CSV · DoE · AI 가 지나는 Repo.valueOf 를 한 줄도 고치지
+   않고, "열 하나 = 조회 화면의 독립된 한 줄" 이 그대로 성립합니다.
+
+   그릇은 사용자에게 보이지 않습니다. 화면에서 "Batch" 라는 말은 없습니다.
+
+   ── 저장 전 단계 (드래프트) ─────────────────────────────────────────────
+   표에 적은 값은 [전체 저장] 을 눌러야 DB 로 갑니다. 그전까지는 이 브라우저
+   에만 머물고, 몇 번 고쳐도 변경 이력이 남지 않습니다 — 처음 옮겨 적는
+   동안의 오타가 감사 이력을 가득 채우는 것을 막습니다.
+
+   저장된 뒤에 고치는 것은 "기록을 고치는 일" 이므로, 그때만 사유를 받고
+   이전 값을 이력으로 쌓습니다 (ALCOA+).
+
+   적다 만 내용은 이 브라우저에 자동 보관합니다 — 탭을 닫아도 남습니다.
    ========================================================================== */
 
 (function () {
@@ -24,8 +51,8 @@
   const esc = (s) => String(s).replace(/[&<>"']/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-  let batchId = null;
-  let sampleId = null;      // null = Batch 단위 입력
+  /* 열(=시료)은 Study · 팀에서 그때그때 읽습니다. 지금 무엇에 적는지는
+     Scope 에 있으므로, 이 화면이 따로 들고 있을 상태가 없습니다. */
 
 
   /* "form" = 팀 서식 입력 · "requests" = 분석 및 시료 관리
@@ -45,13 +72,21 @@
        두면 초기화 전 변수를 읽어 화면 전체가 멈춥니다. */
   if (window.AIContext) {
     window.AIContext.provide("experiment", function () {
-      if (!batchId) return null;
-      const b = (window.DATA_BATCHES || []).find(x => x.id === batchId);
-      return b ? (b.expNo || b.id) : batchId;
+      const sel = window.Scope.get();
+      if (!sel.studyId) return null;
+      const s = (window.DATA_STUDIES || []).find(x => x.id === sel.studyId);
+      return s ? s.name : sel.studyId;
     });
     window.AIContext.provide("ebr", function () {
-      return { batchId: batchId, sampleId: sampleId, mode: mode,
-               입력중: !!batchId };
+      const sel = window.Scope.get();
+      /* ★ 세어 보는 것은 try 안에 둡니다. provide() 는 등록하는 순간
+         구독자에게 알리고, 그 구독자가 이 함수를 부릅니다 — 아래쪽 상수들이
+         아직 초기화되기 전입니다. 여기서 터지면 화면 전체가 멈춥니다. */
+      let n = 0;
+      try { if (sel.studyId && sel.team) n = allCols(sel.studyId, sel.team).length; }
+      catch (e) { n = 0; }
+      return { studyId: sel.studyId || null, team: sel.team || null, mode: mode,
+               시료수: n, 입력중: !!(sel.studyId && sel.team) };
     });
   }
   let reqTab = "queue";     // "queue" | "storage"
@@ -106,37 +141,100 @@
     analytics: function () { return schemaFields("analytics"); }
   };
 
-  /* ── 값 조회 — Entries 우선, 없으면 Excel ───────────────────────────── */
-  function scopeKey() { return sampleId ? "sample:" + sampleId : "batch:" + batchId; }
+  /* ══════════════════════════════════════════════════════════════════════
+     열 = 시료
 
-  function currentSample() {
-    if (!sampleId) return null;
-    return window.Repo.samplesOfBatch(batchId).find(s => s.id === sampleId) || null;
+     보이는 열은 두 가지입니다.
+
+       저장된 열   시료 레코드가 있고, 값 담는 그릇(hidden batch)도 있습니다
+       저장 전 열  아직 아무것도 만들지 않았습니다 — 이 브라우저에만 있습니다
+
+     "열추가 →" 는 저장 전 열만 만듭니다. 레코드는 [전체 저장] 때,
+     그 열에 **값이 하나라도 적혀 있을 때만** 생깁니다. 빈 열을 열어 두고
+     그만두면 아무것도 남지 않습니다 — 버튼을 누른 흔적이 데이터가 되면
+     이름 없는 빈 시료가 목록에 쌓입니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  const NEWCOL_KEY = "hub.ebr.newcols";    /* 저장 전 열 — 이 브라우저 */
+  const DRAFT_KEY  = "hub.ebr.draft";      /* 저장 전 값 — 이 브라우저 */
+
+  function pairKey(studyId, team) { return studyId + "|" + team; }
+
+  /* 저장된 열 — 이 Study · 팀의 그릇을 만든 순서대로.
+     시료가 아직 없는 그릇(지표 재설정 전에 만든 Batch)도 한 열로 보여
+     줍니다. 안 보여 주면 거기 적어 둔 값이 화면에서 사라지고, 사용자는
+     지워진 줄 압니다 — 값은 그대로 있는데 닿을 길만 없어지는 셈입니다. */
+  function savedCols(studyId, team) {
+    const out = [];
+    (window.DATA_BATCHES || []).forEach(function (b) {
+      if (!b || b.studyId !== studyId || b.team !== team) return;
+      if (b.active === false) return;
+      const s = (window.Repo.samplesOfBatch(b.id) || [])[0] || null;
+      /* ★ 시료를 비활성으로 돌린 그릇은 열에서 내립니다.
+
+         이게 없으면 열을 내려도 사라지지 않습니다 — 시료가 없는 그릇은
+         expNo 를 이름 삼아 다시 그려지기 때문입니다. 내렸는데 그대로 있으면
+         사용자는 한 번 더 누르고, 그래도 그대로이니 고장으로 봅니다. */
+      if (!s && E.inactiveSamples(b.id).length) return;
+      out.push({
+        id: s ? s.id : "bx:" + b.id,
+        bid: b.id,
+        sid: s ? s.id : null,
+        name: s ? s.name : (b.expNo || b.id),
+        sub: s ? (s.stage || "") : "",
+        at: (s && s.createdAt) || b.createdAt || "",
+        saved: true
+      });
+    });
+    out.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    return out;
   }
 
-  function excelValue(batch, src) {
-    if (!src || !batch) return null;
-    if (src[0] === "upstream")   return batch.upstream?.[src[1]] ?? null;
-    if (src[0] === "titer")      return batch.upstream?.titer?.[src[1]] ?? null;
-    if (src[0] === "downstream") return batch.downstream?.[src[1]] ?? null;
-    if (src[0] === "meta")       return batch[src[1]];
-    /* 분석 항목 — 값은 시료에 붙습니다 */
-    const s = currentSample();
-    if (!s || !s.analytics) return null;
-    const g = s.analytics[src[0]];
-    return g ? g[src[1]] : null;
+  function newCols(studyId, team) {
+    const m = window.Persist.getLocalJSON(NEWCOL_KEY, {}) || {};
+    return (m[pairKey(studyId, team)] || []).map(c => ({
+      id: c.cid, bid: null, sid: null, name: c.name, sub: c.sub || "",
+      at: c.cid, saved: false
+    }));
+  }
+  function saveNewCols(studyId, team, list) {
+    const m = window.Persist.getLocalJSON(NEWCOL_KEY, {}) || {};
+    if (list && list.length) m[pairKey(studyId, team)] = list;
+    else delete m[pairKey(studyId, team)];
+    window.Persist.setLocalJSON(NEWCOL_KEY, m);
   }
 
-  function effective(batch, f) {
-    const rec = E.getValue(scopeKey(), f.k);
-    if (rec) return { value: rec.value, rec, fromExcel: false };
-    /* 배양·정제는 배치 속성이라 Sample 을 골랐어도 배치 값을 물려받지 않습니다.
-       분석은 시료 속성이므로 고른 시료의 원본 값을 보여줍니다. */
-    const isAnalytics = f.src && ["upstream", "titer", "downstream", "meta"].indexOf(f.src[0]) === -1;
-    if (sampleId && !isAnalytics) return { value: null, rec: null, fromExcel: false };
-    if (!sampleId && isAnalytics) return { value: null, rec: null, fromExcel: false };
-    return { value: excelValue(batch, f.src), rec: null, fromExcel: true };
+  /* 표가 아예 빈 상태로 열리지 않도록 한 열은 늘 있습니다. 이 한 열은
+     **아무 데도 적어 두지 않습니다** — 화면을 여는 것만으로 저장소가
+     바뀌면, 열어 본 적 없는 조합까지 기록이 생깁니다. */
+  function allCols(studyId, team) {
+    const list = savedCols(studyId, team).concat(newCols(studyId, team));
+    if (list.length) return list;
+    return [{ id: "new-1", bid: null, sid: null, name: "시료 1", sub: "", at: "",
+              saved: false, bare: true }];
   }
+
+  /* ── 저장 전 값 ───────────────────────────────────────────────────────
+     { "<열id>::<항목키>": 적은 글자 }. 이 브라우저에만 둡니다 — 아직
+     기록이 아니라서 남에게 보일 것이 아니고, 서버로 보내면 "저장했다" 와
+     구분되지 않습니다. */
+  let pend = {};
+  let pendPair = null;
+
+  function loadPend(studyId, team) {
+    const k = pairKey(studyId, team);
+    if (pendPair === k) return;
+    const m = window.Persist.getLocalJSON(DRAFT_KEY, {}) || {};
+    pend = (m[k] && typeof m[k] === "object") ? m[k] : {};
+    pendPair = k;
+  }
+  function savePend() {
+    if (!pendPair) return;
+    const m = window.Persist.getLocalJSON(DRAFT_KEY, {}) || {};
+    if (Object.keys(pend).length) m[pendPair] = pend;
+    else delete m[pendPair];
+    window.Persist.setLocalJSON(DRAFT_KEY, m);
+  }
+  function pendCount() { return Object.keys(pend).length; }
 
   /* ── 렌더 ──────────────────────────────────────────────────────────────
      폼 렌더는 배치를 비동기로 받아 그립니다. 그 사이에 다른 렌더가 시작되면
@@ -151,12 +249,14 @@
     const desc = window.Scope.describe();
     paintSubnav();
 
+    /* 과제 › Study › 팀 › Sample.
+       Sample 은 표의 열이라 하나가 아니므로 몇 개인지로 적습니다 — 여기에
+       열 이름 하나만 적으면 나머지 열이 없는 것처럼 보입니다. */
+    const nCols = (sel.studyId && sel.team) ? allCols(sel.studyId, sel.team).length : 0;
     $("#crumb").innerHTML = desc.path.length
       ? desc.path.map((p, i) => (i ? '<span class="crumb-sep">›</span>' : "") +
           '<span>' + esc(p.label) + '</span>').join("") +
-        (batchId ? '<span class="crumb-sep">›</span><span class="mono">' + esc(batchId) + '</span>' : "") +
-        (sampleId ? '<span class="crumb-sep">›</span><span>' +
-          esc((E.getSamples(batchId).find(s => s.id === sampleId) || {}).name || "") + '</span>' : "")
+        (nCols ? '<span class="crumb-sep">›</span><span>시료 ' + nCols + '개</span>' : "")
       : '<span style="color:var(--c-text-mute)">과제를 선택하세요</span>';
 
     /* 분석 및 시료 관리 — 예전 '분석 의뢰' 화면을 이 탭 안으로 흡수했습니다.
@@ -177,58 +277,31 @@
       gate("좌측 필터에서 Study를 선택하세요."); return;
     }
     if (!sel.team) {
-      gate("팀을 선택해야 입력 폼이 열립니다. (팀 미지정 상태에서는 저장할 수 없습니다)"); return;
+      gate("팀을 선택해야 입력 표가 열립니다. (팀 미지정 상태에서는 저장할 수 없습니다)"); return;
     }
 
-    window.Scope.batches().then(function (batches) {
-      if (my !== renderSeq) return;          // 더 최근 렌더가 이미 그렸습니다
-      /* 새로 만든 Study 에는 아직 배치가 없습니다. 막다른 안내로 끝내지 않고
-         바로 만들 수 있게 합니다 — 여기서 길이 끊기면 방금 만든 Study 가
-         쓸 수 없는 채로 남습니다. */
-      if (!batches.length) {
-        gate("이 Study 에는 아직 Batch 가 없습니다. 위 [+ 새 Batch] 로 만들면 " +
-             "입력 표가 열립니다.");
-        return;
-      }
-      if (!batchId || !batches.some(b => b.id === batchId)) batchId = batches[0].id;
-      const batch = batches.find(b => b.id === batchId);
-      const samples = window.Repo.samplesOfBatch(batchId);
-      if (sampleId && !samples.some(s => s.id === sampleId)) sampleId = null;
+    /* ★ Scope.batches() 를 기다리지 않습니다.
 
-      /* ★ 분석 서식의 "시료를 먼저 고르세요" 게이트를 없앴습니다.
-
-         그 게이트는 분석값이 시료 범위에 저장되던 시절의 것입니다. 열이
-         자유로워지면서 값은 배치에 들어가고, 열 머리글이 무엇을 잰 것인지를
-         적는 자리가 됐습니다. 그러니 시료를 고르지 않았다고 표를 닫을 이유가
-         없습니다 — 열 수만큼 측정을 나란히 적으면 됩니다.
-
-         시료 선택기와 [분석 의뢰하기] 는 그대로 둡니다. 시료를 만들고 넘기는
-         일은 여전히 이 화면의 일입니다. */
-      const isAnalyticsTeam = sel.team === "analytics";
-
+       예전에는 "이 Study 의 Batch 목록" 을 받아 와야 표를 그릴 수 있었고,
+       배치가 없으면 막다른 안내로 끝났습니다. 이제 표의 열은 시료이고,
+       시료가 없으면 빈 열 하나로 시작하면 됩니다 — 기다릴 것도, 막힐 것도
+       없습니다. 비동기 렌더 경합(먼저 시작한 쪽이 나중에 끝나 화면을
+       덮어쓰는 문제)도 함께 사라집니다. */
+    {
+      loadPend(sel.studyId, sel.team);
       const groups = FIELDS[sel.team]();
       const teamKo = (window.DATA_TEAMS.find(t => t.id === sel.team) || {}).ko || sel.team;
-      const smp = currentSample();
+      const studyName = ((window.DATA_STUDIES || []).find(s => s.id === sel.studyId) || {}).name || "";
 
       $("#form-host").innerHTML =
         '<section class="card" style="border-top:3px solid ' +
           ((window.DATA_TEAMS.find(t => t.id === sel.team) || {}).color || "var(--c-accent)") + '">' +
           '<div class="card-head" style="flex-wrap:wrap;gap:var(--s-3)">' +
             '<div><h2 class="card-title">' + esc(teamKo) + ' 서식</h2>' +
-            '<p class="card-sub">' +
-              (isAnalyticsTeam
-                ? '시료 <b>' + esc(smp ? smp.name : "") + '</b> 단위 입력' +
-                  (smp && smp.stage ? ' · ' + esc(smp.stage) : "")
-                : sampleId ? esc(L.ui.sampleName) + " 단위 입력" : "Batch 단위 입력") +
-            ' · 저장 시 작성자와 시각이 자동 기록됩니다</p></div>' +
-            targetPicker(batches, samples) +
+            '<p class="card-sub">' + esc(studyName) + ' · ' +
+              '표의 <b>열 하나가 시료 하나</b>입니다 — ' +
+              '[시료 추가 →] 로 시료를 늘리고, 머리글을 눌러 이름을 적습니다</p></div>' +
           '</div>' +
-
-          (isAnalyticsTeam
-            ? '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' +
-              '분석 결과는 <b>시료</b>에 기록됩니다. 같은 배치에서 채취한 다른 시료는 ' +
-              '위 시료 선택으로 전환하세요 — 배치 하나에 여러 시료의 값을 나란히 남길 수 있습니다.' +
-              '</div></div>' : "") +
 
           (sel.team === "downstream"
             ? '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' +
@@ -257,15 +330,27 @@
           '<div class="card-body" style="border-top:1px solid var(--c-border);display:flex;' +
             'gap:var(--s-3);align-items:center;flex-wrap:wrap">' +
             '<button class="btn btn-accent" id="save-all">전체 저장</button>' +
-            '<span style="font-size:12px;color:var(--c-text-mute)">' +
-              '값을 바꾸고 필드를 벗어나면 즉시 저장됩니다. 이 버튼은 일괄 저장용입니다.</span>' +
+            '<span id="pend-note" style="font-size:12px;color:var(--c-text-mute)"></span>' +
             '<span id="save-msg" style="font-size:12px;color:var(--c-ok);font-weight:600"></span>' +
           '</div>' +
         '</section>';
 
-      mountGrid(batch, groups);
-      wireForm(batch, groups, batches);
-    });
+      mountGrid(groups);
+      wireForm(groups);
+      paintPendNote();
+    }
+  }
+
+  /* 아직 저장하지 않은 칸이 몇 개인지 — 버튼 옆에서 늘 보여야 합니다.
+     저장했다고 생각한 채 창을 닫는 것이 이 구조에서 가장 나쁜 실패입니다. */
+  function paintPendNote() {
+    const el = $("#pend-note");
+    if (!el) return;
+    const n = pendCount();
+    el.innerHTML = n
+      ? '<b style="color:var(--c-risk)">저장하지 않은 칸 ' + n + '개</b> — ' +
+        '[전체 저장] 을 눌러야 기록됩니다 (적은 내용은 이 브라우저에 보관 중)'
+      : '표에 적은 값은 [전체 저장] 을 눌러야 기록됩니다.';
   }
 
   function gate(msg) {
@@ -274,93 +359,32 @@
   }
 
 
-  /* Batch / Sample 선택 + Sample 생성 */
-  function targetPicker(batches, samples) {
-    const analytics = window.Scope.get().team === "analytics";
-    return '<div style="display:flex;gap:var(--s-3);align-items:end;flex-wrap:wrap">' +
-      '<label class="ebr-cell" style="min-width:130px"><span>Batch</span>' +
-        '<select class="ebr-input" id="pick-batch">' +
-          batches.map(b => '<option value="' + esc(b.id) + '"' +
-            (b.id === batchId ? " selected" : "") + '>' + esc(b.id) + '</option>').join("") +
-        '</select></label>' +
-      '<label class="ebr-cell" style="min-width:190px"><span>시료 (' + samples.length + '건)</span>' +
-        '<select class="ebr-input" id="pick-sample">' +
-          /* 분석 서식에서는 "Batch 단위" 선택지를 주지 않습니다 —
-             고를 수 있게 두면 시료에 붙어야 할 값이 배치로 새어 들어갑니다. */
-          (analytics ? '<option value="">— 시료 선택 —</option>' : '<option value="">— Batch 단위 —</option>') +
-          samples.map(s => '<option value="' + esc(s.id) + '"' +
-            (s.id === sampleId ? " selected" : "") + '>' + esc(s.name) +
-            (s.stage ? " · " + esc(s.stage) : "") + '</option>').join("") +
-        '</select></label>' +
-      '<button class="btn btn-ghost btn-sm" id="new-batch">+ 새 Batch</button>' +
-      '<button class="btn btn-ghost btn-sm" id="new-sample">' + esc(L.ui.addSample) + '</button>' +
-      /* 시료를 넘기는 동작은 어느 배치·시료인지 정해진 이 자리에서 시작해야
-         실수가 없습니다. 그래서 별도 화면이 아니라 여기 모달로 둡니다. */
-      '<button class="btn btn-ghost btn-sm" id="req-open" style="border-color:#0F766E;color:#0F766E">' +
-        '분석 의뢰하기</button>' +
-    '</div>';
-  }
-
-  /* Batch·Sample 선택은 폼이 있든 없든 같은 방식으로 동작해야 합니다 */
-  function wireTarget(batches) {
-    const pb = $("#pick-batch");
-    if (pb) pb.addEventListener("change", function () {
-      batchId = this.value; sampleId = null; render();
-    });
-    const ps = $("#pick-sample");
-    if (ps) ps.addEventListener("change", function () {
-      sampleId = this.value || null; render();
-    });
-    const nb = $("#new-batch");
-    if (nb) nb.addEventListener("click", () => openNewBatch());
-    const ns = $("#new-sample");
-    if (ns) ns.addEventListener("click", function () {
-      const batch = batches.find(b => b.id === batchId);
-      const name = window.prompt("시료 이름을 입력하세요\n(예: " + batchId + "-S2, AEX 용출 후)");
-      if (name === null) return;
-      const r = E.addSample({ batchId, studyId: batch ? batch.studyId : null, name });
-      if (!r.ok) { window.alert(r.reason); return; }
-      sampleId = r.sample.id;
-      render();
-    });
-    const ro = $("#req-open");
-    if (ro) ro.addEventListener("click", function () {
-      const batch = batches.find(b => b.id === batchId);
-      if (!batch) return;
-      openRequestModal(batch, window.Repo.samplesOfBatch(batchId));
-    });
-  }
-
   /* ══════════════════════════════════════════════════════════════════════
-     신규 Study · Batch 등록
+     신규 Study 등록
 
-     드롭다운에 없는 것을 고르려다 없는 걸 알게 되는 자리가 여기입니다.
-     그 자리에서 바로 만들 수 있어야 화면을 옮겨 다니지 않습니다.
+     ★ 여기 있던 [+ 새 Batch] · [시료 추가] · [분석 의뢰하기] · Batch/시료
+       드롭다운을 모두 없앴습니다.
 
-     ★ 측정값은 지어내지 않습니다. 새 Batch 의 모든 항목은 null 이고 화면에
-       "미입력" 으로 나옵니다. 다만 키는 씨앗과 똑같이 채워 둡니다 —
-       upstream.titer.D10 이 아예 없으면 그걸 읽는 화면이 멈춥니다.
+       단위를 버튼으로도 만들고 표에서도 만들 수 있으면, 같은 것을 만드는
+       길이 둘이 됩니다. 두 길이 만드는 레코드의 모양이 조금만 달라도
+       (이름 규칙 · 그릇 연결 · 팀 표시) 어느 쪽으로 만들었는지에 따라
+       화면이 달라지고, 그 차이는 만든 사람만 압니다.
 
-     ★ 어디서 온 레코드인지 남깁니다 (source: "user"). Excel 에서 온 것과
-       사람이 만든 것을 구분할 수 없으면, 나중에 원본과 대조할 때 무엇을
-       맞춰 봐야 하는지 알 수 없습니다.
+       지금은 길이 하나입니다 — 표에 적으면 생기고, 적지 않으면 생기지
+       않습니다.
      ══════════════════════════════════════════════════════════════════════ */
   function entityBar() {
     const sel = window.Scope.get();
     if (!sel.scopeId) return "";
     return '<div class="entity-bar">' +
-      '<span>드롭다운에 없나요?</span>' +
+      '<span>목록에 없나요?</span>' +
       '<button class="btn btn-ghost btn-sm" id="new-study">+ 새 Study</button>' +
-      (sel.studyId
-        ? '<button class="btn btn-ghost btn-sm" id="new-batch-2">+ 새 Batch</button>'
-        : '<span class="entity-hint">Study 를 고르면 Batch 도 만들 수 있습니다</span>') +
+      '<span class="entity-hint">시료는 아래 표에서 [시료 추가 →] 로 만듭니다</span>' +
     '</div>';
   }
   function wireEntityBar() {
     const a = $("#new-study");
     if (a) a.addEventListener("click", () => openNewStudy());
-    const b = $("#new-batch-2");
-    if (b) b.addEventListener("click", () => openNewBatch());
   }
 
   function closeEntityModal() {
@@ -433,42 +457,43 @@
     '</label>';
   }
 
+  /* ★ '유형' 과 'Study ID' 칸을 없앴습니다.
+
+     둘 다 비워 두는 칸이었습니다. 유형은 비우면 "직접 등록" 이 되고,
+     ID 는 비우면 자동 생성이라 — 세 칸 중 둘이 "안 적어도 됩니다" 라는
+     설명을 달고 있었습니다. 적을지 말지 매번 판단하게 만드는 칸은, 적어
+     넣는 사람에게는 비용이고 읽는 사람에게는 들쭉날쭉한 값입니다.
+
+     이름만 받습니다. ID 는 Dataset 이 만들고, 유형은 "직접 등록" 입니다. */
   function openNewStudy() {
     const sel = window.Scope.get();
     const prj = (window.DATA_PROJECTS || []).find(p => p.id === sel.scopeId);
     entityModal("새 Study 등록",
       (prj ? prj.label || prj.id : sel.scopeId) + " 아래에 만듭니다",
-      field("name", "Study 이름", { req: true, ph: "예: Feed 조건 비교 2차" }) +
-      field("type", "유형", { ph: "예: Media screening · DoE", hint: "비워 두면 '직접 등록'" }) +
-      field("id", "Study ID", { ph: "비워 두면 자동 생성", hint: "사내 번호가 있으면 적으세요" }),
+      field("name", "Study 이름", { req: true, ph: "예: Feed 조건 비교 2차" }),
       function (data) {
-        const r = window.Dataset.addStudy({
-          projectId: sel.scopeId, name: data.name, type: data.type, id: data.id });
+        const r = window.Dataset.addStudy({ projectId: sel.scopeId, name: data.name });
         if (r.ok) window.Scope.setStudy(r.study.id);
         return r;
       });
   }
 
-  function openNewBatch() {
-    const sel = window.Scope.get();
-    if (!sel.studyId) { window.alert("Study 를 먼저 선택하세요."); return; }
-    const study = (window.DATA_STUDIES || []).find(s => s.id === sel.studyId);
-    const today = window.HubCalendar ? window.HubCalendar.today() : "";
-    entityModal("새 Batch 등록",
-      (study ? study.name : sel.studyId) + " 아래에 만듭니다",
-      field("id", "Batch ID", { req: true, ph: "예: B123-13", hint: "비워 두면 자동 생성" }) +
-      field("expNo", "Exp. No.", { ph: "비워 두면 Batch ID 와 같게" }) +
-      field("team", "팀", { value: sel.team || "upstream",
-        options: (window.DATA_TEAMS || []).map(t => [t.id, t.ko]) }) +
-      field("initialDate", "Initial Date", { type: "date", value: today }) +
-      field("endDate", "End Date", { type: "date" }),
-      function (data) {
-        const r = window.Dataset.addBatch({
-          studyId: sel.studyId, id: data.id, expNo: data.expNo, team: data.team,
-          initialDate: data.initialDate || null, endDate: data.endDate || null });
-        if (r.ok) batchId = r.batch.id;
-        return r;
-      });
+  /* ── 시료 하나 만들기 ─────────────────────────────────────────────────
+     표에 값이 적힌 열을 [전체 저장] 할 때만 불립니다. 시료 레코드와 그 값을
+     담을 그릇을 **같이** 만듭니다 — 하나만 만들어 두면 값은 적혔는데 담을
+     곳이 없거나, 담을 곳은 있는데 무엇의 값인지 알 수 없게 됩니다. */
+  function materialize(studyId, team, name, sub) {
+    const nb = window.Dataset.addBatch({
+      studyId: studyId, team: team, expNo: name, hidden: true,
+      initialDate: window.HubCalendar ? window.HubCalendar.today() : null
+    });
+    if (!nb.ok) return { ok: false, reason: nb.reason };
+    const ns = E.addSample({
+      batchId: nb.batch.id, studyId: studyId, team: team,
+      name: name, stage: sub || null
+    });
+    if (!ns.ok) return { ok: false, reason: ns.reason };
+    return { ok: true, bid: nb.batch.id, sid: ns.sample.id };
   }
 
   /* ── 값 타입 ────────────────────────────────────────────────────────────
@@ -493,39 +518,18 @@
     return it || null;
   }
 
-  /* 화면에 보이던 초기값 — 이걸 바꾸려면 사유가 필요하고,
-     바뀌면 이 값이 이력 첫 항목으로 보존됩니다. */
-  /* ★ 화면이 "Excel 원본" 이라고 보여 준 값은 바꿀 때 사유를 받아야 합니다.
+  /* ★ 칸에 **미리 채워 넣는 값이 없습니다.**
 
-     예전에는 시료를 고른 상태면 무조건 null 을 돌려줬습니다. 배양·정제
-     항목은 배치 속성이라 그게 맞지만, 분석 항목은 시료 속성이고 effective()
-     가 그 시료의 Excel 값을 보여 줍니다. 그래서 화면에는 0.2 가 "Excel 원본"
-     으로 떠 있는데, 고쳐도 사유를 묻지 않고 이력도 남지 않은 채 새 값으로
-     저장됐습니다 — 원본이 조용히 사라지는 경로였습니다.
+     예전에는 아무도 적지 않은 칸에 Excel 원본값이 떠 있었습니다. 적힌 것과
+     보여 주는 것이 달라서, 사용자는 자기가 적은 줄 알고 넘어갔고 — 그 값을
+     고치면 "원본 덮어쓰기" 로 사유를 요구했습니다. 적은 적도 없는 숫자에
+     대해서요.
 
-     effective() 와 같은 기준으로 판단합니다. 두 곳이 다른 기준을 쓰면
-     "보여 주는 값" 과 "지켜야 할 값" 이 어긋납니다. */
-  function isSampleScoped(f) {
-    return !!(f.src && ["upstream", "titer", "downstream", "meta"].indexOf(f.src[0]) === -1);
-  }
-  function baseValueOf(batch, f) {
-    /* 시료를 골랐는데 배치 항목이면 물려받지 않습니다 */
-    if (sampleId && !isSampleScoped(f)) return null;
-    /* 시료를 안 골랐는데 시료 항목이면 볼 원본이 없습니다 */
-    if (!sampleId && isSampleScoped(f)) return null;
-    const raw = excelValue(batch, f.src);
-    if (raw === null || raw === undefined) return null;
-    return isMeasure(f) ? window.VAL.coerce(raw) : raw;
-  }
-
+     빈 칸은 빈 칸입니다. 적힌 것만 보여 줍니다. 그래서 지킬 "화면에 보이던
+     원본" 도 없어졌고, baseValue 를 들고 다닐 이유도 없어졌습니다. */
   function originLabel(f) {
     /* 정제 항목은 Excel 에 없는 컬럼이라 "Excel 원본" 이라고 쓰면 거짓말이 됩니다. */
-    return (f.src && f.src[0] === "downstream") ? "초기값" : "Excel 원본";
-  }
-
-  function displayValue(f, v) {
-    if (!isMeasure(f)) return (v === null || v === undefined) ? "" : String(v);
-    return window.VAL.toInput(v);
+    return (f && f.src && f.src[0] === "downstream") ? "초기값" : "Excel 원본";
   }
 
   /* 회의에서 이 값이 지적됐다면 입력 칸 옆에 남깁니다 — 값을 고치기 전에
@@ -600,131 +604,70 @@
   /* ══════════════════════════════════════════════════════════════════════
      워크시트 — 행도 열도 사용자가 정하는 표
 
-     ── 없앤 것: '열 기준' 드롭다운 ───────────────────────────────────────
-     예전에는 팀마다 열의 성격을 하나로 못박았습니다 (배양=일자 · 분석=시료 ·
-     정제=단일). 그런데 그 선택이 팀별로 저장되다 보니, 분석팀인데 열이
-     D10~D20 으로 그려지는 조합이 만들어졌습니다. 그 조합에서는 분석 항목이
-     전부 "배치당 한 값" 으로 취급되어 **행마다 입력칸이 하나뿐**이었고,
-     나머지 열은 빗금 친 죽은 칸이었습니다. 옆 그래프도 팀이 아니라 축을
-     보고 갈라져서, 분석 서식에 배양 그래프가 떴습니다.
-
-     축이라는 개념 자체를 없앴습니다. 열은 그냥 열입니다 — 일자든 시료든
-     차수든 조건명이든 사용자가 적는 대로입니다.
+     ── 열 ────────────────────────────────────────────────────────────────
+     열 하나가 시료 하나입니다. [시료 추가 →] 로 늘리고, 머리글을 눌러 이름을
+     적습니다. 열 지우기는 그 시료를 비활성으로 돌립니다 (값·이력은 남습니다).
 
      ── 저장 키 규칙 ──────────────────────────────────────────────────────
-     한 줄로: **첫 열(또는 일자 열)은 정본, 나머지는 이 화면의 것.**
+     한 줄로: **모든 칸이 정본입니다.**
 
-       스키마 행 × 첫 열        f.k                 ← 조회 · 대시보드 · AI 가 읽는 값
-       Titer 행 × 일자 열       titer_D10           ← 〃
-       스키마 행 × 그 밖의 열   ws_<f.k>@<열id>     ← 이 화면 안에서만
-       사용자 행 × 아무 열      ws_<행이름>@<열id>  ← 이 화면 안에서만
+       스키마 행 × 아무 열     batch:<그릇id>|<f.k>        예: batch:C-7F2|seHPLC_hmw
+       사용자 행 × 아무 열     batch:<그릇id>|ws_<행이름>
+
+     예전에는 첫 열만 정본이고 나머지 열은 ws_<키>@<열id> 로 이 화면 안에만
+     남았습니다. 열이 시료가 되면서 그 구분이 없어졌습니다 — 열마다 자기
+     그릇이 있으므로, 둘째 열의 값도 조회 · 대시보드 · AI 가 똑같이 읽습니다.
+     적어 놓고도 조회할 수 없는 숫자가 더 이상 생기지 않습니다.
 
      스키마 항목의 키는 이름을 고쳐도 바뀌지 않습니다. HMW 를 "응집체" 로
      바꿔도 값은 seHPLC_hmw 에 그대로 있고, 다른 화면이 계속 같은 값을
-     봅니다. 반대로 사용자가 만든 행·열은 **이름이 곧 키**입니다 — 다른
-     화면이 모르는 항목이라 맞출 기준이 없기 때문입니다. 대신 이름을 고치면
-     저장된 값도 새 키로 옮겨 줍니다. 안 옮기면 고치는 순간 값이 미아가
-     됩니다.
+     봅니다. 반대로 사용자가 만든 행은 **이름이 곧 키**입니다 — 다른 화면이
+     모르는 항목이라 맞출 기준이 없기 때문입니다. 대신 이름을 고치면 저장된
+     값도 새 키로 옮겨 줍니다.
      ══════════════════════════════════════════════════════════════════════ */
   const CUSTOM_KEY = "hub.ws.rows";
-  const COLS_KEY = "hub.ws.cols";
 
   /* ── 사용자가 만든 행 ─────────────────────────────────────────────────
-     k 가 곧 이름입니다. 이름을 고치면 k 도 바뀌고, 값도 함께 옮깁니다. */
-  function customRows(team, bid) {
+     k 가 곧 이름입니다. 이름을 고치면 k 도 바뀌고, 값도 함께 옮깁니다.
+
+     행은 Study · 팀 단위입니다 (예전에는 Batch 단위였습니다). 같은 서식의
+     열끼리 같은 행을 봐야 하니, 열마다 행 목록이 다르면 표가 아닙니다. */
+  function customRows(studyId, team) {
     try {
       const m = window.Persist.getJSON(CUSTOM_KEY, {}) || {};
-      return m[team + "|" + bid] || [];
+      return m[pairKey(studyId, team)] || [];
     } catch (e) { return []; }
   }
-  function saveCustomRows(team, bid, list) {
+  function saveCustomRows(studyId, team, list) {
     const m = window.Persist.getJSON(CUSTOM_KEY, {}) || {};
-    m[team + "|" + bid] = list;
+    if (list && list.length) m[pairKey(studyId, team)] = list;
+    else delete m[pairKey(studyId, team)];
     window.Persist.setJSON(CUSTOM_KEY, m);
-  }
-
-  /* ── 열 목록 ──────────────────────────────────────────────────────────
-     팀마다 처음 한 번만 씨앗을 깔고, 그 뒤로는 저장된 목록이 전부입니다.
-     씨앗은 "흔히 그렇게 적는다" 는 출발점일 뿐 제약이 아닙니다.
-
-       배양   D10 … D20   (dayKey 가 있어 기존 titer_D10 키로 들어갑니다)
-       정제   값          (배치당 한 번 재는 공정이라 한 열로 시작)
-       분석   대표 시료 이름 또는 "측정값"
-
-     ★ seeded 인 열은 id 가 고정이고 이름만 바뀝니다. 사용자가 더한 열은
-       이름이 곧 id 입니다. */
-  /* ★ 읽기만 합니다. 예전에는 저장된 것이 없으면 **씨앗을 저장까지** 했는데,
-     그게 다른 PC 의 열을 지우고 있었습니다.
-
-     서버 모드에서는 화면이 뜨는 순간 아직 서버 사본이 오기 전이라 "저장된
-     열이 없다" 로 읽힙니다. 거기서 씨앗을 저장해 버리면, 잠시 뒤 도착하는
-     진짜 목록이 아니라 **방금 쓴 기본값이 서버에 남습니다.** 다른 PC 에서
-     만든 열이 페이지를 열기만 해도 사라졌습니다.
-
-     씨앗은 매번 계산해도 같은 값이므로 저장할 이유가 없습니다. 저장은
-     사용자가 열을 더하거나 고칠 때(saveCols)만 합니다. */
-  function colsOf(team, batch) {
-    const m = window.Persist.getJSON(COLS_KEY, {}) || {};
-    const k = team + "|" + batch.id;
-    if (Array.isArray(m[k]) && m[k].length) return m[k];
-    return seedCols(team, batch);
-  }
-  function saveCols(team, bid, list) {
-    const m = window.Persist.getJSON(COLS_KEY, {}) || {};
-    m[team + "|" + bid] = list;
-    window.Persist.setJSON(COLS_KEY, m);
-  }
-
-  function seedCols(team, batch) {
-    if (team === "upstream") {
-      const days = window.DATA_TITER_DAYS || [];
-      /* 일자축을 쓰지 않으면(기본) 배치당 한 칸입니다. 배열을 채우면 그때
-         부터 일자 열이 생깁니다 — 여기 코드를 고칠 필요는 없습니다. */
-      if (!days.length) {
-        return [{ id: "v", name: "값", sub: "배치 단위", dayKey: null, seeded: true }];
-      }
-      return days.map(d => ({
-        id: d, name: d, sub: "배양 " + d.slice(1) + "일차", dayKey: d, seeded: true }));
-    }
-    if (team === "analytics") {
-      const s = window.Repo.primarySample ? window.Repo.primarySample(batch.id) : null;
-      return [{ id: "v", name: (s && s.name) || "측정값", sub: "배치 기준",
-                dayKey: null, seeded: true }];
-    }
-    return [{ id: "v", name: "값", sub: "배치 단위", dayKey: null, seeded: true }];
   }
 
   /* 새 열 이름 — 겹치지 않는 번호를 찾습니다 */
   function nextColName(list) {
-    let n = list.length + 1, name = n + "차";
-    const taken = list.map(c => String(c.name || "").toLowerCase());
-    while (taken.indexOf(name.toLowerCase()) > -1) { n++; name = n + "차"; }
+    let n = (list || []).length + 1, name = "시료 " + n;
+    const taken = (list || []).map(c => String(c.name || "").toLowerCase());
+    while (taken.indexOf(name.toLowerCase()) > -1) { n++; name = "시료 " + n; }
     return name;
   }
 
   /* ── 행 ───────────────────────────────────────────────────────────────
-     스키마 항목 + 사용자가 만든 항목. 축이 없으므로 모든 행이 모든 열에
-     칸을 갖습니다 — 빗금 친 죽은 칸을 없앤 것이 이번 변경의 핵심입니다. */
-  function buildRows(team, groups, bid) {
+     스키마 항목 + 사용자가 만든 항목. 모든 행이 모든 열에 칸을 갖습니다.
+
+     ★ 일자별 Titer 를 "한 줄이 일자 열을 가로지르는" 모양으로 접지 않습니다.
+       그 모양은 열이 일자였을 때의 것입니다. 열이 시료가 된 지금은 일자마다
+       한 줄입니다 (DATA_TITER_DAYS 가 비어 있으면 아예 나오지 않습니다). */
+  function buildRows(studyId, team, groups) {
     const out = [];
-    let dayRowDone = false;
     groups.forEach(function (grp) {
       (grp.items || []).forEach(function (f) {
-        const perDay = !!(f.src && f.src[0] === "titer" && /^D\d+$/.test(String(f.src[1])));
-        /* 일자별 Titer 는 항목마다 한 줄이 아니라 한 줄이 일자 열을
-           가로지릅니다 — 원본 시트의 모양입니다. */
-        if (perDay) {
-          if (dayRowDone) return;
-          dayRowDone = true;
-          out.push({ k: "titer", label: rowShownLabel(f, true), orig: rowOrigLabel(f, true),
-                     unit: f.unit, type: f.type, group: grp.g, field: f, perDay: true });
-          return;
-        }
         out.push({ k: f.k, label: rowShownLabel(f, false), orig: rowOrigLabel(f, false),
                    unit: f.unit, type: f.type, group: grp.g, field: f });
       });
     });
-    customRows(team, bid).forEach(function (c) {
+    customRows(studyId, team).forEach(function (c) {
       out.push({ k: "ws_" + c.k, name: c.k, label: c.k, orig: c.k,
                  unit: c.unit || "", type: "num",
                  group: "직접 추가한 항목", custom: true, field: null });
@@ -732,120 +675,376 @@
     return out;
   }
 
+  function rowKeyOf(row) { return row.custom ? ("ws_" + row.name) : row.field.k; }
+
   /* ── 한 칸이 어디로 가는가 ────────────────────────────────────────────
-     첫 열(또는 일자 열)만 정본입니다. 나머지는 이 화면 안의 추가 측정입니다. */
+     아직 저장 전인 열은 담을 그릇이 없습니다 — 그 칸은 드래프트에만 있고,
+     [전체 저장] 때 그릇이 만들어진 뒤에 자리를 얻습니다. */
   function cellTarget(row, col) {
-    const scope = "batch:" + (currentBatchId() || "");
-    if (row.custom) {
-      return { scope: scope, key: "ws_" + row.name + "@" + col.id, schema: false };
-    }
-    const f = row.field;
-    if (row.perDay) {
-      if (col.dayKey) return { scope: scope, key: "titer_" + col.dayKey, schema: true, f: f };
-      return { scope: scope, key: "ws_titer@" + col.id, schema: false, f: f };
-    }
-    if (col.primary) return { scope: scope, key: f.k, schema: true, f: f };
-    return { scope: scope, key: "ws_" + f.k + "@" + col.id, schema: false, f: f };
+    if (!col || !col.bid) return null;
+    return { scope: "batch:" + col.bid, key: rowKeyOf(row), f: row.field };
   }
-  function currentBatchId() { return batchId; }
-
   /* ── 워크시트 그리기 ─────────────────────────────────────────────────── */
-  function mountWorksheet(batch, groups, host) {
-    const team = window.Scope.get().team;
-    const bid = batch.id;
-    const shown = id => !A.isHidden(hideKey(team, bid, id));
+  function mountWorksheet(groups, host) {
+    const sel = window.Scope.get();
+    const team = sel.team, studyId = sel.studyId;
 
-    const all = colsOf(team, batch);
-    const cols = all.filter(c => shown(c.id)).map(function (c, i) {
-      return { id: c.id, name: c.name, label: c.name, orig: c.name,
-               sub: c.sub || "", origSub: c.sub || "",
-               dayKey: c.dayKey || null, seeded: !!c.seeded, primary: i === 0 };
+    const cols = allCols(studyId, team).map(function (c) {
+      return { id: c.id, bid: c.bid, sid: c.sid, saved: !!c.saved,
+               name: c.name, label: c.name, orig: c.name,
+               sub: c.sub || "", origSub: c.sub || "" };
     });
-    const rows = buildRows(team, groups, bid);
+    const rows = buildRows(studyId, team, groups);
 
-    host.innerHTML = hiddenStrip(team, batch, all) + '<div id="ws-host"></div>';
-    $$("[data-unhide]", host).forEach(b => b.addEventListener("click", function () {
-      A.unhide(hideKey(team, bid, b.dataset.unhide));
+    host.innerHTML = inactiveStrip(studyId, team) + '<div id="ws-host"></div>';
+    $$("[data-revive]", host).forEach(b => b.addEventListener("click", function () {
+      E.reactivateSample(b.dataset.revive);
       render();
     }));
 
     window.Worksheet.mount(host.querySelector("#ws-host"), {
       rows: rows, cols: cols,
+      addRowLabel: "항목 추가 ↓", addColLabel: "시료 추가 →",
 
+      /* ★ 빈 칸에 아무것도 미리 넣지 않습니다 — 적힌 것만 보여 줍니다.
+         저장 전 값(드래프트)이 있으면 그것이, 없으면 저장된 값이,
+         둘 다 없으면 빈 칸입니다. */
       cell: function (row, col) {
+        const dk = col.id + "::" + rowKeyOf(row);
         const t = cellTarget(row, col);
-        const rec = E.getValue(t.scope, t.key);
+        const rec = t ? E.getValue(t.scope, t.key) : null;
+        const edited = !!(rec && E.hasHistory(rec));
+        const n = rec && rec.history ? rec.history.length : 0;
+
+        if (Object.prototype.hasOwnProperty.call(pend, dk)) {
+          return { display: pend[dk], origin: "저장 전", draft: true,
+                   missing: null, edited: edited, editCount: n };
+        }
         if (rec) {
           return { display: wsDisplay(row, rec.value), origin: E.caption(rec),
-                   missing: wsMissing(row, rec.value),
-                   edited: E.hasHistory(rec),
-                   editCount: rec.history ? rec.history.length : 0 };
+                   missing: wsMissing(row, rec.value), edited: edited, editCount: n };
         }
-        const base = t.schema ? wsBaseValue(batch, t, col) : null;
-        return { display: wsDisplay(row, base),
-                 origin: (base !== null && base !== undefined) ? originLabel(t.f || {}) : null,
-                 missing: wsMissing(row, base), edited: false, editCount: 0 };
+        return { display: "", origin: null, missing: null, edited: false, editCount: 0 };
       },
 
-      onCommit: function (row, col, raw) {
-        const r = wsCommit(batch, row, col, raw);
-        if (r === "saved") render();
-        return r;
-      },
-      onRevert: function (row, col) { wsRevert(batch, row, col); },
+      /* 칸을 벗어나거나 Enter — 검사만 하고 **드래프트에 담습니다.**
+         저장은 [전체 저장] 에서만 일어납니다. */
+      onCommit: function (row, col, raw) { return stage(row, col, raw, cols, rows); },
+
+      onRevert: function (row, col) { unstage(row, col, cols, rows); },
+
       onHistory: function (anchor, row, col, sticky) {
         if (!anchor) { closeHoverHistory(); return; }
         const t = cellTarget(row, col);
-        showHistory(anchor, E.getValue(t.scope, t.key),
+        showHistory(anchor, t ? E.getValue(t.scope, t.key) : null,
           { label: row.label + " · " + col.label, type: row.type }, sticky);
       },
 
       onAddRow: function (label) {
         const name = String(label || "").trim();
         if (!name) return;
-        const list = customRows(team, bid);
+        const list = customRows(studyId, team);
         if (list.some(c => c.k.toLowerCase() === name.toLowerCase())) {
           window.alert("같은 이름의 항목이 이미 있습니다: " + name); return;
         }
         list.push({ k: name, label: name, unit: "" });
-        saveCustomRows(team, bid, list);
+        saveCustomRows(studyId, team, list);
         render();
       },
       onDropRow: function (rk) {
-        const list = customRows(team, bid).filter(c => ("ws_" + c.k) !== rk);
-        saveCustomRows(team, bid, list);
-        render();
-      },
-      onAddCol: function () {
-        const list = colsOf(team, batch).slice();
-        const name = nextColName(list);
-        list.push({ id: name, name: name, sub: "", dayKey: null, seeded: false });
-        saveCols(team, bid, list);
+        const list = customRows(studyId, team).filter(c => ("ws_" + c.k) !== rk);
+        saveCustomRows(studyId, team, list);
         render();
       },
 
-      onRenameCol: function (col, part, text) { renameCol(team, batch, col, part, text); },
-      onRenameRow: function (row, text) { renameRow(team, batch, row, text); },
-      onDropCol:   function (col) { dropCol(team, batch, rows, col); },
+      /* 열 하나 더하기 = 시료 하나 더하기. 다만 **아직 만들지 않습니다** —
+         값이 적힌 열만 [전체 저장] 때 레코드가 됩니다. */
+      onAddCol: function () {
+        const now = allCols(studyId, team);
+        const list = newCols(studyId, team).map(c => ({ cid: c.id, name: c.name, sub: c.sub }));
+        /* 표가 비어 있을 때 보이던 "시료 1" 은 아무 데도 적혀 있지 않습니다.
+           여기서 먼저 실체를 만들어 둬야, 둘째 열을 더했을 때 첫 열이
+           사라지지 않습니다. */
+        if (!savedCols(studyId, team).length && !list.length) {
+          list.push({ cid: "new-1", name: now[0] ? now[0].name : "시료 1", sub: "" });
+        }
+        list.push({ cid: "new-" + Date.now().toString(36), name: nextColName(now), sub: "" });
+        saveNewCols(studyId, team, list);
+        render();
+      },
+
+      onRenameCol: function (col, part, text) { renameCol(studyId, team, col, part, text); },
+      onRenameRow: function (row, text) { renameRow(studyId, team, row, text); },
+      onDropCol:   function (col) { dropCol(studyId, team, rows, col); },
 
       onEdit: function (row, col, raw) {
-        draft = { rowKey: row.k, colId: col.id, raw: raw };
-        schedulePaintLive(batch, team, rows, cols);
+        typing = { rowKey: row.k, colId: col.id, raw: raw };
+        schedulePaintLive(team, rows, cols);
       }
     });
 
-    draft = null;
-    paintLive(batch, team, rows, cols);
+    typing = null;
+    paintLive(team, rows, cols);
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     저장 전 단계 (드래프트)
+
+     표에 적은 값은 여기 머물다가 [전체 저장] 에서 한 번에 기록됩니다.
+
+     왜 그 자리에서 저장하지 않는가 —
+     처음 옮겨 적는 동안의 오타까지 변경 이력에 쌓이면, 나중에 "이 값이
+     왜 바뀌었나" 를 되짚을 때 진짜 정정 한 건이 오타 열 건에 묻힙니다.
+     규제 대응상 필요한 것은 **기록된 값의 변경 이력**이고, 기록되기 전의
+     타이핑은 그 대상이 아닙니다.
+
+     적다 만 것은 이 브라우저에 보관합니다 — 저장 전이라고 창을 닫는 순간
+     사라지면, 다시 적는 수밖에 없습니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function stage(row, col, raw, cols, rows) {
+    const rk = rowKeyOf(row);
+    const dk = col.id + "::" + rk;
+    const txt = String(raw == null ? "" : raw).trim();
+
+    /* 검사는 지금 합니다 — 저장할 때 한꺼번에 알리면, 어느 칸이 틀렸는지
+       찾아 올라가야 합니다. 적는 자리에서 말해 주는 편이 고치기 쉽습니다. */
+    if (txt !== "" && isMeasure(row.field || { type: row.type })) {
+      const p = window.VAL.parse(txt);
+      if (!p.ok) { wsMsgKey(row.k, col.id, "error", [p.error]); return "error"; }
+      if (row.field) {
+        const it = itemSchema(row.field);
+        const rangeErr = window.VAL.checkRange(p.val, it);
+        if (rangeErr) { wsMsgKey(row.k, col.id, "error", [rangeErr]); return "error"; }
+        const warns = warningsFor(row.field, p.val, it);
+        wsMsgKey(row.k, col.id, warns.length ? "warn" : null, warns);
+      } else {
+        wsMsgKey(row.k, col.id, null, []);
+      }
+    } else {
+      wsMsgKey(row.k, col.id, null, []);
+    }
+
+    /* 저장된 값과 같아졌으면 드래프트를 들고 있을 이유가 없습니다 */
+    const t = cellTarget(row, col);
+    const rec = t ? E.getValue(t.scope, t.key) : null;
+    const savedText = rec ? wsDisplay(row, rec.value) : "";
+    if (txt === savedText) delete pend[dk];
+    else pend[dk] = txt;
+
+    savePend();
+    markDraftCell(row, col, Object.prototype.hasOwnProperty.call(pend, dk));
+    paintPendNote();
+    schedulePaintLive(window.Scope.get().team, rows, cols);
+    /* "saved" 를 돌려주지 않습니다 — 돌려주면 Worksheet 가 표를 다시 그리길
+       기다리고, 다시 그리지 않는 우리 쪽과 어긋나 커서가 멈춥니다. */
+    return "draft";
+  }
+
+  /* Esc — 이 칸의 저장 전 값을 버리고 저장된 값으로 되돌립니다 */
+  function unstage(row, col, cols, rows) {
+    const dk = col.id + "::" + rowKeyOf(row);
+    delete pend[dk];
+    savePend();
+    const t = cellTarget(row, col);
+    const rec = t ? E.getValue(t.scope, t.key) : null;
+    const inp = document.querySelector('[data-r="' + cssq(row.k) + '"][data-c="' + cssq(col.id) + '"]');
+    if (inp) inp.value = rec ? wsDisplay(row, rec.value) : "";
+    wsMsgKey(row.k, col.id, null, []);
+    markDraftCell(row, col, false);
+    paintPendNote();
+    schedulePaintLive(window.Scope.get().team, rows, cols);
+  }
+
+  /* 선택자에 넣을 값 — 열 id 와 항목명에는 사용자가 적은 글자가 들어갑니다 */
+  function cssq(s) { return String(s).replace(/["\\]/g, "\\$&"); }
+
+  function markDraftCell(row, col, on) {
+    const cell = document.querySelector('[data-cell="' + cssq(row.k + "::" + col.id) + '"]');
+    if (!cell) return;
+    cell.classList.toggle("is-draft", !!on);
+  }
+
+  /* ── 전체 저장 ─────────────────────────────────────────────────────────
+     1. 값이 적힌 "저장 전 열" 을 시료 + 그릇으로 만듭니다
+     2. 처음 적는 칸은 사유 없이 기록합니다 (이력 없음)
+     3. 이미 기록된 값을 바꾸는 칸만 사유를 받아 이력에 쌓습니다
+
+     3번이 이 화면에서 Audit log 가 생기는 **유일한** 경우입니다. */
+  function saveAll(groups) {
+    const sel = window.Scope.get();
+    const studyId = sel.studyId, team = sel.team;
+    const msg = $("#save-msg");
+    const say = function (t, bad) {
+      if (!msg) return;
+      msg.textContent = t;
+      msg.style.color = bad ? "var(--c-risk)" : "var(--c-ok)";
+      setTimeout(function () { if (msg) msg.textContent = ""; }, 5000);
+    };
+
+    const keys = Object.keys(pend);
+    if (!keys.length) { say("저장할 값이 없습니다"); return; }
+
+    const rows = buildRows(studyId, team, groups);
+    const cols = allCols(studyId, team);
+    const rowByKey = {};
+    rows.forEach(function (r) { rowByKey[rowKeyOf(r)] = r; });
+
+    /* ── 1. 열 실체화 ── */
+    const colById = {};
+    cols.forEach(function (c) { colById[c.id] = c; });
+    const madeFor = {};
+    let failed = null;
+
+    keys.forEach(function (dk) {
+      if (failed) return;
+      const cut = dk.indexOf("::");
+      const cid = dk.slice(0, cut);
+      const col = colById[cid];
+      if (!col || col.bid || madeFor[cid]) return;
+      if (String(pend[dk] || "").trim() === "") return;   /* 빈 값만 있는 열은 만들지 않습니다 */
+      const r = materialize(studyId, team, col.name, col.sub);
+      if (!r.ok) { failed = col.name + ": " + r.reason; return; }
+      madeFor[cid] = r;
+    });
+    if (failed) { say(failed, true); return; }
+
+    /* 실체가 생긴 열은 저장 전 목록에서 내립니다 */
+    if (Object.keys(madeFor).length) {
+      const rest = newCols(studyId, team)
+        .filter(c => !madeFor[c.id])
+        .map(c => ({ cid: c.id, name: c.name, sub: c.sub }));
+      saveNewCols(studyId, team, rest);
+    }
+
+    /* ── 2·3. 값 쓰기 ── */
+    const plan = [];        /* 처음 적는 칸 */
+    const edits = [];       /* 이미 기록된 값을 바꾸는 칸 — 사유 필요 */
+
+    keys.forEach(function (dk) {
+      const cut = dk.indexOf("::");
+      const cid = dk.slice(0, cut), rk = dk.slice(cut + 2);
+      const row = rowByKey[rk];
+      const col = colById[cid];
+      if (!row || !col) return;
+      const bid = (madeFor[cid] && madeFor[cid].bid) || col.bid;
+      if (!bid) return;                                  /* 값이 빈 미실체 열 */
+
+      const scope = "batch:" + bid;
+      const txt = String(pend[dk] == null ? "" : pend[dk]).trim();
+      let val;
+      if (isMeasure(row.field || { type: row.type })) {
+        if (txt === "") val = null;
+        else { const p = window.VAL.parse(txt); if (!p.ok) return; val = p.val; }
+      } else {
+        val = txt === "" ? null : txt;
+      }
+
+      const prev = E.getValue(scope, rk);
+      const item = { dk: dk, scope: scope, key: rk, val: val, row: row, col: col };
+      if (prev && !window.VAL.same(prev.value, val)) edits.push(item);
+      else plan.push(item);
+    });
+
+    /* 처음 적는 칸부터 — 사유를 묻지 않습니다 */
+    let wrote = 0, bad = 0;
+    plan.forEach(function (it) {
+      const r = window.Repo.setValue(it.scope, it.key, it.val, undefined,
+        { baseValue: null, baseSource: null });
+      if (r && r.ok) { wrote++; delete pend[it.dk]; }
+      else bad++;
+    });
+    savePend();
+
+    if (!edits.length) {
+      render();
+      say(wrote + "개 저장됨" + (bad ? " · " + bad + "개 실패" : ""), !!bad);
+      return;
+    }
+
+    /* 기록을 고치는 칸 — 사유를 한 번 받아 함께 적습니다. 칸마다 따로
+       물으면 열 칸을 고친 사람이 열 번 같은 문장을 적게 되고, 그러면
+       "수정" 같은 한 단어만 남습니다. */
+    askReason(edits, function (why) {
+      let ok2 = 0, bad2 = 0;
+      edits.forEach(function (it) {
+        const r = window.Repo.setValue(it.scope, it.key, it.val, why,
+          { baseValue: null, baseSource: null });
+        if (r && r.ok) { ok2++; delete pend[it.dk]; }
+        else bad2++;
+      });
+      savePend();
+      render();
+      say((wrote + ok2) + "개 저장됨 · " + ok2 + "개는 변경 이력에 기록", !!(bad + bad2));
+    }, function () {
+      render();
+      say(wrote + "개 저장됨 · " + edits.length + "개는 사유가 없어 보류", true);
+    });
+  }
+
+  /* 사유 한 번 받기 — 무엇을 고치는지 목록으로 보여 줍니다. 무엇을 고치는지
+     모르는 채 사유를 적으면 그 사유는 아무것도 설명하지 못합니다. */
+  function askReason(edits, onOk, onCancel) {
+    const old = document.getElementById("bulk-reason");
+    if (old) old.remove();
+    const d = document.createElement("div");
+    d.className = "modal";
+    d.id = "bulk-reason";
+    d.setAttribute("role", "dialog");
+    d.setAttribute("aria-modal", "true");
+    d.setAttribute("aria-label", "변경 사유 입력");
+    d.innerHTML =
+      '<div class="modal-box" style="max-width:560px">' +
+        '<div class="modal-head"><div>' +
+          '<h2 class="card-title">변경 사유</h2>' +
+          '<p class="card-sub">이미 기록된 값 ' + edits.length + '건을 고칩니다 — ' +
+            '이전 값은 지우지 않고 이력으로 남습니다</p></div></div>' +
+        '<div class="modal-body">' +
+          '<ul style="margin:0 0 var(--s-4);padding-left:18px;font-size:12.5px;' +
+            'color:var(--c-text-mute);line-height:1.8">' +
+            edits.slice(0, 8).map(it => '<li>' + esc(it.row.label) + ' · ' +
+              esc(it.col.name) + '</li>').join("") +
+            (edits.length > 8 ? '<li>그 밖 ' + (edits.length - 8) + '건</li>' : "") +
+          '</ul>' +
+          '<label class="ebr-cell"><span>사유 *</span>' +
+            '<input class="ebr-input" id="br-why" list="reason-presets" ' +
+              'placeholder="예: 오기 정정 (전사 오류)"></label>' +
+          '<p class="field-msg is-error" id="br-msg" style="display:none"></p>' +
+        '</div>' +
+        '<div class="modal-foot">' +
+          '<button class="btn btn-ghost" id="br-cancel">나중에</button>' +
+          '<button class="btn btn-accent" id="br-ok">사유와 함께 저장</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(d);
+
+    const input = d.querySelector("#br-why");
+    setTimeout(() => input.focus(), 0);
+
+    function close() { d.remove(); }
+    function go() {
+      const why = input.value.trim();
+      if (why.length < 2) {
+        const p = d.querySelector("#br-msg");
+        p.style.display = "block";
+        p.textContent = "사유를 2자 이상 입력하세요.";
+        input.focus();
+        return;
+      }
+      close();
+      onOk(why);
+    }
+    d.querySelector("#br-ok").addEventListener("click", go);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); go(); }
+    });
+    d.querySelector("#br-cancel").addEventListener("click", function () { close(); onCancel(); });
   }
 
   /* ── 이름 고치기 ──────────────────────────────────────────────────────
-     스키마 항목은 이름만, 사용자 항목은 이름과 키를 함께 바꿉니다.
-     키가 바뀌면 저장된 값도 새 키로 옮깁니다 — 안 옮기면 고치는 순간
-     값이 보이지 않게 되고, 사용자는 자기가 지운 줄 압니다. */
-  /* ★ 옮기는 것이 아니라 **새 키로 복사**합니다. 옛 키의 기록은 지우지
-     않습니다 — 이 화면의 모든 변경은 삭제가 아니라 누적입니다. 화면에서는
-     새 키만 읽으므로 사용자에게는 값이 따라온 것으로 보이고, 저장소에는
-     "언제 어느 이름으로 적혀 있었나" 가 남습니다. */
+     열 머리글은 그 시료의 이름 자체입니다 (별칭이 아닙니다). 부제는
+     채취 단계를 적는 자리로 씁니다.
+
+     아직 저장 전인 열은 이 브라우저의 목록에서만 이름이 바뀝니다. */
   function moveValues(scope, fromKey, toKey) {
     const rec = E.getValue(scope, fromKey);
     if (!rec) return;
@@ -853,119 +1052,131 @@
       { baseValue: null, baseSource: null });
   }
 
-  function renameCol(team, batch, col, part, text) {
+  function renameCol(studyId, team, col, part, text) {
     const txt = String(text == null ? "" : text).trim();
-    const bid = batch.id;
-    const list = colsOf(team, batch).slice();
-    const i = list.findIndex(c => c.id === col.id);
-    if (i < 0) return;
 
-    if (part === "sub") { list[i].sub = txt; saveCols(team, bid, list); render(); return; }
-    if (!txt) { window.alert("열 이름은 비울 수 없습니다."); render(); return; }
-    if (list.some((c, j) => j !== i && String(c.name).toLowerCase() === txt.toLowerCase())) {
-      window.alert("같은 이름의 열이 이미 있습니다: " + txt); render(); return;
-    }
-
-    const before = list[i].name;
-    list[i].name = txt;
-
-    /* 씨앗 열은 id 가 고정입니다 — 이름만 바뀌고 저장 키는 그대로입니다.
-       사용자가 더한 열은 이름이 곧 id 이므로 값을 옮깁니다. */
-    if (!list[i].seeded) {
-      const from = list[i].id, to = txt;
-      if (from !== to) {
-        const scope = "batch:" + bid;
-        buildRows(team, FIELDS[team](), bid).forEach(function (row) {
-          const base = row.custom ? ("ws_" + row.name) : ("ws_" + (row.perDay ? "titer" : row.field.k));
-          moveValues(scope, base + "@" + from, base + "@" + to);
-        });
-        list[i].id = to;
+    if (!col.saved) {
+      const list = newCols(studyId, team).map(c => ({ cid: c.id, name: c.name, sub: c.sub }));
+      let hit = list.find(c => c.cid === col.id);
+      if (!hit) {
+        /* 표가 비어 있을 때 보이던 한 열 — 여기서 처음 실체가 생깁니다 */
+        hit = { cid: col.id, name: col.name, sub: col.sub };
+        list.push(hit);
       }
+      if (part === "sub") hit.sub = txt;
+      else if (!txt) { window.alert("시료 이름은 비울 수 없습니다."); render(); return; }
+      else hit.name = txt;
+      saveNewCols(studyId, team, list);
+      render();
+      return;
     }
-    saveCols(team, bid, list);
-    /* 바뀐 이름은 이력에도 남깁니다 */
-    A.set(colKey(team, bid, list[i].id) + ".name", txt, before);
+
+    if (!col.sid) {
+      /* 시료 레코드가 없는 옛 그릇 — 이름을 고치는 순간 시료로 만듭니다 */
+      if (part === "sub") { render(); return; }
+      if (!txt) { window.alert("시료 이름은 비울 수 없습니다."); render(); return; }
+      const r = E.addSample({ batchId: col.bid, studyId: studyId, team: team, name: txt });
+      if (!r.ok) { window.alert(r.reason); render(); return; }
+      window.Dataset.patch("batch", col.bid, { expNo: txt });
+      render();
+      return;
+    }
+
+    const r = part === "sub"
+      ? E.renameSample(col.sid, null, txt)
+      : E.renameSample(col.sid, txt);
+    if (!r.ok) { window.alert(r.reason); render(); return; }
+    /* 그릇의 표시 이름도 맞춰 둡니다 — 대시보드·차트가 expNo 를 적습니다 */
+    if (part !== "sub" && col.bid) window.Dataset.patch("batch", col.bid, { expNo: txt });
     render();
   }
 
-  function renameRow(team, batch, row, text) {
+  function renameRow(studyId, team, row, text) {
     const txt = String(text == null ? "" : text).trim();
-    const bid = batch.id;
     if (!txt) { window.alert("항목명은 비울 수 없습니다."); render(); return; }
 
     if (row.custom) {
-      const list = customRows(team, bid);
+      const list = customRows(studyId, team);
       const c = list.find(x => ("ws_" + x.k) === row.k);
       if (!c) { render(); return; }
       if (c.k === txt) { render(); return; }
       if (list.some(x => x !== c && x.k.toLowerCase() === txt.toLowerCase())) {
         window.alert("같은 이름의 항목이 이미 있습니다: " + txt); render(); return;
       }
-      const scope = "batch:" + bid;
-      colsOf(team, batch).forEach(function (col) {
-        moveValues(scope, "ws_" + c.k + "@" + col.id, "ws_" + txt + "@" + col.id);
+      /* 이름이 곧 키라 저장된 값도 새 키로 옮깁니다 (옛 키의 기록은 남깁니다) */
+      allCols(studyId, team).forEach(function (col) {
+        if (!col.bid) return;
+        moveValues("batch:" + col.bid, "ws_" + c.k, "ws_" + txt);
       });
       c.k = txt; c.label = txt;
-      saveCustomRows(team, bid, list);
+      saveCustomRows(studyId, team, list);
       render();
       return;
     }
 
     /* 스키마 항목 — 이름만 바뀝니다. 키는 그대로라 다른 화면과 계속
        같은 값을 봅니다 (전사 공통 이름). */
-    const clean = row.perDay ? txt : txt.replace(/\s*D\d+\s*$/, "").trim() || txt;
-    const r = A.set(rowAliasKey(row.field, row.perDay), clean, row.orig);
+    const r = A.set(rowAliasKey(row.field, false), txt, row.orig);
     if (!r.ok) window.alert(r.reason);
     render();
   }
 
-  /* ── 열 지우기 ────────────────────────────────────────────────────────
-     값이 적힌 열과 씨앗 열은 지우지 않고 감춥니다 — 규제 대응상 기록은
-     삭제가 아니라 비활성화입니다. */
+  /* ── 열 지우기 = 시료 비활성 ───────────────────────────────────────────
+     규제 대응상 기록은 삭제가 아닙니다. 값과 변경 이력은 그대로 두고
+     시료만 비활성으로 돌립니다 — 표 위의 [되살리기] 로 돌아옵니다. */
   function colHasValues(rows, col) {
+    if (!col.bid) return false;
     return (rows || []).some(function (row) {
       const t = cellTarget(row, col);
-      return !!E.getValue(t.scope, t.key);
+      return !!(t && E.getValue(t.scope, t.key));
     });
   }
-  function dropCol(team, batch, rows, col) {
-    const bid = batch.id;
-    const list = colsOf(team, batch);
-    if (list.length <= 1) { window.alert("마지막 열은 지울 수 없습니다."); return; }
+  function dropCol(studyId, team, rows, col) {
+    const all = allCols(studyId, team);
+    if (all.length <= 1) { window.alert("마지막 열은 지울 수 없습니다."); return; }
 
-    const used = colHasValues(rows, col);
-    if (!used && !col.seeded) {
-      if (!window.confirm("‘" + col.label + "’ 열을 지웁니다. 적힌 값은 없습니다.\n계속할까요?")) return;
-      saveCols(team, bid, list.filter(c => c.id !== col.id));
+    /* 저장 전 열 — 아무 기록도 없으니 그냥 내립니다 */
+    if (!col.saved) {
+      if (!window.confirm("‘" + col.name + "’ 열을 내립니다. 아직 저장된 값은 없습니다.\n계속할까요?")) return;
+      saveNewCols(studyId, team, newCols(studyId, team)
+        .filter(c => c.id !== col.id)
+        .map(c => ({ cid: c.id, name: c.name, sub: c.sub })));
+      Object.keys(pend).forEach(function (k) {
+        if (k.indexOf(col.id + "::") === 0) delete pend[k];
+      });
+      savePend();
       render();
       return;
     }
-    const why = used ? "이 열에는 값이 적혀 있습니다." : "이 열은 처음부터 있던 열입니다.";
-    if (!window.confirm("‘" + col.label + "’ — " + why + "\n\n" +
-      "지우지 않고 이 화면에서만 감춥니다. 값과 이력은 그대로 남고, " +
-      "표 위의 [숨긴 열] 에서 다시 꺼낼 수 있습니다.\n계속할까요?")) return;
-    A.hide(hideKey(team, bid, col.id), col.label);
+
+    const used = colHasValues(rows, col);
+    const why = used ? "이 시료에는 값이 적혀 있습니다." : "이 시료에는 아직 값이 없습니다.";
+    if (!window.confirm("‘" + col.name + "’ — " + why + "\n\n" +
+      "지우지 않고 비활성으로 돌립니다. 값과 변경 이력은 그대로 남고, " +
+      "표 위의 [비활성 시료] 에서 되살릴 수 있습니다.\n계속할까요?")) return;
+
+    if (col.sid) E.deactivateSample(col.sid, "Data 입력에서 열 내림");
+    else window.Dataset.deactivate("batch", col.bid, "Data 입력에서 열 내림");
     render();
   }
 
-  function hiddenStrip(team, batch, allCols) {
-    const pre = "colhide:" + team + "|" + batch.id + "|";
-    const keys = A.hiddenWithPrefix(pre);
-    if (!keys.length) return "";
-    const nameOf = function (id) {
-      const c = (allCols || []).find(x => x.id === id);
-      return c ? c.name : id;
-    };
+  /* 비활성 시료 띠 — 되살릴 손잡이가 화면에 있어야 합니다 */
+  function inactiveStrip(studyId, team) {
+    const list = [];
+    (window.DATA_BATCHES || []).forEach(function (b) {
+      if (!b || b.studyId !== studyId || b.team !== team) return;
+      E.inactiveSamples(b.id).forEach(function (s) { list.push(s); });
+    });
+    if (!list.length) return "";
     return '<div class="ws-hidden">' +
-      '<b>숨긴 열 ' + keys.length + '개</b>' +
-      keys.map(function (k) {
-        const id = k.slice(pre.length);
-        const info = A.hiddenInfo(k) || {};
-        return '<button class="ws-unhide" type="button" data-unhide="' + esc(id) + '" ' +
-          'title="' + esc((info.by || "—") + " · " + (info.at || "").replace("T", " ") +
-            " 에 숨김") + '">' + esc(nameOf(id)) + ' 되살리기</button>';
+      '<b>비활성 시료 ' + list.length + '개</b>' +
+      list.map(function (s) {
+        return '<button class="ws-unhide" type="button" data-revive="' + esc(s.id) + '" ' +
+          'title="' + esc((s.deactivatedBy || "—") + " · " +
+            String(s.deactivatedAt || "").replace("T", " ") + " 에 비활성") + '">' +
+          esc(s.name) + ' 되살리기</button>';
       }).join("") +
-      '<span>값과 변경 이력은 그대로 있습니다 — 화면에만 보이지 않습니다.</span>' +
+      '<span>값과 변경 이력은 그대로 있습니다 — 표에만 보이지 않습니다.</span>' +
     '</div>';
   }
   /* ══════════════════════════════════════════════════════════════════════
@@ -987,62 +1198,67 @@
      ★ 치는 중인 값도 그립니다. 다만 아직 저장 전이라는 것은 밝힙니다.
      ══════════════════════════════════════════════════════════════════════ */
   const LIVE_KEY = "hub.ebr.live";
-  let draft = null;        /* 아직 저장 전인 칸 { rowKey, colId, raw } */
+  let typing = null;       /* 지금 글자를 치고 있는 칸 { rowKey, colId, raw } */
   let liveTimer = null;
   let livePick = [];       /* 그릴 행 키 — 첫 번째가 주 계열 */
   let liveKind = "line";
-  let liveScopeMode = "batch";
 
   try {
     const s = window.Persist.getLocalJSON(LIVE_KEY, null);
     if (s) {
       liveKind = s.kind === "bar" ? "bar" : "line";
-      liveScopeMode = s.scope === "study" ? "study" : "batch";
       livePick = Array.isArray(s.pick) ? s.pick : [];
     }
   } catch (e) {}
 
   function saveLive() {
     try {
-      window.Persist.setLocalJSON(LIVE_KEY, { kind: liveKind, scope: liveScopeMode, pick: livePick });
+      window.Persist.setLocalJSON(LIVE_KEY, { kind: liveKind, pick: livePick });
     } catch (e) {}
   }
 
-  function schedulePaintLive(batch, team, rows, cols) {
+  function schedulePaintLive(team, rows, cols) {
     clearTimeout(liveTimer);
-    liveTimer = setTimeout(() => paintLive(batch, team, rows, cols), 120);
+    liveTimer = setTimeout(() => paintLive(team, rows, cols), 120);
   }
 
-  /* 한 칸의 숫자 — 셀과 같은 경로입니다. 치는 중이면 그 값을 얹습니다. */
-  function liveValue(batch, row, col) {
-    if (draft && draft.rowKey === row.k && draft.colId === col.id) {
-      const p = window.VAL.parse(draft.raw);
-      if (!p.ok) return NaN;
-      const n = window.VAL.numeric(p.val);
-      return (n === null || n === undefined) ? NaN : n;
+  /* 한 칸의 숫자 — 셀과 같은 경로입니다.
+     치는 중 > 저장 전 값 > 저장된 값 순으로 봅니다. 표에 보이는 것과
+     그래프의 점이 다를 수 없어야 합니다. */
+  function liveValue(row, col) {
+    if (typing && typing.rowKey === row.k && typing.colId === col.id) {
+      return num(typing.raw);
     }
+    const dk = col.id + "::" + rowKeyOf(row);
+    if (Object.prototype.hasOwnProperty.call(pend, dk)) return num(pend[dk]);
     const t = cellTarget(row, col);
-    const rec = E.getValue(t.scope, t.key);
-    const raw = rec ? rec.value : (t.schema ? wsBaseValue(batch, t, col) : null);
-    const n = window.VAL.numeric(window.VAL.coerce(raw));
+    const rec = t ? E.getValue(t.scope, t.key) : null;
+    if (!rec) return NaN;
+    const n = window.VAL.numeric(window.VAL.coerce(rec.value));
+    return (n === null || n === undefined) ? NaN : n;
+  }
+  function num(raw) {
+    const p = window.VAL.parse(raw);
+    if (!p.ok) return NaN;
+    const n = window.VAL.numeric(p.val);
     return (n === null || n === undefined) ? NaN : n;
   }
 
   /* 숫자가 하나라도 있는 행만 고를 거리로 내놓습니다 — 날짜 · 자유 텍스트
      행은 선으로 그릴 수 없습니다. */
-  function chartableRows(batch, rows, cols) {
+  function chartableRows(rows, cols) {
     return (rows || []).filter(function (row) {
       if (row.type === "date" || row.type === "text") return false;
-      return (cols || []).some(c => isFinite(liveValue(batch, row, c)));
+      return (cols || []).some(c => isFinite(liveValue(row, c)));
     });
   }
 
-  function paintLive(batch, team, rows, cols) {
+  function paintLive(team, rows, cols) {
     const host = $("#live-host");
     if (!host || !window.Charts) return;
     const C = window.Charts;
 
-    const pool = chartableRows(batch, rows, cols);
+    const pool = chartableRows(rows, cols);
 
     /* 고른 행이 사라졌으면(행 삭제 · 서식 전환) 정리합니다 */
     livePick = livePick.filter(k => pool.some(r => r.k === k));
@@ -1052,7 +1268,7 @@
       host.innerHTML = liveToolbar(pool) +
         '<div class="live-empty">데이터를 입력하면 실시간 그래프가 표시됩니다.<br>' +
         '왼쪽 표의 아무 칸에나 숫자를 적어 보세요.</div>';
-      wireLive(batch, team, rows, cols, pool);
+      wireLive(team, rows, cols, pool);
       return;
     }
 
@@ -1062,76 +1278,40 @@
     const series = picked.map(function (row, i) {
       return { name: row.label + (row.unit ? " (" + row.unit + ")" : ""),
                color: SERIES_COLOR[i % SERIES_COLOR.length],
-               data: cols.map(c => liveValue(batch, row, c)) };
+               data: cols.map(c => liveValue(row, c)) };
     });
 
-    /* 같은 Study 겹쳐 보기 — 열 **이름**이 같은 칸끼리 맞춥니다.
-       열이 자유로워지면서 배치마다 열 구성이 다를 수 있어, 자리(index)가
-       아니라 이름으로 맞춰야 엉뚱한 칸끼리 비교되지 않습니다. */
-    if (liveScopeMode === "study" && picked.length) {
-      const lead = picked[0];
-      (window.DATA_BATCHES || [])
-        .filter(b => b.studyId === batch.studyId && b.id !== batch.id)
-        .slice(0, 6)
-        .forEach(function (b, i) {
-          const peerCols = colsOf(team, b);
-          const byName = {};
-          peerCols.forEach(pc => { byName[pc.name] = pc; });
-          const data = cols.map(function (c) {
-            const pc = byName[c.name];
-            if (!pc) return NaN;
-            return liveValueOf(b, lead, { id: pc.id, name: pc.name,
-              dayKey: pc.dayKey || null, primary: peerCols[0] && peerCols[0].id === pc.id });
-          });
-          if (data.some(v => isFinite(v))) {
-            series.push({ name: b.id, color: PEER[i % PEER.length], data: data });
-          }
-        });
-    }
+    /* ★ '같은 Study 겹쳐 보기' 를 없앴습니다.
+
+       그 기능은 열이 일자였고 배치가 여럿일 때, 다른 배치의 같은 일자를
+       덧그리는 것이었습니다. 이제 X축이 이 Study · 팀의 시료 전부라,
+       덧그릴 "다른 배치" 가 곧 지금 그리고 있는 열들입니다 — 같은 선을
+       한 번 더 그리게 됩니다. */
 
     const body = liveKind === "bar"
       ? C.bars({ cats: x, series: series, h: 210, w: 380 })
       : C.line({ x: x, series: series, h: 210, w: 380, aria: "입력값 실시간 그래프" });
 
+    const nPend = pendCount();
     host.innerHTML = liveToolbar(pool) +
       '<section class="live-card">' +
         '<h3>' + esc(picked.map(r => r.label).join(" · ") || "선택한 항목 없음") + '</h3>' +
-        '<p>X축은 표의 열 머리글입니다 · 값은 표와 같은 경로로 읽습니다</p>' +
+        '<p>X축은 시료(표의 열)입니다 · 값은 표와 같은 경로로 읽습니다</p>' +
         body +
         (series.length > 1 ? C.legend(series) : "") +
       '</section>' +
       '<p class="live-note">' +
-        (draft
-          ? '<b>치는 중인 값이 그래프에 먼저 반영됩니다.</b> 아직 저장된 것은 아닙니다 — ' +
-            'Enter 를 누르거나 칸을 벗어나야 기록됩니다.'
+        (nPend
+          ? '<b>아직 저장하지 않은 값도 그래프에 함께 그립니다.</b> ' +
+            '[전체 저장] 을 눌러야 기록됩니다.'
           : '행을 더 고르면 한 그래프에 겹쳐 그립니다. ' +
             '합이 맞아야 하는 항목끼리 나란히 두면 어긋난 것이 바로 보입니다.') +
       '</p>';
 
-    wireLive(batch, team, rows, cols, pool);
-  }
-
-  /* 다른 배치의 같은 행 값 — 겹쳐 보기에서만 씁니다 */
-  function liveValueOf(b, row, col) {
-    const scope = "batch:" + b.id;
-    let key;
-    if (row.custom) key = "ws_" + row.name + "@" + col.id;
-    else if (row.perDay) key = col.dayKey ? ("titer_" + col.dayKey) : ("ws_titer@" + col.id);
-    else if (col.primary) key = row.field.k;
-    else key = "ws_" + row.field.k + "@" + col.id;
-
-    const rec = E.getValue(scope, key);
-    let raw = rec ? rec.value : null;
-    if (raw === null && row.field && row.field.src) {
-      if (row.perDay && col.dayKey) raw = (b.upstream?.titer?.[col.dayKey] ?? null);
-      else if (col.primary) raw = window.Repo.valueOf(b, row.field.src[0], row.field.src[1]);
-    }
-    const n = window.VAL.numeric(window.VAL.coerce(raw));
-    return (n === null || n === undefined) ? NaN : n;
+    wireLive(team, rows, cols, pool);
   }
 
   const SERIES_COLOR = ["var(--c-accent)", "#B45309", "#0F766E", "#6D28D9", "#B91C1C", "#1D4ED8"];
-  const PEER = ["#94A3B8", "#A5B4C4", "#B6C2D0", "#8FA2BB", "#AAB8C8", "#9FB0C2"];
 
   function liveToolbar(pool) {
     const first = livePick[0] || "";
@@ -1153,14 +1333,6 @@
         '</span>' +
       '</div>' +
 
-      '<div class="live-row">' +
-        '<label for="live-range"><b>범위</b></label>' +
-        '<select class="input" id="live-range">' +
-          '<option value="batch"' + (liveScopeMode === "batch" ? " selected" : "") + '>이 배치만</option>' +
-          '<option value="study"' + (liveScopeMode === "study" ? " selected" : "") + '>같은 Study 겹쳐 보기</option>' +
-        '</select>' +
-      '</div>' +
-
       /* 겹쳐 그릴 행 — 기본은 하나, 필요하면 더합니다 */
       '<div class="live-adds">' +
         extras.map(k => {
@@ -1179,10 +1351,10 @@
     '</div>';
   }
 
-  function wireLive(batch, team, rows, cols, pool) {
+  function wireLive(team, rows, cols, pool) {
     const host = $("#live-host");
     if (!host) return;
-    const redraw = () => { saveLive(); paintLive(batch, team, rows, cols); };
+    const redraw = () => { saveLive(); paintLive(team, rows, cols); };
 
     const pick = host.querySelector("#live-pick");
     if (pick) pick.addEventListener("change", function () {
@@ -1201,45 +1373,13 @@
     $$("[data-kind]", host).forEach(b => b.addEventListener("click", function () {
       liveKind = b.dataset.kind; redraw();
     }));
-    const rng = host.querySelector("#live-range");
-    if (rng) rng.addEventListener("change", function () { liveScopeMode = this.value; redraw(); });
   }
 
-  /* 표 그리기 — Worksheet 가 있으면 그쪽, 없으면 옛 DataGrid 로 내려갑니다. */
-  function mountGrid(batch, groups) {
+  /* 표 그리기 */
+  function mountGrid(groups) {
     const host = $("#grid-host");
     if (!host) return;
-    if (window.Worksheet) { mountWorksheet(batch, groups, host); return; }
-    if (!window.DataGrid) return;
-    window.DataGrid.mount(host, {
-      groups: groups,
-      cell: function (f) {
-        const eff = effective(batch, f);
-        const rec = eff.rec, v = eff.value;
-        const measure = isMeasure(f);
-        const cur = measure ? window.VAL.coerce(v) : null;
-        return {
-          display: displayValue(f, v),
-          origin: rec ? E.caption(rec)
-                : (eff.fromExcel && v !== null && v !== undefined ? originLabel(f) : null),
-          missing: measure ? window.VAL.missingInfo(cur) : null,
-          bounded: measure && window.VAL.isBounded(cur),
-          edited: !!(rec && E.hasHistory(rec)),
-          editCount: rec && rec.history ? rec.history.length : 0,
-          pin: pinMark(batch, f)
-        };
-      },
-      onCommit: function (f, raw) {
-        const r = commit(batch, f, raw);
-        if (r === "saved") render();
-        return r;
-      },
-      onRevert: function (f) { revert(batch, f); },
-      onHistory: function (anchor, f, sticky) {
-        if (!anchor) { closeHoverHistory(); return; }
-        showHistory(anchor, E.getValue(scopeKey(), f.k), f, sticky);
-      }
-    });
+    mountWorksheet(groups, host);
   }
 
   function wsDisplay(row, v) {
@@ -1251,95 +1391,11 @@
     if (row.type === "date" || row.type === "text") return null;
     return window.VAL.missingInfo(window.VAL.coerce(v));
   }
-  /* ── 원본값(Excel) ────────────────────────────────────────────────────
-     "이 칸에 처음부터 적혀 있던 값" 입니다. 이 값을 고치면 사유를 받고
-     이력에 원본을 남깁니다.
-
-     ★ 정본 칸에만 원본이 있습니다. 사용자가 더한 열은 처음부터 빈 칸이라
-       지킬 원본이 없습니다 (cellTarget 이 schema:false 로 돌려줍니다).
-
-     ★ 분석 항목은 원본이 시료에 붙어 있습니다. 열이 더 이상 시료가 아니므로
-       그 배치의 대표 시료 값을 원본으로 봅니다 — Repo.valueOf 가 배치 단위로
-       분석값을 물을 때 쓰는 것과 같은 기준입니다. valueOf 가 아니라
-       valueOfSample 을 쓰는 이유는, 여기서 필요한 것이 "지금 값" 이 아니라
-       "입력 전 원본" 이기 때문입니다. */
-  function wsBaseValue(batch, t, col) {
-    const f = t.f;
-    if (!f || !f.src) return null;
-    if (col.dayKey && f.src[0] === "titer") {
-      return batch.upstream?.titer?.[col.dayKey] ?? null;
-    }
-    if (isSampleScoped(f)) {
-      const s = window.Repo.primarySample ? window.Repo.primarySample(batch.id) : null;
-      return s ? window.Repo.valueOfSample(s, f.src[0], f.src[1]) : null;
-    }
-    return excelValue(batch, f.src);
-  }
-
-  /* 저장 — 스키마 항목은 기존 commit() 을 그대로 지납니다. 사용자가 만든
-     항목만 여기서 직접 저장합니다 (다른 화면이 모르는 항목이라 검증할
-     규격도 없습니다 — 숫자 형식만 봅니다). */
-  function wsCommit(batch, row, col, raw) {
-    const t = cellTarget(row, col);
-    if (t.schema && row.field) {
-      /* ★ row 를 함께 넘깁니다. 접힌 일자 행은 행 키("titer")와 스키마
-         항목 키("titer_D10")가 다릅니다 — 항목 키로 셀을 찾으면 못 찾고,
-         사유 창이 뜨지 않은 채 조용히 지나갑니다. */
-      return commitAt(t.scope, t.key, batch, row.field, raw, col, row);
-    }
-    const p = window.VAL.parse(raw);
-    if (!p.ok) { wsMsg(row, col, "error", [p.error]); return "error"; }
-    wsMsg(row, col, null, []);
-    const prev = E.getValue(t.scope, t.key);
-    const r = window.Repo.setValue(t.scope, t.key, p.val, undefined,
-      { baseValue: prev ? prev.value : null, baseSource: null });
-    if (!r.ok && r.needReason) { wsReason(batch, row, col, raw, r.reason); return "needReason"; }
-    if (!r.ok) { wsMsg(row, col, "error", [r.reason || "저장하지 못했습니다"]); return "error"; }
-    if (r.action === "None") return "none";
-    return "saved";
-  }
-
-  /* 스키마 항목 저장 — 기존 commit() 과 같은 규칙(범위 검사 · 경고 · 사유
-     필수)을 쓰되, 범위(scope)와 키를 워크시트가 정한 것으로 씁니다.
-     시료 축에서는 열마다 범위가 다르기 때문입니다. */
-  function commitAt(scope, key, batch, f, raw, col, row) {
-    const rk = row ? row.k : f.k;
-    const measure = isMeasure(f);
-    let val;
-    if (measure) {
-      const p = window.VAL.parse(raw);
-      if (!p.ok) { wsMsgKey(rk, col.id, "error", [p.error]); return "error"; }
-      val = p.val;
-      const it = itemSchema(f);
-      const rangeErr = window.VAL.checkRange(val, it);
-      if (rangeErr) { wsMsgKey(rk, col.id, "error", [rangeErr]); return "error"; }
-      const warns = warningsFor(batch, f, val, it);
-      wsMsgKey(rk, col.id, warns.length ? "warn" : null, warns);
-    } else {
-      val = raw === "" ? null : raw;
-      wsMsgKey(rk, col.id, null, []);
-    }
-
-    const prev = E.getValue(scope, key);
-    /* 화면이 "Excel 원본" 이라고 보여 준 값은 바꿀 때 사유를 받아야 합니다 */
-    const base = prev ? null : wsBaseValue(batch, { f: f, scope: scope }, col);
-
-    const r = window.Repo.setValue(scope, key, val, undefined,
-      { baseValue: prev ? prev.value : (base === undefined ? null : base),
-        baseSource: originLabel(f) });
-
-    if (!r.ok && r.needReason) {
-      wsReasonAt(scope, key, batch, f, raw, col, r.reason, row);
-      return "needReason";
-    }
-    if (!r.ok) { wsMsgKey(rk, col.id, "error", [r.reason || "저장하지 못했습니다"]); return "error"; }
-    if (r.action === "None") return "none";
-    return "saved";
-  }
-
-  function wsMsg(row, col, kind, lines) { wsMsgKey(row.k, col.id, kind, lines); }
   function wsMsgKey(rk, ck, kind, lines) {
-    const id = rk + "::" + ck;
+    /* 항목명과 열 id 에는 사용자가 적은 글자가 들어갑니다 — 따옴표가 섞이면
+       선택자가 깨지고, 깨진 선택자는 예외 없이 그냥 "못 찾음" 이 됩니다
+       (오류 메시지가 조용히 안 뜨는 길입니다). */
+    const id = cssq(rk + "::" + ck);
     const cell = document.querySelector('[data-cell="' + id + '"]');
     if (!cell) return;
     const p = cell.querySelector("[data-msg]");
@@ -1352,69 +1408,6 @@
       inp.classList.toggle("is-invalid", kind === "error");
       inp.classList.toggle("is-warned", kind === "warn");
     }
-  }
-
-  /* 사유 popover — 칸에 붙습니다. 저장은 사유를 받은 뒤에만 일어납니다. */
-  function wsReason(batch, row, col, raw, note) {
-    const t = cellTarget(row, col);
-    wsReasonAt(t.scope, t.key, batch, row.field, raw, col, note, row);
-  }
-  function wsReasonAt(scope, key, batch, f, raw, col, note, rowOpt) {
-    const rk = rowOpt ? rowOpt.k : f.k;
-    const id = rk + "::" + col.id;
-    const cell = document.querySelector('[data-cell="' + id + '"]');
-    if (!cell) return;
-    closeReason(id);
-    cell.classList.add("is-asking");
-
-    const pop = document.createElement("div");
-    pop.className = "pop reason-pop";
-    pop.id = "reason-pop";
-    const label = (rowOpt ? rowOpt.label : f.label) + " · " + col.label;
-    pop.innerHTML =
-      '<div class="reason-head">' + esc(label) + ' — ' +
-        esc(note || "변경 사유를 입력하세요") + '</div>' +
-      '<div class="reason-ctl">' +
-        '<input class="ebr-input" id="ws-rsn" list="reason-presets" ' +
-          'placeholder="예: 오기 정정 (전사 오류)">' +
-        '<button class="btn btn-accent btn-sm" id="ws-rsave">사유 저장</button>' +
-        '<button class="btn btn-ghost btn-sm" id="ws-rcancel">취소</button>' +
-      '</div>' +
-      '<div class="reason-foot">사유를 저장해야 값이 반영됩니다. ' +
-        '취소하면(Esc) 저장된 값으로 되돌립니다.</div>';
-    document.body.appendChild(pop);
-    placePop(pop, cell.querySelector(".ws-box") || cell);
-
-    const input = pop.querySelector("input");
-    setTimeout(() => input.focus(), 0);
-
-    function submit() {
-      const why = input.value.trim();
-      if (why.length < 2) { wsMsgKey(rk, col.id, "error", ["사유를 2자 이상 입력하세요."]); input.focus(); return; }
-      const measure = f ? isMeasure(f) : true;
-      let val;
-      if (measure) { const p = window.VAL.parse(raw); if (!p.ok) return; val = p.val; }
-      else val = raw === "" ? null : raw;
-      const prev = E.getValue(scope, key);
-      const base = prev ? null : (f ? wsBaseValue(batch, { f: f, scope: scope }, col) : null);
-      const r = window.Repo.setValue(scope, key, val, why,
-        { baseValue: prev ? prev.value : (base === undefined ? null : base),
-          baseSource: f ? originLabel(f) : null });
-      if (r.ok) { closeReason(id); render(); }
-      else wsMsgKey(rk, col.id, "error", [r.reason || "저장하지 못했습니다"]);
-    }
-    input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") { e.preventDefault(); submit(); }
-      if (e.key === "Escape") { e.preventDefault(); closeReason(id); render(); }
-    });
-    pop.querySelector("#ws-rsave").addEventListener("click", submit);
-    pop.querySelector("#ws-rcancel").addEventListener("click", function () { closeReason(id); render(); });
-  }
-
-  function wsRevert(batch, row, col) {
-    closeReason(row.k + "::" + col.id);
-    wsMsgKey(row.k, col.id, null, []);
-    render();
   }
 
   /* 입력 표기 안내용 목록만 남깁니다 — 화면에는 아무것도 그리지 않습니다.
@@ -1432,108 +1425,11 @@
       '</datalist>';
   }
 
-  /* ── 저장 ───────────────────────────────────────────────────────────── */
-  function wireForm(batch, groups, batches) {
-    wireTarget(batches);
-
-    const all = groups.reduce((a, g) => a.concat(g.items), []);
-
-    /* 계산 도구 패널을 화면에서 걷어내면서 그 결과를 받던 연결도 함께
-       내렸습니다. 패널이 없으면 Calc.wire 는 붙을 곳을 못 찾고 그대로
-       돌아가므로, 불러도 아무 일이 일어나지 않습니다.
-       ★ calc.js 는 계속 싣습니다 — Global AI 의 공정 계산 도구가 씁니다. */
-
-    /* 폼 안으로 범위를 좁힙니다 — 좌측 StudySelector 도 [data-f] 를 쓰기 때문에
-       문서 전체를 훑으면 그 드롭다운까지 저장 대상으로 잡힙니다. */
-    const host = $("#form-host");
-    const fieldInputs = () => $$("[data-f]", host);
-
-    /* 표 안의 칸은 DataGrid 가 붙입니다 (change · 키보드 · 이력 표식).
-       여기서 또 붙이면 한 번 고칠 때 저장이 두 번 돕니다. */
-
-    $("#save-all").addEventListener("click", function () {
-      let saved = 0, asking = 0, bad = 0;
-      fieldInputs().forEach(function (inp) {
-        const f = all.find(x => x.k === inp.dataset.f);
-        const r = commit(batch, f, inp.value, { quiet: true });
-        if (r === "saved") saved++;
-        else if (r === "needReason") asking++;
-        else if (r === "error") bad++;
-      });
-      const m = $("#save-msg");
-      const parts = [];
-      if (saved) parts.push(saved + "개 저장됨");
-      if (asking) parts.push(asking + "개는 변경 사유 입력 필요");
-      if (bad) parts.push(bad + "개는 입력값 오류");
-      m.textContent = parts.length ? parts.join(" · ") : "변경된 값이 없습니다";
-      m.style.color = (asking || bad) ? "var(--c-risk)" : "var(--c-ok)";
-      setTimeout(() => { m.textContent = ""; }, 4000);
-      if (saved && !asking && !bad) render();
-    });
-
-  }
-
-
-  /* ── 필드 메시지 ────────────────────────────────────────────────────── */
-  function cellOf(k) { return document.querySelector('[data-cell="' + k + '"]'); }
-
-  function setMsg(k, kind, lines) {
-    const cell = cellOf(k);
-    if (!cell) return;
-    const p = cell.querySelector("[data-msg]");
-    const inp = cell.querySelector("[data-f]");
-    p.className = "field-msg" + (kind ? " is-" + kind : "");
-    p.innerHTML = (lines || []).map(esc).join("<br>");
-    if (inp) {
-      inp.classList.toggle("is-invalid", kind === "error");
-      inp.classList.toggle("is-warned", kind === "warn");
-    }
-  }
-
-  /* ── 저장 ───────────────────────────────────────────────────────────────
-     반환값: "saved" | "none" | "error" | "needReason"
-     오류(범위 이탈·형식 오류)는 저장을 막고, 경고(급변·편차)는 막지 않습니다.
-     경고는 "그럴 수도 있는 일"이라 차단하면 진짜 값을 못 넣게 됩니다. */
-  function commit(batch, f, raw, opts) {
-    if (!f) return "none";
-    const o = opts || {};
-    const measure = isMeasure(f);
-    let val;
-
-    if (measure) {
-      const p = window.VAL.parse(raw);
-      if (!p.ok) { setMsg(f.k, "error", [p.error]); return "error"; }
-      val = p.val;
-
-      const it = itemSchema(f);
-      const rangeErr = window.VAL.checkRange(val, it);
-      if (rangeErr) { setMsg(f.k, "error", [rangeErr]); return "error"; }
-
-      const warns = warningsFor(batch, f, val, it);
-      setMsg(f.k, warns.length ? "warn" : null, warns);
-    } else {
-      val = raw === "" ? null : raw;
-      setMsg(f.k, null, []);
-    }
-
-    const base = baseValueOf(batch, f);
-    /* ★ 저장은 Repo 를 지납니다.
-
-       화면의 입력칸이 데이터의 원본이 되면 안 됩니다. 여기서 저장소를
-       직접 부르면 값은 저장되지만 아무도 그 사실을 모르고, 대시보드 ·
-       조회 · AI 는 예전에 읽어 둔 값을 계속 보여 줍니다.
-       Repo 를 지나면 저장과 함께 통지가 나가 모두가 같은 값을 봅니다. */
-    const r = (window.Repo && window.Repo.setValue ? window.Repo : E)
-      .setValue(scopeKey(), f.k, val, o.reason, {
-        baseValue: base, baseSource: originLabel(f)
-      });
-
-    if (!r.ok && r.needReason) { openReason(batch, f, raw, r.reason); return "needReason"; }
-    if (!r.ok) { setMsg(f.k, "error", [r.reason || "저장하지 못했습니다"]); return "error"; }
-    if (r.action === "None") return "none";
-
-    closeReason(f.k);
-    return "saved";
+  /* ── 저장 ─────────────────────────────────────────────────────────────
+     이 화면에서 DB 로 값이 나가는 곳은 [전체 저장] 하나뿐입니다. */
+  function wireForm(groups) {
+    const btn = $("#save-all");
+    if (btn) btn.addEventListener("click", function () { saveAll(groups); });
   }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -1756,13 +1652,17 @@
       if (!r.ok) { window.alert(r.reason); return; }
       render();
     }));
-    /* 시료에서 바로 결과 입력으로 — 분석팀의 실제 동선입니다 */
+    /* 시료에서 바로 결과 입력으로 — 분석팀의 실제 동선입니다.
+       그 시료가 속한 Study 로 옮기고 분석 서식을 엽니다. 표에서 그 시료가
+       어느 열인지는 머리글로 찾습니다 — 열을 고르는 드롭다운이 더 이상
+       없으므로, 여기서 지정할 수 있는 것은 Study · 팀까지입니다. */
     $$("[data-rgo]").forEach(b => b.addEventListener("click", function (e) {
       e.stopPropagation();
-      const p = b.dataset.rgo.split("|");
-      batchId = p[0]; sampleId = p[1];
+      const bid = b.dataset.rgo.split("|")[0];
+      const bat = (window.DATA_BATCHES || []).find(x => x.id === bid);
       mode = "form";
       location.hash = "";
+      if (bat && bat.studyId) window.Scope.setStudy(bat.studyId);
       window.Scope.setTeam("analytics");
       render();
     }));
@@ -1774,233 +1674,30 @@
       });
     });
   }
-
-  /* ══════════════════════════════════════════════════════════════════════
-     [분석 의뢰하기] 모달 — 입력 폼 안에서 시료를 바로 넘깁니다
-     ══════════════════════════════════════════════════════════════════════ */
-  function openRequestModal(batch, samples) {
-    const old = document.getElementById("req-modal");
-    if (old) old.remove();
-
-    const today = window.HubCalendar ? window.HubCalendar.today() : "";
-    const due = window.HubCalendar ? window.HubCalendar.addDays(today, 5) : "";
-    const team = window.Scope.get().team;
-
-    const d = document.createElement("div");
-    d.className = "modal";
-    d.id = "req-modal";
-    d.setAttribute("role", "dialog");
-    d.setAttribute("aria-modal", "true");
-    d.setAttribute("aria-label", "분석 의뢰하기");
-    d.innerHTML =
-      '<div class="modal-box">' +
-        '<div class="modal-head">' +
-          '<div><h2 class="card-title">분석 의뢰하기</h2>' +
-          '<p class="card-sub">' + esc(batch.id) + ' 의 시료를 분석팀에 넘깁니다</p></div>' +
-          '<button class="btn-icon" id="rm-x" aria-label="닫기" style="margin-left:auto">' +
-            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-            'stroke-width="2.4"><path d="M18 6 6 18M6 6l12 12"/></svg></button>' +
-        '</div>' +
-        '<form class="modal-body" id="rm-form">' +
-          '<div class="eyebrow" style="margin-bottom:var(--s-2)">시료 (' + samples.length + '건)</div>' +
-          (samples.length
-            ? '<div class="req-samples" style="max-height:190px">' + samples.map(function (s) {
-                const openReq = Q.forSample(s.id).filter(Q.isOpen).length;
-                return '<label class="req-sample">' +
-                  '<input type="checkbox" data-msmp="' + esc(s.id) + '"' +
-                    (s.id === sampleId ? " checked" : "") + '>' +
-                  '<span style="min-width:0;flex:1">' +
-                    '<span class="mono" style="font-weight:600;font-size:12.5px">' + esc(s.name) + '</span>' +
-                    '<span style="display:block;font-size:11px;color:var(--c-text-mute)">' +
-                      esc(s.stage || "채취 시점 미입력") +
-                      (s.storage ? " · " + esc(s.storage.freezer + " " + s.storage.rack + " " +
-                        s.storage.box + " " + s.storage.pos) : "") + '</span></span>' +
-                  (openReq ? '<span class="badge badge-warn" style="font-size:10px">의뢰 중</span>' : "") +
-                '</label>';
-              }).join("") + '</div>'
-            : '<p style="font-size:12.5px;color:var(--c-text-mute)">이 배치에 시료가 없습니다. ' +
-              '먼저 [+ 새 Sample 추가]로 시료를 만드세요.</p>') +
-
-          '<div class="eyebrow" style="margin:var(--s-4) 0 var(--s-2)">시험 항목</div>' +
-          '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-            Object.keys(TEST_LABEL).map(k =>
-              '<label class="mm-chip" style="cursor:pointer">' +
-                '<input type="checkbox" data-mtest="' + esc(k) + '" style="margin-right:6px">' +
-                esc(TEST_LABEL[k]) + '</label>').join("") + '</div>' +
-
-          '<div class="ebr-grid" style="margin-top:var(--s-4)">' +
-            '<label class="ebr-cell" style="grid-column:1/-1"><span>의뢰 목적 (필수)</span>' +
-              '<input class="ebr-input" id="rm-purpose" ' +
-                'placeholder="예: CEX 용출 조건 비교 — 중간 단계 순도 확인"></label>' +
-            '<label class="ebr-cell"><span>희망 기한</span>' +
-              '<input class="ebr-input mono" id="rm-due" type="date" value="' + esc(due) + '"></label>' +
-            '<label class="ebr-cell"><span>우선순위</span>' +
-              '<select class="ebr-input" id="rm-priority">' +
-                '<option value="normal">일반</option><option value="urgent">긴급</option></select></label>' +
-            '<label class="ebr-cell" style="grid-column:1/-1"><span>전달 사항</span>' +
-              '<input class="ebr-input" id="rm-note" ' +
-                'placeholder="예: 이 배치는 Harvest 생존율이 낮았습니다 — 불순물 확인 필요"></label>' +
-          '</div>' +
-          '<p class="field-error" id="rm-err" role="alert" style="margin-top:var(--s-3)"></p>' +
-        '</form>' +
-        '<div class="modal-foot">' +
-          '<button class="btn btn-ghost" id="rm-cancel">취소</button>' +
-          '<button class="btn btn-accent" id="rm-submit">의뢰 등록</button>' +
-        '</div>' +
-      '</div>';
-
-    document.body.appendChild(d);
-    document.body.classList.add("modal-open");
-
-    const close = function () {
-      d.remove();
-      document.body.classList.remove("modal-open");
-      document.removeEventListener("keydown", onKey, true);
-    };
-    function onKey(e) {
-      if (e.key !== "Escape") return;
-      const t = (e.target.tagName || "");
-      if (/^(INPUT|SELECT|TEXTAREA)$/.test(t)) { e.target.blur(); e.preventDefault(); return; }
-      close(); e.preventDefault();
-    }
-    document.addEventListener("keydown", onKey, true);
-
-    d.querySelector("#rm-x").addEventListener("click", close);
-    d.querySelector("#rm-cancel").addEventListener("click", close);
-    d.addEventListener("click", function (e) { if (e.target === d) close(); });
-
-    d.querySelector("#rm-submit").addEventListener("click", function () {
-      const err = d.querySelector("#rm-err");
-      const res = Q.create({
-        sampleIds: $$("[data-msmp]", d).filter(c => c.checked).map(c => c.dataset.msmp),
-        tests: $$("[data-mtest]", d).filter(c => c.checked).map(c => c.dataset.mtest),
-        purpose: d.querySelector("#rm-purpose").value,
-        note: d.querySelector("#rm-note").value,
-        dueAt: d.querySelector("#rm-due").value,
-        priority: d.querySelector("#rm-priority").value,
-        requestedTeam: team === "analytics" ? "downstream" : team
-      });
-      if (!res.ok) { err.textContent = res.reason; err.classList.add("is-shown"); return; }
-      close();
-      reqOpen = res.request.id;
-      reqTab = "queue";
-      mode = "requests";
-      location.hash = "requests";
-      render();
-    });
-
-    setTimeout(() => { const p = d.querySelector("#rm-purpose"); if (p) p.focus(); }, 40);
-  }
-
   /* ── 급변 · 편차 경고 ───────────────────────────────────────────────────
-     일자별 Titer 는 전일 값과, 그 외 항목은 같은 Study 다른 배치와 견줍니다.
-     원본이 스캔본 전사라 자리수·단위 오타가 실제로 들어올 수 있는 데이터입니다. */
-  function warningsFor(batch, f, val, it) {
-    const num = window.VAL.numeric(val);
-    if (num === null || !it) return [];
+     같은 Study · 팀의 다른 시료와 견줍니다. 자리수나 단위를 틀리면 혼자
+     한참 떨어져 있어, 적는 자리에서 바로 보입니다.
 
-    const ctx = { value: num, cumulative: !!it.cumulative, prev: null, peers: [] };
+     ★ 견주는 대상이 "같은 Study 의 다른 배치" 에서 "같은 Study · 팀의 다른
+       시료" 로 바뀌었습니다. 열이 시료가 되면서 그 둘이 같은 것이 됐습니다.
 
-    if (f.src && f.src[0] === "titer") {
-      const days = window.DATA_TITER_DAYS;
-      const i = days.indexOf(f.src[1]);
-      for (let j = i - 1; j >= 0; j--) {
-        const pv = dayValue(batch, days[j]);
-        if (pv !== null) { ctx.prev = { label: days[j], value: pv }; break; }
-      }
-    }
+     ★ 저장된 값만 견줍니다. 아직 저장 전인 옆 칸까지 끌어오면, 같은 오타를
+       두 칸에 적었을 때 서로를 근거로 "정상" 이라고 말하게 됩니다. */
+  function warningsFor(f, val, it) {
+    const n = window.VAL.numeric(val);
+    if (n === null || !it) return [];
 
-    if (f.src) {
-      ctx.peers = window.DATA_BATCHES
-        .filter(b => b.studyId === batch.studyId && b.id !== batch.id)
-        .map(b => window.VAL.numeric(window.VAL.coerce(excelValue(b, f.src))))
-        .filter(v => v !== null);
-    }
+    const sel = window.Scope.get();
+    const ctx = { value: n, cumulative: !!it.cumulative, prev: null, peers: [] };
+
+    ctx.peers = savedCols(sel.studyId, sel.team)
+      .map(function (c) {
+        const rec = E.getValue("batch:" + c.bid, f.k);
+        return rec ? window.VAL.numeric(window.VAL.coerce(rec.value)) : null;
+      })
+      .filter(v => v !== null);
 
     return window.VAL.trendWarnings(ctx);
-  }
-
-  /* 전일 값 — 방금 입력한 값(Entries)이 있으면 그쪽이 먼저입니다 */
-  function dayValue(batch, day) {
-    const rec = E.getValue(scopeKey(), "titer_" + day);
-    if (rec) return window.VAL.numeric(rec.value);
-    const raw = batch.upstream && batch.upstream.titer ? batch.upstream.titer[day] : null;
-    return (raw === null || raw === undefined) ? null : +raw;
-  }
-
-  /* ── 변경 사유 입력 ─────────────────────────────────────────────────────
-     값이 바뀌는 저장은 사유 없이 통과시키지 않습니다. 팝업 대신 그 필드
-     아래에 열어, 무엇을 왜 바꾸는지가 한 화면에 보이게 했습니다. */
-  /* ── 변경 사유 입력 (셀에 붙는 popover) ───────────────────────────────
-     표 안에 행을 펼치면 아래 행들이 밀려 내려가고, 방금 고친 셀이 화면
-     밖으로 나가기도 합니다. 그래서 그 셀에 붙는 떠 있는 창으로 둡니다.
-
-     사유를 저장할 때까지 값은 반영되지 않습니다 — commit() 이 Repo 에서
-     needReason 을 받아 여기로 오고, 여기서 사유와 함께 다시 commit 합니다. */
-  function openReason(batch, f, raw, note) {
-    const cell = cellOf(f.k);
-    if (!cell) return;
-    closeReason(f.k);
-    cell.classList.add("is-asking");
-
-    const anchor = cell.querySelector(".ebr-cellbox") || cell;
-    const row = document.createElement("div");
-    row.className = "pop reason-pop";
-    row.id = "reason-pop";
-    row.setAttribute("data-reason-for", f.k);
-    row.innerHTML =
-      '<div class="reason-head">' + esc(f.label) + ' — ' +
-        esc(note || "변경 사유를 입력하세요") + '</div>' +
-      '<div class="reason-ctl">' +
-        '<label class="sr-only" for="rsn-' + esc(f.k) + '">' + esc(f.label) + ' 변경 사유</label>' +
-        '<input class="ebr-input" id="rsn-' + esc(f.k) + '" list="reason-presets" ' +
-          'placeholder="예: 오기 정정 (전사 오류)">' +
-        '<button class="btn btn-accent btn-sm" data-rsave="' + esc(f.k) + '">사유 저장</button>' +
-        '<button class="btn btn-ghost btn-sm" data-rcancel="' + esc(f.k) + '">취소</button>' +
-      '</div>' +
-      '<div class="reason-foot">사유를 저장해야 값이 반영됩니다. ' +
-        '취소하면(Esc) 저장된 값으로 되돌립니다.</div>';
-
-    document.body.appendChild(row);
-    placePop(row, anchor);
-
-    const input = row.querySelector("input");
-    setTimeout(() => input.focus(), 0);
-
-    function submit() {
-      const why = input.value.trim();
-      if (why.length < 2) {
-        setMsg(f.k, "error", ["사유를 2자 이상 입력하세요."]);
-        input.focus();
-        return;
-      }
-      const r = commit(batch, f, raw, { reason: why });
-      if (r === "saved") render();
-    }
-
-    input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") { e.preventDefault(); submit(); }
-      if (e.key === "Escape") { e.preventDefault(); revert(batch, f); }
-    });
-    row.querySelector("[data-rsave]").addEventListener("click", submit);
-    row.querySelector("[data-rcancel]").addEventListener("click", () => revert(batch, f));
-  }
-
-  function revert(batch, f) {
-    const cell = cellOf(f.k);
-    if (!cell) return;
-    const inp = cell.querySelector("[data-f]");
-    if (inp) inp.value = displayValue(f, effective(batch, f).value);
-    setMsg(f.k, null, []);
-    closeReason(f.k);
-    if (inp) inp.focus();
-  }
-
-  function closeReason(k) {
-    const cell = cellOf(k);
-    if (cell) cell.classList.remove("is-asking");
-    const row = document.getElementById("reason-pop");
-    if (row) row.remove();
   }
 
   /* 떠 있는 창을 기준 요소 옆에 둡니다. 화면 밖으로 나가지 않게 접어 넣되,
@@ -2115,12 +1812,10 @@
      기간 · 정렬 · 진행 상태 · 조회/초기화 · 조건 태그는 이 화면에서 할
      일이 없는데도 자리를 차지하고, 입력 폼을 화면 아래로 밀어냅니다.
 
-     그래도 선택기를 완전히 없애지는 못합니다 — render() 가 studyId 와
-     팀이 정해져야 폼을 그리기 때문입니다(위 169행 부근). 통째로 없애면
-     폼이 영구히 "Study 를 선택하세요" 에서 멈춥니다. 엑셀형 입력으로
-     재설계할 때 이 선택기까지 함께 교체하면 됩니다. */
+     남겨 둔 것은 Study 와 팀 둘뿐입니다 — 계층이 Study → 팀 → Sample 이고,
+     Sample 은 아래 표의 열이라 여기서 고를 것이 없습니다. */
   window.StudySelector.mount($("#selector"), { mode: "pick" });
-  window.Scope.subscribe(function () { batchId = null; sampleId = null; render(); });
+  window.Scope.subscribe(function () { pendPair = null; render(); });
   window.Entries.subscribe(render);
 
   /* 다른 탭에서 바뀐 것 · 레코드가 늘어난 것도 받습니다 —

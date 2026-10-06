@@ -263,6 +263,15 @@ window.Dataset = (function () {
       expNo: (input.expNo || "").trim() || id,
       studyId: studyId,
       team: input.team || "upstream",
+      /* ★ 담는 그릇 — 화면에는 나오지 않습니다.
+         Data 입력의 열 하나가 Sample 하나이고, 그 Sample 의 값이 들어갈
+         자리로 이 레코드를 하나 같이 만듭니다 (1:1). 값의 주소는 예전처럼
+         batch:<id> 이므로, 대시보드 · 차트 · AI · CSV · DoE 가 지나는
+         Repo.valueOf 를 한 줄도 고치지 않고 그대로 씁니다.
+
+         hidden 인 레코드는 "Batch" 라는 말로 사용자에게 보이지 않습니다.
+         사용자가 아는 단위는 Sample 하나뿐입니다. */
+      hidden: !!input.hidden,
       initialDate: input.initialDate || null,
       endDate: input.endDate || null,
       cultureDays: days(input.initialDate, input.endDate),

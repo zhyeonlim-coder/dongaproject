@@ -97,16 +97,21 @@ window.Repo = (function () {
     return fallback !== null && fallback !== undefined ? "filled" : "empty";
   }
 
-  /* "filled" | "empty" | "excluded" — 배치 단위 (분석은 대표 시료 기준) */
+  /* "filled" | "empty" | "excluded" — 담는 그릇 하나(= 시료 하나) 기준.
+
+     ★ 분석 항목도 그릇 범위를 **먼저** 봅니다. valueOf 가 이미 그 순서라,
+       여기서 곧바로 시료로 내려가면 조회 화면에는 값이 있는데 완성도에는
+       미입력으로 세어집니다 — 두 숫자가 어긋난 채 둘 다 그럴듯합니다. */
   function cellState(batch, groupId, key) {
+    const rec = window.Entries
+      ? window.Entries.getValue("batch:" + batch.id, fieldKey(groupId, key)) : null;
+    if (rec) return stateOfRecord(rec, null);
     const isAnalytics = groupId !== "upstream" && groupId !== "titer" && groupId !== "downstream";
     if (isAnalytics) {
       const s = primarySample(batch.id);
       return s ? cellStateSample(s, groupId, key) : "empty";
     }
-    const rec = window.Entries
-      ? window.Entries.getValue("batch:" + batch.id, fieldKey(groupId, key)) : null;
-    return stateOfRecord(rec, valueOf(batch, groupId, key));
+    return stateOfRecord(null, valueOf(batch, groupId, key));
   }
 
   /* 시료 단위 */
@@ -118,8 +123,9 @@ window.Repo = (function () {
     return stateOfRecord(rec, raw === undefined ? null : raw);
   }
 
-  /* 완성도 — 배양·정제는 배치 칸을, 분석은 **시료 칸**을 셉니다.
-     시료를 채취해 놓고 분석하지 않았으면 그만큼 덜 찬 것이 맞습니다. */
+  /* 완성도 — 그릇 하나가 시료 하나이므로 팀을 가리지 않고 같은 길로 셉니다.
+     예전에는 분석 항목만 시료 칸을 따로 셌는데, 그릇 하나에 시료가 여럿일
+     때의 규칙이었습니다. 이제 1:1 이라 따로 세면 같은 칸을 두 번 셉니다. */
   function completeness(batches, groups) {
     let filled = 0, total = 0;
     const tally = function (state) {
@@ -128,14 +134,9 @@ window.Repo = (function () {
       if (state === "filled") filled++;
     };
     (batches || []).forEach(function (b) {
-      const samples = samplesOfBatch(b.id);
       (groups || []).forEach(function (g) {
         if (g.empty) return;
-        if (g.team === "analytics") {
-          samples.forEach(s => g.items.forEach(it => tally(cellStateSample(s, g.id, it.key))));
-        } else {
-          g.items.forEach(it => tally(cellState(b, g.id, it.key)));
-        }
+        g.items.forEach(it => tally(cellState(b, g.id, it.key)));
       });
     });
     return { filled, total };
@@ -286,15 +287,15 @@ window.Repo = (function () {
   function samplesOfBatch(batchId) {
     const base = (window.DATA_SAMPLES || [])
       .filter(s => s.active !== false && s.batchId === batchId);
-    /* 사용자가 만든 시료는 부를 때마다 새 객체로 만들어지므로 Aliases.apply()
-       가 닿지 않습니다 — 이름을 여기서 덧씌웁니다. 안 하면 워크시트에서 고친
-       시료 이름이 다른 화면에서만 옛 이름으로 보입니다. */
-    const alias = (k, v) => (window.Aliases ? window.Aliases.get(k, v) : v);
+    /* 시료 이름은 Data 입력 표의 열 머리글이 곧 그 이름입니다 — 별칭으로
+       덧씌우지 않고 레코드에 적힌 것을 그대로 씁니다. 별칭을 한 겹 더 두면
+       "레코드의 이름" 과 "보이는 이름" 이 갈라지고, 어느 쪽이 맞는지
+       화면에서 알 수 없게 됩니다. */
     const user = (window.Entries ? window.Entries.getSamples(batchId) : []).map(s => ({
-      id: s.id, batchId: s.batchId, studyId: s.studyId,
-      name: alias("smp:" + s.id + ".name", s.name),
-      stage: alias("smp:" + s.id + ".stage", null) || null,
-      collectedAt: s.createdAt ? String(s.createdAt).slice(0, 10) : null,
+      id: s.id, batchId: s.batchId, studyId: s.studyId, team: s.team || null,
+      name: s.name,
+      stage: s.stage || null,
+      collectedAt: s.collectedAt || (s.createdAt ? String(s.createdAt).slice(0, 10) : null),
       source: "user", primary: false, active: true,
       note: s.note || null, analytics: null
     }));

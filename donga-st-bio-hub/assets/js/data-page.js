@@ -25,7 +25,18 @@
      비어 있으면 조회 조건의 정렬(최신 날짜순 등)을 그대로 씁니다.
      컬럼을 눌러 직접 정렬한 순간부터 이쪽이 우선합니다. */
   let sorts = [];
-  let groupBy = "batch";        // "batch" | "sample"
+  /* ── 조회 단위는 '시료' 하나입니다 ────────────────────────────────────
+     Data 입력의 열 하나가 시료 하나이고, 시료마다 값 담는 그릇이 1:1 로
+     붙습니다. 그래서 그릇 한 줄이 곧 시료 한 줄입니다 — 여러 열을 적어도
+     한 줄로 묶이지 않고 각각 독립된 레코드로 조회됩니다.
+
+     예전의 '배치별' 과 '시료별' 구분은 그릇 하나에 시료가 여럿일 때의
+     것이었습니다. 1:1 이 된 지금 둘은 같은 결과를 내고, 둘을 남겨 두면
+     "어느 쪽이 맞는 숫자인가" 를 사용자가 판단해야 합니다.
+
+     'compare' 는 여러 시료를 나란히 놓고 차이 큰 항목만 올려 보는 화면으로
+     남깁니다 — 단위가 아니라 보기 방식입니다. */
+  let groupBy = "sample";       // "sample" | "compare"
   let colFilters = {};          // { colKey: "부분일치 문자열" }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -78,10 +89,9 @@
   }
 
   window.Shell.subnav([
-    { label: "조회 단위", items: [
-      { key: "batch",   ko: "배치별", active: true },
-      { key: "sample",  ko: "시료별", active: false },
-      { key: "compare", ko: "배치 비교", active: false }
+    { label: "보기", items: [
+      { key: "sample",  ko: "시료별", active: true },
+      { key: "compare", ko: "시료 비교", active: false }
     ]},
     { label: "바로가기", items: [
       { ko: "대시보드", href: "dashboard.html" },
@@ -254,25 +264,25 @@
     const sel = window.Scope.get();
     const team = sel.team;
 
+    /* ── 식별 컬럼 ──────────────────────────────────────────────────────
+       과제 → Study → 팀 → Sample. 계층 그대로입니다.
+
+       ★ 'Exp. No.' 와 'Initial / End Date' · 'Days' 를 내렸습니다.
+         셋 다 그릇(hidden batch)의 성질인데, 그릇은 이제 시료 하나를 담는
+         내부 자리라 사용자가 적는 곳이 없습니다. 늘 비어 있는 컬럼이
+         남아 있으면 "입력이 빠졌다" 로 읽힙니다.
+
+         대신 '채취일' 을 둡니다 — 시료 자신의 성질입니다. */
     const base = [
       { key: "projectLabel", label: "과제",      type: "s", w: 120 },
       { key: "studyName",    label: "Study",     type: "s", w: 140 },
       { key: "teamLabel",    label: "팀",        type: "s", w: 80 },
-      { key: "id",           label: "Exp. No.",  type: "s", w: 90 }
+      { key: "sampleName",   label: L.ui.sampleName, type: "s", w: 170 },
+      { key: "sampleStage",  label: "채취 단계", type: "s", w: 120 },
+      { key: "collectedAt",  label: "채취일",    type: "s", w: 100 }
     ];
-    if (groupBy === "sample") {
-      base.push({ key: "sampleName", label: L.ui.sampleName, type: "s", w: 150 });
-    }
-    base.push({ key: "initialDate", label: "Initial Date", type: "s", w: 100 });
-    base.push({ key: "endDate",     label: "End Date",     type: "s", w: 100 });
 
     const measure = [];
-
-    /* 배양만 "Days" 와 일자별 Titer 를 따로 붙입니다 — 둘 다 스키마 항목이
-       아니라 배치 자체의 성질이기 때문입니다. */
-    if (!team || team === "upstream") {
-      measure.push({ key: "cultureDays", label: "Days", type: "n", dp: 0, w: 60 });
-    }
 
     /* ★ 측정 항목은 **전부 스키마에서 읽습니다.**
        예전에는 배양 항목만 여기 따로 적어 두었고, 지표를 재설정했을 때
@@ -284,7 +294,9 @@
       g.items.forEach(it => measure.push({
         /* 배양 그룹은 이름을 겹쳐 적지 않습니다 (배양 IVCD → IVCD) */
         key: g.id + "." + it.key,
-        label: g.team === "upstream" ? it.label : g.label + " " + it.label,
+        /* 그룹 이름과 항목 이름이 같으면 한 번만 적습니다 ("Potency Potency") */
+        label: (g.team === "upstream" || g.label === it.label)
+          ? it.label : g.label + " " + it.label,
         type: "n", dp: it.dp, w: g.team === "upstream" ? 92 : 108
       }));
       if (g.team === "upstream") {
@@ -305,7 +317,7 @@
   }
 
   /* ── Data 입력에서 직접 더한 항목 ─────────────────────────────────────
-     워크시트에서 [행추가 ↓] · [열추가 →] 로 만든 칸은 ws_<행>@<열> 키로
+     워크시트에서 [항목 추가 ↓] 로 만든 칸은 ws_<행이름> 키로
      저장됩니다. 그 값이 입력 화면에만 머물면, 적어 놓고도 조회할 수 없는
      데이터가 생깁니다 — 적은 사람만 아는 숫자입니다.
 
@@ -315,16 +327,22 @@
 
      ★ 컬럼 키는 cust.<저장키> 입니다. 점이 들어가지만 분석 그룹 키("그룹.항목")
        와 섞이지 않도록 cellValue 에서 cust. 를 먼저 가릅니다. */
+  /* ★ 키 모양이 바뀌었습니다: ws_<행>@<열id> → ws_<행>.
+
+     열이 시료가 되면서 열마다 자기 그릇이 생겼습니다. 그릇 안에서는 그 행이
+     하나뿐이라 열 id 를 키에 붙일 이유가 없습니다. 예전 모양(@ 포함)도 계속
+     읽습니다 — 이미 적어 둔 값이 있으면 조회 화면에서 사라지면 안 됩니다. */
   function customCols(batches) {
     if (!window.Entries || !window.Entries.getScopeValues) return [];
     const seen = {};
     (batches || []).forEach(function (b) {
       const vals = window.Entries.getScopeValues("batch:" + b.id) || {};
       Object.keys(vals).forEach(function (k) {
-        if (k.indexOf("ws_") !== 0) return;
+        if (k.indexOf("ws_") !== 0 || seen[k]) return;
         const at = k.indexOf("@");
-        if (at < 0 || seen[k]) return;
-        seen[k] = { key: "cust." + k, label: customLabel(k.slice(3, at)) + " · " + k.slice(at + 1),
+        const rowKey = at < 0 ? k.slice(3) : k.slice(3, at);
+        seen[k] = { key: "cust." + k,
+                    label: customLabel(rowKey) + (at < 0 ? "" : " · " + k.slice(at + 1)),
                     type: "n", dp: 2, w: 110 };
       });
     });
@@ -368,8 +386,9 @@
   }
 
   function cellValue(row, key) {
-    if (["projectLabel","studyName","teamLabel","sampleName","id","initialDate","endDate","cultureDays"].indexOf(key) > -1)
-      return row[key];
+    if (["projectLabel","studyName","teamLabel","sampleName","sampleStage","collectedAt",
+         "id","initialDate","endDate","cultureDays"].indexOf(key) > -1)
+      return row[key] === undefined ? null : row[key];
     /* Data 입력에서 더한 항목 — 배치 범위에 ws_ 키로 들어 있습니다.
        아래 "그룹.항목" 가르기보다 먼저 봐야 합니다 (키에 점이 있습니다). */
     if (key.indexOf("cust.") === 0) {
@@ -382,20 +401,13 @@
       return row.downstream ? row.downstream[key.slice(11)] : null;
     if (key.indexOf(".") > -1) {
       const p = key.split(".");
-      /* ★ 배치별 보기에서는 Repo 를 지납니다.
+      /* ★ 팀을 가리지 않고 Repo.valueOf 하나를 지납니다.
 
-         분석값의 원본은 시료에 붙어 있지만, Data 입력에서 적은 값은 배치에
-         들어갑니다 (워크시트의 열이 더 이상 시료가 아니기 때문입니다).
-         여기서 valueOfSample 로 바로 내려가면 그 입력값을 건너뛰고 원본만
-         보여 줍니다 — 입력 화면에는 고친 값이, 조회 화면에는 옛 값이 뜨고
-         둘 다 그럴듯해서 어느 쪽이 맞는지 알 수 없게 됩니다.
-
-         Repo.valueOf 는 배치 입력값을 먼저 보고 없을 때만 대표 시료로
-         내려갑니다. 시료별 보기는 그 행이 가리키는 시료가 정답이므로
-         예전 경로 그대로입니다. */
-      if (groupBy === "sample") {
-        return row._sample ? window.Repo.valueOfSample(row._sample, p[0], p[1]) : null;
-      }
+         Data 입력이 적은 값은 그 시료의 그릇(batch:<id>)에 들어가고,
+         valueOf 는 그 그릇을 **먼저** 봅니다. 여기서 valueOfSample 로 바로
+         내려가면 적은 값을 건너뛰고 Excel 원본만 보여 줍니다 — 입력 화면에는
+         고친 값이, 조회 화면에는 옛 값이 뜨고 둘 다 그럴듯해서 어느 쪽이
+         맞는지 알 수 없게 됩니다. */
       return window.Repo.valueOf(row, p[0], p[1]);
     }
     if (row.upstream && row.upstream[key] !== undefined) return row.upstream[key];
@@ -422,40 +434,36 @@
   }
 
   /* ── 행 구성 ──────────────────────────────────────────────────────────
-     배치별 보기: 한 배치 = 한 행. 분석 컬럼은 그 배치의 대표 시료 값.
-     샘플별 보기: 한 시료 = 한 행. 분석 컬럼은 그 시료의 값.
+     한 시료 = 한 행.
 
-     배치별 보기에서 분석값이 대표 시료 것이라는 사실은 화면에 밝힙니다 —
-     한 배치에 시료가 여럿일 때 어느 값인지 모르면 잘못 읽습니다. */
+     Data 입력에서 열을 두 개 적었으면 여기 두 줄이 섭니다 — 묶이지 않습니다.
+     그릇(hidden batch)이 시료와 1:1 이라, 그릇 목록을 그대로 펼치면 됩니다.
+
+     아직 시료 레코드가 없는 옛 그릇도 한 줄로 둡니다. 값은 그 그릇에
+     적혀 있으므로, 빼면 적어 둔 숫자가 조회 화면에서 사라집니다. */
   function buildRows(batches, studies) {
     const teamById = {};
     window.DATA_TEAMS.forEach(t => { teamById[t.id] = t; });
 
-    const decorate = (b) => {
+    const out = [];
+    batches.forEach(function (b) {
       const st = studies.find(s => s.id === b.studyId) || null;
-      return Object.assign({}, b, {
+      const d = Object.assign({}, b, {
         studyName: st ? st.name : b.studyId,
         projectLabel: window.Repo.projectLabel(st),
         teamLabel: teamById[b.team] ? teamById[b.team].short : b.team
       });
-    };
-
-    if (groupBy === "batch") {
-      return batches.map(b => Object.assign(decorate(b), {
-        _sample: window.Repo.primarySample(b.id)
-      }));
-    }
-
-    const out = [];
-    batches.forEach(function (b) {
-      const d = decorate(b);
       const samples = window.Repo.samplesOfBatch(b.id);
       if (!samples.length) {
-        out.push(Object.assign({}, d, { sampleName: null, sampleId: null, _sample: null }));
+        out.push(Object.assign({}, d, {
+          sampleName: b.expNo || b.id, sampleId: null, sampleStage: null,
+          collectedAt: null, _sample: null
+        }));
         return;
       }
       samples.forEach(s => out.push(Object.assign({}, d, {
-        sampleName: s.name, sampleId: s.id, sampleStage: s.stage, _sample: s
+        sampleName: s.name, sampleId: s.id, sampleStage: s.stage,
+        collectedAt: s.collectedAt || null, _sample: s
       })));
     });
     return out;
@@ -565,7 +573,7 @@
         if (cmpPicked.length < 2) {
           cmpPicked = batches.slice(0, Math.min(3, batches.length)).map(b => b.id);
         }
-        $("#count").textContent = batches.length + "개 배치 중 " +
+        $("#count").textContent = batches.length + "개 시료 중 " +
           cmpPicked.length + "개 비교 (최대 " + CMP_MAX + ")";
         $("#sample-bar").innerHTML = "";
         $("#sort-chips").innerHTML = "";
@@ -591,7 +599,7 @@
       const cols = columns(titerDays, { batches: batches });
       const sortLabel = window.Repo.SORTS[sel.sort] || window.Repo.SORTS[window.Repo.DEFAULT_SORT];
       const undated = window.Repo.undatedExcluded(sel);
-      $("#count").textContent = rows.length + (groupBy === "sample" ? "행 (시료별)" : "개 배치") +
+      $("#count").textContent = rows.length + "개 시료" +
         " · " + sortLabel +
         (window.Scope.periodLabel() ? " · " + window.Scope.periodLabel() : "") +
         (undated ? " · 날짜 미기재 " + undated + "건 제외" : "") +
@@ -960,39 +968,17 @@
     }));
   }
 
-  /* ── Sample Name 생성 (creatable) ───────────────────────────────────── */
-  function paintSampleBar(batches) {
+  /* ── Sample 추가 줄을 없앴습니다 ──────────────────────────────────────
+     시료를 만드는 길은 Data 입력 표의 [시료 추가 →] 하나뿐입니다.
+
+     여기에도 만드는 버튼이 있으면, 값이 하나도 없는 시료가 조회 화면에서
+     생길 수 있습니다 — 조회 화면은 "무엇이 들어 있나" 를 보는 곳이지
+     만드는 곳이 아닙니다. 그리고 두 길이 서로 다른 모양의 레코드를 만들면
+     (여기서는 담을 그릇이 정해지지 않습니다) 어느 쪽으로 만들었는지에
+     따라 값이 들어갈 자리가 달라집니다. */
+  function paintSampleBar() {
     const host = $("#sample-bar");
-    if (groupBy !== "sample") { host.innerHTML = ""; return; }
-
-    const total = batches.reduce((n, b) => n + window.Repo.samplesOfBatch(b.id).length, 0);
-    host.innerHTML =
-      '<div class="card"><div class="card-body" style="display:flex;gap:var(--s-3);align-items:end;flex-wrap:wrap">' +
-        '<label class="ebr-cell" style="min-width:150px"><span>' + esc(L.ui.sampleName) + ' 추가 대상 Batch</span>' +
-          '<select class="ebr-input" id="smp-batch">' +
-            batches.map(b => '<option value="' + esc(b.id) + '">' + esc(b.id) + '</option>').join("") +
-          '</select></label>' +
-        '<label class="ebr-cell" style="flex:1;min-width:180px"><span>새 ' + esc(L.ui.sampleName) + '</span>' +
-          '<input class="ebr-input" id="smp-name" placeholder="예: B123-1-S1, pH 6.0 조건군"></label>' +
-        '<button class="btn btn-accent" id="smp-add">' + esc(L.ui.addSample) + '</button>' +
-        '<span style="font-size:12px;color:var(--c-text-mute)">현재 ' + total + '개</span>' +
-        '<p class="field-error" id="smp-err" role="alert" style="flex-basis:100%;margin:0"></p>' +
-      '</div></div>';
-
-    $("#smp-add").addEventListener("click", function () {
-      const name = $("#smp-name").value;
-      const batchId = $("#smp-batch").value;
-      const b = batches.find(x => x.id === batchId);
-      const r = window.Entries.addSample({ batchId, studyId: b ? b.studyId : null, name });
-      const err = $("#smp-err");
-      if (!r.ok) { err.textContent = r.reason; err.classList.add("is-shown"); return; }
-      err.classList.remove("is-shown");
-      $("#smp-name").value = "";
-      render();
-    });
-    $("#smp-name").addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); $("#smp-add").click(); }
-    });
+    if (host) host.innerHTML = "";
   }
 
   /* ── Data 분류 빠른 선택 ────────────────────────────────────────────────
@@ -1125,7 +1111,7 @@
           ? genInFile.join(" · ") + " — " + pv.P.GENERATED_WHY
           : "이 파일에 없음")]);
         head.push([q("검증 필요"), q(unvRows.length
-          ? unvRows.length + "개 배치(" + unvRows.map(x => x.id).join(" · ") +
+          ? unvRows.length + "개 시료(" + unvRows.map(x => x.id).join(" · ") +
             ")가 여러 항목에서 동시에 같은 값입니다. 원본 스캔과 대조 전까지 " +
             "통계에 넣지 마세요. 해당 항목은 행 끝 \"검증 필요 항목\" 열에 적었습니다."
           : "이 파일에 없음")]);
@@ -1162,7 +1148,7 @@
          보고서에 붙이기 전에 확인합니다 */
       toast(rows.length + "행을 CSV로 내보냈습니다." +
         (genInFile.length ? " 생성값 " + genInFile.length + "개 항목" : "") +
-        (unvRows.length ? " · 검증 필요 " + unvRows.length + "개 배치" : "") +
+        (unvRows.length ? " · 검증 필요 " + unvRows.length + "개 시료" : "") +
         ((genInFile.length || unvRows.length) ? " — 파일 맨 위 고지를 확인하세요." : ""));
     });
   }

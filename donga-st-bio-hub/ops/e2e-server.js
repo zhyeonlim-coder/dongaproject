@@ -325,7 +325,7 @@ window.E2EServer = (function () {
        ★ 원본 Excel 항목(qP 등)은 건드리지 않습니다. 사용자가 만든 열과
          같은 ws_ 키만 씁니다 — 그래서 사유 게이트에도 걸리지 않습니다. */
     if (b && window.Entries) {
-      const wsField = "ws_E2E검사@v";
+      const wsField = "ws_E2E검사";
       const wsKey = "batch:" + b.id + "|" + wsField;
       const mark = 42.4242;
 

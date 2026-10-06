@@ -173,7 +173,7 @@
           '<span class="badge badge-' + (s.status === "완료" ? "ok" : "info") +
             '" style="font-size:10px">' + esc(s.status) + '</span></div>' +
         '<div class="study-title">' + esc(s.name) + '</div>' +
-        '<div class="study-en">' + bs.length + '개 배치 · ' + esc(s.startDate || L.empty) + '</div>' +
+        '<div class="study-en">' + bs.length + '개 시료 · ' + esc(s.startDate || L.empty) + '</div>' +
         '<div style="display:flex;gap:10px;font-size:11.5px;color:var(--c-text-mute)">' +
           '<span>최고 Titer <b class="mono">' +
             (titers.length ? fmt(Math.max.apply(null, titers), 0) : L.empty) + '</b> mg/L</span>' +

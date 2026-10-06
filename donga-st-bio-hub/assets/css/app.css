@@ -2782,6 +2782,18 @@ td.is-generated { background: color-mix(in srgb, var(--c-warn, #B45309) 7%, tran
 .ws-in.is-warned  { border-color: #E0A85C; background: #FFFBF4; }
 
 .ws-td.is-edited .ws-in { border-color: #D2933F; background: #FFF8EC; }
+
+/* 아직 저장하지 않은 칸 — 적혀 있지만 기록은 아닙니다.
+   저장된 칸과 눈에 띄게 달라야 합니다. 같아 보이면 "저장했다" 고 믿은 채
+   창을 닫게 되고, 그게 이 구조에서 가장 나쁜 실패입니다.
+   왼쪽 굵은 띠는 색을 못 보는 경우에도 구분되도록 둡니다. */
+.ws-td.is-draft .ws-in {
+  border-color: var(--c-accent);
+  border-left-width: 3px;
+  background: #F2F7FD;
+  font-weight: 600;
+}
+.ws-td.is-draft .ws-origin { color: var(--c-accent); font-weight: 600; }
 .ws-mark {
   position: absolute; top: -4px; right: -4px;
   width: 13px; height: 13px; padding: 0;
