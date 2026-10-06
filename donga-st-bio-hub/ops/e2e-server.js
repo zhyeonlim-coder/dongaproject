@@ -162,9 +162,17 @@ window.E2EServer = (function () {
     R.check(G1, "표 세 개가 모두 응답에 있음",
       !!(snap.body && snap.body.records && snap.body.values && snap.body.meta),
       "records/values/meta");
-    R.check(G1, "씨앗 Batch 가 들어가 있음 (28)", c.batch === 28, "batch=" + c.batch);
-    R.check(G1, "씨앗 Study 가 들어가 있음 (3)", c.study === 3, "study=" + c.study);
-    R.check(G1, "씨앗 시료가 들어가 있음 (31)", c.sample === 31, "sample=" + c.sample);
+    /* 예시 엑셀 씨앗은 더 이상 심지 않습니다 (2026-10 지표 재설정).
+       개수를 박아 두면 사용자가 Study 를 하나 지울 때마다 검사가 빨개집니다.
+       여기서 지켜야 하는 것은 "몇 개인가" 가 아니라 **읽을 수 있는 모양으로
+       돌아오는가** 입니다. */
+    R.check(G1, "레코드 묶음이 배열로 돌아옴",
+      Array.isArray(snap.body && snap.body.records && snap.body.records.study) &&
+      Array.isArray(snap.body.records.batch),
+      "study=" + c.study + " batch=" + c.batch + " sample=" + c.sample);
+    R.check(G1, "건수를 함께 돌려줌",
+      !!(snap.body && snap.body.counts && typeof snap.body.counts.batch === "number"),
+      JSON.stringify(c));
 
     /* 쿠키 없이 접근하면 막히는가 — 자격 증명을 일부러 빼고 부릅니다 */
     const bare = await fetch(API, { method: "GET", credentials: "omit" });

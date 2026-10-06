@@ -75,20 +75,20 @@ window.Dataset = (function () {
   /* 마지막으로 서버와 맞춘 모습 — 무엇이 달라졌는지 견주는 기준입니다.
      hydrate 가 서버에서 받아올 때마다 새로 찍습니다. */
   let pushed = {};
-  function stamp(list) {
+  function fingerprint(list) {
     const m = {};
     (list || []).forEach(function (r) { if (r && r.id) m[r.id] = JSON.stringify(r); });
     return m;
   }
-  function stampAll() {
-    pushed = { study: stamp(state.studies), batch: stamp(state.batches), sample: stamp(state.samples) };
+  function markSynced() {
+    pushed = { study: fingerprint(state.studies), batch: fingerprint(state.batches), sample: fingerprint(state.samples) };
   }
   function diffFromPushed() {
     const out = {};
     let any = false;
     [["study", state.studies], ["batch", state.batches], ["sample", state.samples]]
       .forEach(function (p) {
-        const kind = p[0], now = stamp(p[1]), was = pushed[kind] || {};
+        const kind = p[0], now = fingerprint(p[1]), was = pushed[kind] || {};
         const list = [];
         Object.keys(now).forEach(function (id) {
           if (was[id] !== now[id]) { list.push(JSON.parse(now[id])); }
@@ -332,12 +332,18 @@ window.Dataset = (function () {
   function hydrate(records) {
     if (SEED_ONLY) return false;
     const r = records || {};
+    /* ★ 레코드 모양이 아닌 것은 들이지 않습니다.
+       서버에 한 줄이라도 이상한 것이 들어가면, 그대로 받아 화면 전체가
+       그 위에서 돕니다 (이름 없는 Study 가 목록에 섞여 보였습니다).
+       들어오는 자리에서 한 번 거릅니다 — 지우지는 않고, 쓰지만 않습니다. */
+    const sane = list => (Array.isArray(list) ? list : [])
+      .filter(x => x && typeof x === "object" && x.id);
     state = {
-      studies: r.study || [], batches: r.batch || [], samples: r.sample || []
+      studies: sane(r.study), batches: sane(r.batch), samples: sane(r.sample)
     };
     /* 방금 서버에서 받은 모습이 곧 "맞춰진 모습" 입니다. 여기서 찍어 두지
        않으면 다음 저장이 받은 것을 그대로 되쓰게 됩니다. */
-    stampAll();
+    markSynced();
     applyToGlobals();
     if (window.Aliases && window.Aliases.apply) window.Aliases.apply();
     subs.slice().forEach(function (f) { try { f("hydrate", true); } catch (e) {} });
