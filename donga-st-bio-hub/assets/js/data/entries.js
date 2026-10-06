@@ -59,7 +59,17 @@ window.Entries = (function () {
         const map = {};
         keys.forEach(function (k) { map[k] = state.values[k] || null; });
         dirty = {};
-        window.Persist.pushValues(map);
+        /* ★ 실패하면 다시 보낼 목록에 돌려놓습니다.
+           예전에는 보내기 전에 dirty 를 비우고 끝이라, 전송이 실패하면
+           그 값은 **어디에도 남지 않았습니다.** 화면에는 적혀 있는데
+           서버에는 없는 상태가 되고, 다음 저장 때도 보내지 않습니다. */
+        Promise.resolve(window.Persist.pushValues(map)).then(function (r) {
+          if (r && r.ok) return;
+          keys.forEach(function (k) { dirty[k] = true; });
+          if (window.console && console.warn) {
+            console.warn("[Entries] 저장에 실패해 " + keys.length + "건을 다시 보낼 목록에 두었습니다");
+          }
+        }).catch(function () { keys.forEach(function (k) { dirty[k] = true; }); });
       }
       /* 시료와 묶음은 값 표가 아니라 설정 쪽에 둡니다 — 양이 적고
          (scope,field) 모양이 아니기 때문입니다. */

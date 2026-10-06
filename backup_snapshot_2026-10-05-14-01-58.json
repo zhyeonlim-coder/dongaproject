@@ -1,0 +1,3208 @@
+{
+ "_kind": "bio-knowledge-hub/db-snapshot",
+ "_version": 1,
+ "_takenAt": "2026-10-05T14:01:58.827Z",
+ "_origin": "https://dongaproject-mvyo.vercel.app",
+ "_counts": "study 3 · batch 28 · sample 31 · request 3 · issue 3 · todo 3 · booking 1 | 값 0 | meta 5",
+ "records": {
+  "study": [
+   {
+    "id": "STD-0045",
+    "name": "Media screening test",
+    "type": "Media screening",
+    "status": "완료",
+    "endDate": "2024-11-15",
+    "objective": null,
+    "projectId": "PRJ-1234",
+    "startDate": "2024-08-16",
+    "batchCount": 6
+   },
+   {
+    "id": "STD-0123",
+    "name": "DoE test",
+    "type": "DOE",
+    "status": "완료",
+    "endDate": "2024-12-24",
+    "objective": null,
+    "projectId": "PRJ-1234",
+    "startDate": "2024-12-10",
+    "batchCount": 12
+   },
+   {
+    "id": "STD-0321",
+    "name": "Feasibility test",
+    "type": "Feasibility",
+    "status": "완료",
+    "endDate": "2025-01-23",
+    "objective": null,
+    "projectId": "PRJ-4321",
+    "startDate": "2025-01-09",
+    "batchCount": 10
+   }
+  ],
+  "batch": [
+   {
+    "id": "UNSPEC-01",
+    "team": "upstream",
+    "expNo": null,
+    "endDate": "2024-08-29",
+    "studyId": "STD-0045",
+    "upstream": {
+     "qP": 11.12,
+     "ivcd": 126.2,
+     "titer": {
+      "D10": 971,
+      "D11": 1161,
+      "D12": 1287,
+      "D13": 1452,
+      "D14": null,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 19.7,
+     "finalVCD": 10.3,
+     "titerHCCF": 1414,
+     "finalViability": 59.7
+    },
+    "downstream": {
+     "hcp": 46,
+     "aexYield": 94,
+     "cexYield": 87,
+     "totalYield": 73.9,
+     "residualDNA": 0.83,
+     "monomerPurity": 97.82,
+     "proteinAYield": 90.3
+    },
+    "cultureDays": 13,
+    "initialDate": "2024-08-16"
+   },
+   {
+    "id": "B045-1",
+    "team": "upstream",
+    "expNo": "B045-1",
+    "endDate": "2024-11-15",
+    "studyId": "STD-0045",
+    "upstream": {
+     "qP": 7.47,
+     "ivcd": 92.4,
+     "titer": {
+      "D10": 563,
+      "D11": 597,
+      "D12": 647,
+      "D13": 667,
+      "D14": 678,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 12.56,
+     "finalVCD": 7.57,
+     "titerHCCF": 700,
+     "finalViability": 63.5
+    },
+    "downstream": {
+     "hcp": 135.3,
+     "aexYield": 94.5,
+     "cexYield": 91.1,
+     "totalYield": 76.8,
+     "residualDNA": 1.08,
+     "monomerPurity": 98.69,
+     "proteinAYield": 89.2
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-11-01"
+   },
+   {
+    "id": "B045-2",
+    "team": "upstream",
+    "expNo": "B045-2",
+    "endDate": "2024-11-15",
+    "studyId": "STD-0045",
+    "upstream": {
+     "qP": 12.06,
+     "ivcd": 100.6,
+     "titer": {
+      "D10": 696,
+      "D11": 808,
+      "D12": 966,
+      "D13": 1057,
+      "D14": 1171,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 12.45,
+     "finalVCD": 10.7,
+     "titerHCCF": 1223,
+     "finalViability": 96.1
+    },
+    "downstream": {
+     "hcp": 37.7,
+     "aexYield": 89.7,
+     "cexYield": 88.4,
+     "totalYield": 71.2,
+     "residualDNA": 1.38,
+     "monomerPurity": 97.39,
+     "proteinAYield": 89.7
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-11-01"
+   },
+   {
+    "id": "B045-3",
+    "team": "upstream",
+    "expNo": "B045-3",
+    "endDate": "2024-11-15",
+    "studyId": "STD-0045",
+    "upstream": {
+     "qP": 15.31,
+     "ivcd": 84.1,
+     "titer": {
+      "D10": 697,
+      "D11": 824,
+      "D12": 990,
+      "D13": 1139,
+      "D14": 1273,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 10.57,
+     "finalVCD": 9.42,
+     "titerHCCF": 1298,
+     "finalViability": 97.1
+    },
+    "downstream": {
+     "hcp": 36,
+     "aexYield": 96.8,
+     "cexYield": 83.8,
+     "totalYield": 74.8,
+     "residualDNA": 0.77,
+     "monomerPurity": 98.23,
+     "proteinAYield": 92.2
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-11-01"
+   },
+   {
+    "id": "B045-4",
+    "team": "upstream",
+    "expNo": "B045-4",
+    "endDate": "2024-11-10",
+    "studyId": "STD-0045",
+    "upstream": {
+     "qP": 8.01,
+     "ivcd": 58.6,
+     "titer": {
+      "D10": null,
+      "D11": null,
+      "D12": null,
+      "D13": null,
+      "D14": null,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 12.64,
+     "finalVCD": 12.64,
+     "titerHCCF": 479,
+     "finalViability": 95.5
+    },
+    "downstream": {
+     "hcp": 24.8,
+     "aexYield": 93.8,
+     "cexYield": 90,
+     "totalYield": 76.2,
+     "residualDNA": 1.14,
+     "monomerPurity": 98.32,
+     "proteinAYield": 90.2
+    },
+    "cultureDays": 9,
+    "initialDate": "2024-11-01"
+   },
+   {
+    "id": "B045-5",
+    "team": "upstream",
+    "expNo": "B045-5",
+    "endDate": "2024-11-15",
+    "studyId": "STD-0045",
+    "upstream": {
+     "qP": 11.93,
+     "ivcd": 70,
+     "titer": {
+      "D10": 384,
+      "D11": 536,
+      "D12": 689,
+      "D13": 770,
+      "D14": 841,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 12.81,
+     "finalVCD": 9.64,
+     "titerHCCF": 845,
+     "finalViability": 76.8
+    },
+    "downstream": {
+     "hcp": 83.3,
+     "aexYield": 96.3,
+     "cexYield": 82.7,
+     "totalYield": 70.9,
+     "residualDNA": 1.53,
+     "monomerPurity": 97.59,
+     "proteinAYield": 89
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-11-01"
+   },
+   {
+    "id": "B123-1",
+    "team": "upstream",
+    "expNo": "B123-1",
+    "endDate": null,
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 9.8,
+     "ivcd": null,
+     "titer": {
+      "D10": null,
+      "D11": null,
+      "D12": null,
+      "D13": null,
+      "D14": null,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": null,
+     "finalVCD": null,
+     "titerHCCF": 89,
+     "finalViability": null
+    },
+    "downstream": {
+     "hcp": 37.3,
+     "aexYield": 95.8,
+     "cexYield": 82,
+     "totalYield": 77.8,
+     "residualDNA": 0.43,
+     "monomerPurity": 97.6,
+     "proteinAYield": 99
+    },
+    "cultureDays": null,
+    "initialDate": null
+   },
+   {
+    "id": "B123-2",
+    "team": "upstream",
+    "expNo": "B123-2",
+    "endDate": "2024-12-24",
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 3.34,
+     "ivcd": 2.4,
+     "titer": {
+      "D10": 14,
+      "D11": 15,
+      "D12": 15,
+      "D13": 17,
+      "D14": 18,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 0.23,
+     "finalVCD": 0.13,
+     "titerHCCF": 18,
+     "finalViability": 72.8
+    },
+    "downstream": {
+     "hcp": 16.2,
+     "aexYield": 94.5,
+     "cexYield": 88.6,
+     "totalYield": 75.9,
+     "residualDNA": 0.53,
+     "monomerPurity": 98.55,
+     "proteinAYield": 90.6
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-12-10"
+   },
+   {
+    "id": "B123-3",
+    "team": "upstream",
+    "expNo": "B123-3",
+    "endDate": "2024-12-24",
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 4.71,
+     "ivcd": 3,
+     "titer": {
+      "D10": 18,
+      "D11": 20,
+      "D12": 21,
+      "D13": 23,
+      "D14": 24,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 0.28,
+     "finalVCD": 0.18,
+     "titerHCCF": 24,
+     "finalViability": 86
+    },
+    "downstream": {
+     "hcp": 13.4,
+     "aexYield": 94.3,
+     "cexYield": 97,
+     "totalYield": 85.7,
+     "residualDNA": 1.3,
+     "monomerPurity": 99.11,
+     "proteinAYield": 93.8
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-12-10"
+   },
+   {
+    "id": "B123-4",
+    "team": "upstream",
+    "expNo": "B123-4",
+    "endDate": "2024-12-24",
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 20.06,
+     "ivcd": 17.8,
+     "titer": {
+      "D10": 241,
+      "D11": 289,
+      "D12": 313,
+      "D13": 348,
+      "D14": 368,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 1.81,
+     "finalVCD": 1.43,
+     "titerHCCF": 368,
+     "finalViability": 90.6
+    },
+    "downstream": {
+     "hcp": 25.7,
+     "aexYield": 94.8,
+     "cexYield": 88.7,
+     "totalYield": 83.1,
+     "residualDNA": 0.48,
+     "monomerPurity": 98.96,
+     "proteinAYield": 98.8
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-12-10"
+   },
+   {
+    "id": "B123-5",
+    "team": "upstream",
+    "expNo": "B123-5",
+    "endDate": "2024-12-24",
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 16.67,
+     "ivcd": 75.6,
+     "titer": {
+      "D10": 662,
+      "D11": 870,
+      "D12": 941,
+      "D13": 1154,
+      "D14": 1270,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 10.7,
+     "finalVCD": 7.83,
+     "titerHCCF": 1270,
+     "finalViability": 96.9
+    },
+    "downstream": {
+     "hcp": 24.8,
+     "aexYield": 96.8,
+     "cexYield": 91.2,
+     "totalYield": 81.6,
+     "residualDNA": 0.4,
+     "monomerPurity": 99.4,
+     "proteinAYield": 92.5
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-12-10"
+   },
+   {
+    "id": "B123-6",
+    "team": "upstream",
+    "expNo": "B123-6",
+    "endDate": "2024-12-24",
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 8.43,
+     "ivcd": 9.5,
+     "titer": {
+      "D10": 48,
+      "D11": 52,
+      "D12": 91,
+      "D13": 90,
+      "D14": 91,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 0.87,
+     "finalVCD": 0.51,
+     "titerHCCF": 91,
+     "finalViability": 77.4
+    },
+    "downstream": {
+     "hcp": 30.1,
+     "aexYield": 97.7,
+     "cexYield": 87.2,
+     "totalYield": 84.4,
+     "residualDNA": 0.49,
+     "monomerPurity": 99.26,
+     "proteinAYield": 99
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-12-10"
+   },
+   {
+    "id": "B123-7",
+    "team": "upstream",
+    "expNo": "B123-7",
+    "endDate": "2024-12-24",
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 11.18,
+     "ivcd": 6.9,
+     "titer": {
+      "D10": 33,
+      "D11": 36,
+      "D12": 85,
+      "D13": 87,
+      "D14": 87,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 0.67,
+     "finalVCD": 0.36,
+     "titerHCCF": 87,
+     "finalViability": 76.2
+    },
+    "downstream": {
+     "hcp": 12.7,
+     "aexYield": 89.7,
+     "cexYield": 96.5,
+     "totalYield": 85.8,
+     "residualDNA": 0.6,
+     "monomerPurity": 99.26,
+     "proteinAYield": 99
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-12-10"
+   },
+   {
+    "id": "B123-8",
+    "team": "upstream",
+    "expNo": "B123-8",
+    "endDate": "2024-12-24",
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 16.98,
+     "ivcd": 65.2,
+     "titer": {
+      "D10": 792,
+      "D11": 946,
+      "D12": 954,
+      "D13": 1045,
+      "D14": 1118,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 7.48,
+     "finalVCD": 5.87,
+     "titerHCCF": 1118,
+     "finalViability": 94.4
+    },
+    "downstream": {
+     "hcp": 54.8,
+     "aexYield": 97.1,
+     "cexYield": 88.9,
+     "totalYield": 79.5,
+     "residualDNA": 0.88,
+     "monomerPurity": 99.17,
+     "proteinAYield": 92.1
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-12-10"
+   },
+   {
+    "id": "B123-9",
+    "team": "upstream",
+    "expNo": "B123-9",
+    "endDate": "2024-12-24",
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 16.69,
+     "ivcd": 83.2,
+     "titer": {
+      "D10": 909,
+      "D11": 1035,
+      "D12": 1086,
+      "D13": 1206,
+      "D14": 1400,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 9.52,
+     "finalVCD": 6.13,
+     "titerHCCF": 1400,
+     "finalViability": 96.5
+    },
+    "downstream": {
+     "hcp": 32.3,
+     "aexYield": 90.6,
+     "cexYield": 85.5,
+     "totalYield": 73.7,
+     "residualDNA": 0.54,
+     "monomerPurity": 98.52,
+     "proteinAYield": 95.1
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-12-10"
+   },
+   {
+    "id": "B123-10",
+    "team": "upstream",
+    "expNo": "B123-10",
+    "endDate": "2024-12-24",
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 12.55,
+     "ivcd": 12,
+     "titer": {
+      "D10": 115,
+      "D11": 131,
+      "D12": 150,
+      "D13": 154,
+      "D14": 161,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 1.14,
+     "finalVCD": 0.84,
+     "titerHCCF": 161,
+     "finalViability": 87.8
+    },
+    "downstream": {
+     "hcp": 13.1,
+     "aexYield": 95.7,
+     "cexYield": 94.5,
+     "totalYield": 89.5,
+     "residualDNA": 0.74,
+     "monomerPurity": 99.76,
+     "proteinAYield": 99
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-12-10"
+   },
+   {
+    "id": "B123-11",
+    "team": "upstream",
+    "expNo": "B123-11",
+    "endDate": "2024-12-24",
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 15.95,
+     "ivcd": 13.5,
+     "titer": {
+      "D10": 144,
+      "D11": 178,
+      "D12": 265,
+      "D13": 214,
+      "D14": 225,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 1.4,
+     "finalVCD": 1.15,
+     "titerHCCF": 225,
+     "finalViability": 91.1
+    },
+    "downstream": {
+     "hcp": 18.6,
+     "aexYield": 88.7,
+     "cexYield": 88.6,
+     "totalYield": 70.7,
+     "residualDNA": 0.7,
+     "monomerPurity": 97.82,
+     "proteinAYield": 89.9
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-12-10"
+   },
+   {
+    "id": "B123-12",
+    "team": "upstream",
+    "expNo": "B123-12",
+    "endDate": "2024-12-24",
+    "studyId": "STD-0123",
+    "upstream": {
+     "qP": 18.88,
+     "ivcd": 35,
+     "titer": {
+      "D10": 335,
+      "D11": 452,
+      "D12": 533,
+      "D13": 607,
+      "D14": 670,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 4.41,
+     "finalVCD": 4.27,
+     "titerHCCF": 670,
+     "finalViability": 96.6
+    },
+    "downstream": {
+     "hcp": 3.5,
+     "aexYield": 90.4,
+     "cexYield": 87.1,
+     "totalYield": 76,
+     "residualDNA": 0.78,
+     "monomerPurity": 98.48,
+     "proteinAYield": 96.6
+    },
+    "cultureDays": 14,
+    "initialDate": "2024-12-10"
+   },
+   {
+    "id": "B321-1",
+    "team": "upstream",
+    "expNo": "B321-1",
+    "endDate": "2025-01-23",
+    "studyId": "STD-0321",
+    "upstream": {
+     "qP": 15.22,
+     "ivcd": 138.8,
+     "titer": {
+      "D10": 1257,
+      "D11": 1582.5,
+      "D12": 1803.5,
+      "D13": 1953.5,
+      "D14": 2126.5,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 14.05,
+     "finalVCD": 9.61,
+     "titerHCCF": 2126.5,
+     "finalViability": 95.9
+    },
+    "downstream": {
+     "hcp": 19.3,
+     "aexYield": 96,
+     "cexYield": 92.2,
+     "totalYield": 82.4,
+     "residualDNA": 0.43,
+     "monomerPurity": 99.17,
+     "proteinAYield": 93.1
+    },
+    "cultureDays": 14,
+    "initialDate": "2025-01-09"
+   },
+   {
+    "id": "B321-2",
+    "team": "upstream",
+    "expNo": "B321-2",
+    "endDate": "2025-01-23",
+    "studyId": "STD-0321",
+    "upstream": {
+     "qP": 16.62,
+     "ivcd": 98.1,
+     "titer": {
+      "D10": 1000.5,
+      "D11": 1266.5,
+      "D12": 1438.5,
+      "D13": 1533,
+      "D14": 1650,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 10.4,
+     "finalVCD": 6.6,
+     "titerHCCF": 1650,
+     "finalViability": 94.5
+    },
+    "downstream": {
+     "hcp": 16.9,
+     "aexYield": 96.3,
+     "cexYield": 89.4,
+     "totalYield": 79.5,
+     "residualDNA": 0.41,
+     "monomerPurity": 99.29,
+     "proteinAYield": 92.3
+    },
+    "cultureDays": 14,
+    "initialDate": "2025-01-09"
+   },
+   {
+    "id": "B321-3",
+    "team": "upstream",
+    "expNo": "B321-3",
+    "endDate": "2025-01-23",
+    "studyId": "STD-0321",
+    "upstream": {
+     "qP": 18.69,
+     "ivcd": 99.3,
+     "titer": {
+      "D10": 1158,
+      "D11": 1445,
+      "D12": 1560,
+      "D13": 1823,
+      "D14": 1866,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 10.5,
+     "finalVCD": 8.55,
+     "titerHCCF": 1866,
+     "finalViability": 95.9
+    },
+    "downstream": {
+     "hcp": 15.2,
+     "aexYield": 95,
+     "cexYield": 92.8,
+     "totalYield": 83.5,
+     "residualDNA": 0.31,
+     "monomerPurity": 99.39,
+     "proteinAYield": 94.7
+    },
+    "cultureDays": 14,
+    "initialDate": "2025-01-09"
+   },
+   {
+    "id": "B321-4",
+    "team": "upstream",
+    "expNo": "B321-4",
+    "endDate": "2025-01-23",
+    "studyId": "STD-0321",
+    "upstream": {
+     "qP": 15.42,
+     "ivcd": 85.5,
+     "titer": {
+      "D10": 948,
+      "D11": 1069,
+      "D12": 1138,
+      "D13": 1259,
+      "D14": 1329,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 9.02,
+     "finalVCD": 5.28,
+     "titerHCCF": 1329,
+     "finalViability": 93.2
+    },
+    "downstream": {
+     "hcp": 8.2,
+     "aexYield": 94,
+     "cexYield": 92.8,
+     "totalYield": 81.4,
+     "residualDNA": 0.42,
+     "monomerPurity": 99.58,
+     "proteinAYield": 93.4
+    },
+    "cultureDays": 14,
+    "initialDate": "2025-01-09"
+   },
+   {
+    "id": "B321-5",
+    "team": "upstream",
+    "expNo": "B321-5",
+    "endDate": "2025-01-23",
+    "studyId": "STD-0321",
+    "upstream": {
+     "qP": 17.13,
+     "ivcd": 69.2,
+     "titer": {
+      "D10": 849,
+      "D11": 921,
+      "D12": 1011,
+      "D13": 1081,
+      "D14": 1195,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 7.59,
+     "finalVCD": 4.91,
+     "titerHCCF": 1195,
+     "finalViability": 89.2
+    },
+    "downstream": {
+     "hcp": 22.3,
+     "aexYield": 94.1,
+     "cexYield": 90.7,
+     "totalYield": 80.5,
+     "residualDNA": 0.52,
+     "monomerPurity": 98.93,
+     "proteinAYield": 94.3
+    },
+    "cultureDays": 14,
+    "initialDate": "2025-01-09"
+   },
+   {
+    "id": "B321-6",
+    "team": "upstream",
+    "expNo": "B321-6",
+    "endDate": "2025-01-23",
+    "studyId": "STD-0321",
+    "upstream": {
+     "qP": 15,
+     "ivcd": 116.6,
+     "titer": {
+      "D10": 1082,
+      "D11": 1278,
+      "D12": 1431,
+      "D13": 1580,
+      "D14": 1759,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 11.6,
+     "finalVCD": 7.92,
+     "titerHCCF": 1759,
+     "finalViability": 95.2
+    },
+    "downstream": {
+     "hcp": 16.1,
+     "aexYield": 94.6,
+     "cexYield": 92.6,
+     "totalYield": 80.8,
+     "residualDNA": 0.33,
+     "monomerPurity": 98.97,
+     "proteinAYield": 92.2
+    },
+    "cultureDays": 14,
+    "initialDate": "2025-01-09"
+   },
+   {
+    "id": "B321-7",
+    "team": "upstream",
+    "expNo": "B321-7",
+    "endDate": "2025-01-23",
+    "studyId": "STD-0321",
+    "upstream": {
+     "qP": 15.43,
+     "ivcd": 161,
+     "titer": {
+      "D10": 1432,
+      "D11": 1887,
+      "D12": 2176,
+      "D13": 2327,
+      "D14": 2494,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 16.5,
+     "finalVCD": 11.3,
+     "titerHCCF": 2494,
+     "finalViability": 96.6
+    },
+    "downstream": {
+     "hcp": 14.7,
+     "aexYield": 95.7,
+     "cexYield": 91.9,
+     "totalYield": 83.2,
+     "residualDNA": 0.29,
+     "monomerPurity": 98.62,
+     "proteinAYield": 94.7
+    },
+    "cultureDays": 14,
+    "initialDate": "2025-01-09"
+   },
+   {
+    "id": "B321-8",
+    "team": "upstream",
+    "expNo": "B321-8",
+    "endDate": "2025-01-23",
+    "studyId": "STD-0321",
+    "upstream": {
+     "qP": 17.82,
+     "ivcd": 44.7,
+     "titer": {
+      "D10": 569,
+      "D11": 646,
+      "D12": 701,
+      "D13": 739,
+      "D14": 806,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 4.57,
+     "finalVCD": 3.49,
+     "titerHCCF": 806,
+     "finalViability": 92.3
+    },
+    "downstream": {
+     "hcp": 10.8,
+     "aexYield": 96.8,
+     "cexYield": 91.1,
+     "totalYield": 83.3,
+     "residualDNA": 0.59,
+     "monomerPurity": 99.27,
+     "proteinAYield": 94.5
+    },
+    "cultureDays": 14,
+    "initialDate": "2025-01-09"
+   },
+   {
+    "id": "B321-9",
+    "team": "upstream",
+    "expNo": "B321-9",
+    "endDate": "2025-01-23",
+    "studyId": "STD-0321",
+    "upstream": {
+     "qP": 15.78,
+     "ivcd": 100,
+     "titer": {
+      "D10": 1013,
+      "D11": 1162,
+      "D12": 1281,
+      "D13": 1600,
+      "D14": 1588,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 10.3,
+     "finalVCD": 6.98,
+     "titerHCCF": 1588,
+     "finalViability": 96.4
+    },
+    "downstream": {
+     "hcp": 23,
+     "aexYield": 95.6,
+     "cexYield": 89.9,
+     "totalYield": 80.4,
+     "residualDNA": 0.39,
+     "monomerPurity": 98.67,
+     "proteinAYield": 93.6
+    },
+    "cultureDays": 14,
+    "initialDate": "2025-01-09"
+   },
+   {
+    "id": "B321-10",
+    "team": "upstream",
+    "expNo": "B321-10",
+    "endDate": "2025-01-23",
+    "studyId": "STD-0321",
+    "upstream": {
+     "qP": 12.23,
+     "ivcd": 96.3,
+     "titer": {
+      "D10": 950,
+      "D11": 1022,
+      "D12": 1158,
+      "D13": 1171,
+      "D14": 1187,
+      "D15": null,
+      "D16": null,
+      "D17": null,
+      "D18": null,
+      "D19": null,
+      "D20": null
+     },
+     "maxVCD": 10.5,
+     "finalVCD": 6.15,
+     "titerHCCF": 1187,
+     "finalViability": 69
+    },
+    "downstream": {
+     "hcp": 29.5,
+     "aexYield": 97.5,
+     "cexYield": 91.7,
+     "totalYield": 85.8,
+     "residualDNA": 0.47,
+     "monomerPurity": 99.24,
+     "proteinAYield": 96
+    },
+    "cultureDays": 14,
+    "initialDate": "2025-01-09"
+   }
+  ],
+  "sample": [
+   {
+    "id": "SMP-UNSPEC-01-01",
+    "name": "UNSPEC-01-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "UNSPEC-01",
+    "primary": true,
+    "storage": {
+     "box": "B03",
+     "pos": "C2",
+     "rack": "R3",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 2,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0045",
+    "analytics": {
+     "ceSdsR": {
+      "hc": null,
+      "lc": null,
+      "lcHc": null,
+      "nghc": null
+     },
+     "ieHPLC": {
+      "main": 57.8,
+      "basic": 13.5,
+      "acidic": 28.7,
+      "basicUnknown": null
+     },
+     "seHPLC": {
+      "hmw": 0.3,
+      "lmw": null,
+      "main": 99.7
+     },
+     "ceSdsNR": {
+      "h2l1": null,
+      "monomer": null
+     },
+     "nGlycan": {
+      "g0f": null,
+      "g1f": null,
+      "sialicAcid": null,
+      "highMannose": null,
+      "afucosylated": null
+     }
+    },
+    "collectedAt": "2024-08-29"
+   },
+   {
+    "id": "SMP-B045-1-01",
+    "name": "B045-1-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B045-1",
+    "primary": true,
+    "storage": {
+     "box": "B11",
+     "pos": "F9",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.1,
+     "freezeThaw": 2
+    },
+    "studyId": "STD-0045",
+    "analytics": {
+     "ceSdsR": {
+      "hc": null,
+      "lc": null,
+      "lcHc": null,
+      "nghc": null
+     },
+     "ieHPLC": {
+      "main": 61.9,
+      "basic": 17.3,
+      "acidic": 20.8,
+      "basicUnknown": 9.4
+     },
+     "seHPLC": {
+      "hmw": 0.5,
+      "lmw": null,
+      "main": 99.5
+     },
+     "ceSdsNR": {
+      "h2l1": null,
+      "monomer": null
+     },
+     "nGlycan": {
+      "g0f": null,
+      "g1f": null,
+      "sialicAcid": null,
+      "highMannose": null,
+      "afucosylated": null
+     }
+    },
+    "collectedAt": "2024-11-15"
+   },
+   {
+    "id": "SMP-B045-2-01",
+    "name": "B045-2-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B045-2",
+    "primary": true,
+    "storage": {
+     "box": "B09",
+     "pos": "I8",
+     "rack": "R1",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.3,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0045",
+    "analytics": {
+     "ceSdsR": {
+      "hc": null,
+      "lc": null,
+      "lcHc": null,
+      "nghc": null
+     },
+     "ieHPLC": {
+      "main": 60.3,
+      "basic": 19.2,
+      "acidic": 20.5,
+      "basicUnknown": 11.1
+     },
+     "seHPLC": {
+      "hmw": 0.6,
+      "lmw": null,
+      "main": 99.5
+     },
+     "ceSdsNR": {
+      "h2l1": null,
+      "monomer": null
+     },
+     "nGlycan": {
+      "g0f": null,
+      "g1f": null,
+      "sialicAcid": null,
+      "highMannose": null,
+      "afucosylated": null
+     }
+    },
+    "collectedAt": "2024-11-15"
+   },
+   {
+    "id": "SMP-B045-2-02",
+    "name": "B045-2-S2",
+    "note": "정제 조건 비교용 — 분석 의뢰 완료, 결과 대기",
+    "stage": "AEX 용출 후",
+    "active": true,
+    "source": "derived",
+    "batchId": "B045-2",
+    "primary": false,
+    "storage": {
+     "box": "B08",
+     "pos": "G1",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 2,
+     "volumeMl": 1.5,
+     "freezeThaw": 0
+    },
+    "studyId": "STD-0045",
+    "analytics": {
+     "ceSdsR": {
+      "hc": null,
+      "lc": null,
+      "lcHc": null,
+      "nghc": null
+     },
+     "ieHPLC": {
+      "main": null,
+      "basic": null,
+      "acidic": null,
+      "basicUnknown": null
+     },
+     "seHPLC": {
+      "hmw": null,
+      "lmw": null,
+      "main": null
+     },
+     "ceSdsNR": {
+      "h2l1": null,
+      "monomer": null
+     },
+     "nGlycan": {
+      "g0f": null,
+      "g1f": null,
+      "sialicAcid": null,
+      "highMannose": null,
+      "afucosylated": null
+     }
+    },
+    "collectedAt": "2024-11-15"
+   },
+   {
+    "id": "SMP-B045-3-01",
+    "name": "B045-3-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B045-3",
+    "primary": true,
+    "storage": {
+     "box": "B09",
+     "pos": "B3",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.7,
+     "freezeThaw": 2
+    },
+    "studyId": "STD-0045",
+    "analytics": {
+     "ceSdsR": {
+      "hc": null,
+      "lc": null,
+      "lcHc": null,
+      "nghc": null
+     },
+     "ieHPLC": {
+      "main": 56.8,
+      "basic": 17.6,
+      "acidic": 25.7,
+      "basicUnknown": 11.6
+     },
+     "seHPLC": {
+      "hmw": 0.6,
+      "lmw": null,
+      "main": 99.4
+     },
+     "ceSdsNR": {
+      "h2l1": null,
+      "monomer": null
+     },
+     "nGlycan": {
+      "g0f": null,
+      "g1f": null,
+      "sialicAcid": null,
+      "highMannose": null,
+      "afucosylated": null
+     }
+    },
+    "collectedAt": "2024-11-15"
+   },
+   {
+    "id": "SMP-B045-4-01",
+    "name": "B045-4-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B045-4",
+    "primary": true,
+    "storage": {
+     "box": "B06",
+     "pos": "A8",
+     "rack": "R3",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.5,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0045",
+    "analytics": {
+     "ceSdsR": {
+      "hc": null,
+      "lc": null,
+      "lcHc": null,
+      "nghc": null
+     },
+     "ieHPLC": {
+      "main": null,
+      "basic": null,
+      "acidic": null,
+      "basicUnknown": null
+     },
+     "seHPLC": {
+      "hmw": null,
+      "lmw": null,
+      "main": null
+     },
+     "ceSdsNR": {
+      "h2l1": null,
+      "monomer": null
+     },
+     "nGlycan": {
+      "g0f": null,
+      "g1f": null,
+      "sialicAcid": null,
+      "highMannose": null,
+      "afucosylated": null
+     }
+    },
+    "collectedAt": "2024-11-10"
+   },
+   {
+    "id": "SMP-B045-5-01",
+    "name": "B045-5-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B045-5",
+    "primary": true,
+    "storage": {
+     "box": "B03",
+     "pos": "D6",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.2,
+     "freezeThaw": 2
+    },
+    "studyId": "STD-0045",
+    "analytics": {
+     "ceSdsR": {
+      "hc": null,
+      "lc": null,
+      "lcHc": null,
+      "nghc": null
+     },
+     "ieHPLC": {
+      "main": 61.5,
+      "basic": 21.4,
+      "acidic": 17.2,
+      "basicUnknown": 13.9
+     },
+     "seHPLC": {
+      "hmw": 0,
+      "lmw": null,
+      "main": 99.5
+     },
+     "ceSdsNR": {
+      "h2l1": null,
+      "monomer": null
+     },
+     "nGlycan": {
+      "g0f": null,
+      "g1f": null,
+      "sialicAcid": null,
+      "highMannose": null,
+      "afucosylated": null
+     }
+    },
+    "collectedAt": "2024-11-15"
+   },
+   {
+    "id": "SMP-B123-1-01",
+    "name": "B123-1-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-1",
+    "primary": true,
+    "storage": {
+     "box": "B03",
+     "pos": "D2",
+     "rack": "R3",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.4,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 66.38,
+      "lc": 33.13,
+      "lcHc": 98.51,
+      "nghc": 0.3
+     },
+     "ieHPLC": {
+      "main": 57.6,
+      "basic": 21.7,
+      "acidic": 20.7,
+      "basicUnknown": 14.5
+     },
+     "seHPLC": {
+      "hmw": 0.2,
+      "lmw": null,
+      "main": 99.8
+     },
+     "ceSdsNR": {
+      "h2l1": 4.1,
+      "monomer": 94.3
+     },
+     "nGlycan": {
+      "g0f": 57.9,
+      "g1f": 31.8,
+      "sialicAcid": 0.3,
+      "highMannose": 1.9,
+      "afucosylated": 2.3
+     }
+    },
+    "collectedAt": null
+   },
+   {
+    "id": "SMP-B123-2-01",
+    "name": "B123-2-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-2",
+    "primary": true,
+    "storage": {
+     "box": "B10",
+     "pos": "G6",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.3,
+     "freezeThaw": 2
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 66.38,
+      "lc": 33.13,
+      "lcHc": 98.51,
+      "nghc": 0.3
+     },
+     "ieHPLC": {
+      "main": 57.6,
+      "basic": 21.7,
+      "acidic": 20.7,
+      "basicUnknown": 14.5
+     },
+     "seHPLC": {
+      "hmw": 0.2,
+      "lmw": null,
+      "main": 99.8
+     },
+     "ceSdsNR": {
+      "h2l1": 4.1,
+      "monomer": 94.3
+     },
+     "nGlycan": {
+      "g0f": 57.9,
+      "g1f": 31.8,
+      "sialicAcid": 0.3,
+      "highMannose": 1.9,
+      "afucosylated": 2.3
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B123-3-01",
+    "name": "B123-3-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-3",
+    "primary": true,
+    "storage": {
+     "box": "B02",
+     "pos": "I7",
+     "rack": "R4",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.6,
+     "freezeThaw": 0
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 66.38,
+      "lc": 33.13,
+      "lcHc": 98.51,
+      "nghc": 0.3
+     },
+     "ieHPLC": {
+      "main": 57.6,
+      "basic": 21.7,
+      "acidic": 20.7,
+      "basicUnknown": 14.5
+     },
+     "seHPLC": {
+      "hmw": 0.4,
+      "lmw": null,
+      "main": 99.7
+     },
+     "ceSdsNR": {
+      "h2l1": 4.1,
+      "monomer": 94.3
+     },
+     "nGlycan": {
+      "g0f": 57.9,
+      "g1f": 31.8,
+      "sialicAcid": 0.3,
+      "highMannose": 1.9,
+      "afucosylated": 2.3
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B123-3-02",
+    "name": "B123-3-S2",
+    "note": "중간 단계 시료 — 분석 진행 중",
+    "stage": "CEX 용출 후",
+    "active": true,
+    "source": "derived",
+    "batchId": "B123-3",
+    "primary": false,
+    "storage": {
+     "box": "B09",
+     "pos": "C4",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 2,
+     "volumeMl": 1.5,
+     "freezeThaw": 0
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": null,
+      "lc": null,
+      "lcHc": null,
+      "nghc": null
+     },
+     "ieHPLC": {
+      "main": null,
+      "basic": null,
+      "acidic": null,
+      "basicUnknown": null
+     },
+     "seHPLC": {
+      "hmw": null,
+      "lmw": null,
+      "main": null
+     },
+     "ceSdsNR": {
+      "h2l1": null,
+      "monomer": null
+     },
+     "nGlycan": {
+      "g0f": null,
+      "g1f": null,
+      "sialicAcid": null,
+      "highMannose": null,
+      "afucosylated": null
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B123-4-01",
+    "name": "B123-4-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-4",
+    "primary": true,
+    "storage": {
+     "box": "B08",
+     "pos": "D9",
+     "rack": "R1",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.6,
+     "freezeThaw": 2
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 66.3,
+      "lc": 33.18,
+      "lcHc": 99.48,
+      "nghc": 0.48
+     },
+     "ieHPLC": {
+      "main": 60.9,
+      "basic": 21.7,
+      "acidic": 17.3,
+      "basicUnknown": 15.2
+     },
+     "seHPLC": {
+      "hmw": 0.1,
+      "lmw": null,
+      "main": 99.9
+     },
+     "ceSdsNR": {
+      "h2l1": 7.4,
+      "monomer": 88.4
+     },
+     "nGlycan": {
+      "g0f": 69,
+      "g1f": 23.9,
+      "sialicAcid": 0,
+      "highMannose": 1.7,
+      "afucosylated": 3.1
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B123-5-01",
+    "name": "B123-5-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-5",
+    "primary": true,
+    "storage": {
+     "box": "B07",
+     "pos": "D3",
+     "rack": "R1",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1,
+     "freezeThaw": 2
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 65.38,
+      "lc": 33.56,
+      "lcHc": 98.94,
+      "nghc": 0.68
+     },
+     "ieHPLC": {
+      "main": 51.2,
+      "basic": 22,
+      "acidic": 26.8,
+      "basicUnknown": 14.1
+     },
+     "seHPLC": {
+      "hmw": 0.3,
+      "lmw": null,
+      "main": 99.7
+     },
+     "ceSdsNR": {
+      "h2l1": 3.9,
+      "monomer": 94.5
+     },
+     "nGlycan": {
+      "g0f": 72.4,
+      "g1f": 21.5,
+      "sialicAcid": 0,
+      "highMannose": 1.1,
+      "afucosylated": 2
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B123-6-01",
+    "name": "B123-6-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-6",
+    "primary": true,
+    "storage": {
+     "box": "B06",
+     "pos": "I9",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.2,
+     "freezeThaw": 2
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 66.38,
+      "lc": 33.13,
+      "lcHc": 98.51,
+      "nghc": 0.3
+     },
+     "ieHPLC": {
+      "main": 57.6,
+      "basic": 21.7,
+      "acidic": 20.7,
+      "basicUnknown": 14.5
+     },
+     "seHPLC": {
+      "hmw": 0.4,
+      "lmw": null,
+      "main": 99.6
+     },
+     "ceSdsNR": {
+      "h2l1": 4.1,
+      "monomer": 94.3
+     },
+     "nGlycan": {
+      "g0f": 57.9,
+      "g1f": 31.8,
+      "sialicAcid": 0.3,
+      "highMannose": 1.9,
+      "afucosylated": 2.3
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B123-7-01",
+    "name": "B123-7-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-7",
+    "primary": true,
+    "storage": {
+     "box": "B06",
+     "pos": "D5",
+     "rack": "R1",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.4,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 66.38,
+      "lc": 33.13,
+      "lcHc": 98.51,
+      "nghc": 0.3
+     },
+     "ieHPLC": {
+      "main": 57.6,
+      "basic": 21.7,
+      "acidic": 20.7,
+      "basicUnknown": 14.5
+     },
+     "seHPLC": {
+      "hmw": 0.3,
+      "lmw": null,
+      "main": 99.6
+     },
+     "ceSdsNR": {
+      "h2l1": 4.1,
+      "monomer": 94.3
+     },
+     "nGlycan": {
+      "g0f": 57.9,
+      "g1f": 31.8,
+      "sialicAcid": 0.3,
+      "highMannose": 1.9,
+      "afucosylated": 2.3
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B123-8-01",
+    "name": "B123-8-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-8",
+    "primary": true,
+    "storage": {
+     "box": "B03",
+     "pos": "D9",
+     "rack": "R4",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 2,
+     "freezeThaw": 2
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 65.15,
+      "lc": 33.57,
+      "lcHc": 98.72,
+      "nghc": 0.66
+     },
+     "ieHPLC": {
+      "main": 48.8,
+      "basic": 27.6,
+      "acidic": 23.7,
+      "basicUnknown": 17.4
+     },
+     "seHPLC": {
+      "hmw": 0.4,
+      "lmw": null,
+      "main": 99.6
+     },
+     "ceSdsNR": {
+      "h2l1": 4.1,
+      "monomer": 94.2
+     },
+     "nGlycan": {
+      "g0f": 66.3,
+      "g1f": 24.7,
+      "sialicAcid": 0.6,
+      "highMannose": 1.2,
+      "afucosylated": 2.1
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B123-9-01",
+    "name": "B123-9-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-9",
+    "primary": true,
+    "storage": {
+     "box": "B10",
+     "pos": "H4",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1,
+     "freezeThaw": 0
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 65.59,
+      "lc": 32.99,
+      "lcHc": 98.58,
+      "nghc": 0.49
+     },
+     "ieHPLC": {
+      "main": 48,
+      "basic": 16.5,
+      "acidic": 35.5,
+      "basicUnknown": 9.8
+     },
+     "seHPLC": {
+      "hmw": 0.4,
+      "lmw": null,
+      "main": 99.6
+     },
+     "ceSdsNR": {
+      "h2l1": 3.9,
+      "monomer": 94.3
+     },
+     "nGlycan": {
+      "g0f": 68.5,
+      "g1f": 24.9,
+      "sialicAcid": 0,
+      "highMannose": 0.7,
+      "afucosylated": 1.3
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B123-10-01",
+    "name": "B123-10-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-10",
+    "primary": true,
+    "storage": {
+     "box": "B05",
+     "pos": "H5",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.1,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 66.1,
+      "lc": 32.9,
+      "lcHc": 98.5,
+      "nghc": 0.8
+     },
+     "ieHPLC": {
+      "main": 52,
+      "basic": 20.8,
+      "acidic": 27.2,
+      "basicUnknown": 14.2
+     },
+     "seHPLC": {
+      "hmw": 0.3,
+      "lmw": null,
+      "main": 99.7
+     },
+     "ceSdsNR": {
+      "h2l1": 2.8,
+      "monomer": 95.8
+     },
+     "nGlycan": {
+      "g0f": 54.6,
+      "g1f": 29,
+      "sialicAcid": 0.5,
+      "highMannose": 8,
+      "afucosylated": 8.7
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B123-11-01",
+    "name": "B123-11-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-11",
+    "primary": true,
+    "storage": {
+     "box": "B10",
+     "pos": "D1",
+     "rack": "R4",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.9,
+     "freezeThaw": 0
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 66.38,
+      "lc": 33.13,
+      "lcHc": 98.51,
+      "nghc": 0.3
+     },
+     "ieHPLC": {
+      "main": 57.6,
+      "basic": 21.7,
+      "acidic": 20.7,
+      "basicUnknown": 14.5
+     },
+     "seHPLC": {
+      "hmw": 0.2,
+      "lmw": null,
+      "main": 99.8
+     },
+     "ceSdsNR": {
+      "h2l1": 4.1,
+      "monomer": 94.3
+     },
+     "nGlycan": {
+      "g0f": 57.9,
+      "g1f": 31.8,
+      "sialicAcid": 0.3,
+      "highMannose": 1.9,
+      "afucosylated": 2.3
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B123-12-01",
+    "name": "B123-12-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B123-12",
+    "primary": true,
+    "storage": {
+     "box": "B08",
+     "pos": "C6",
+     "rack": "R1",
+     "temp": "-80 °C",
+     "freezer": "FR-01",
+     "aliquots": 3,
+     "volumeMl": 1.7,
+     "freezeThaw": 2
+    },
+    "studyId": "STD-0123",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 66.38,
+      "lc": 33.13,
+      "lcHc": 98.51,
+      "nghc": 0.3
+     },
+     "ieHPLC": {
+      "main": 57.6,
+      "basic": 21.7,
+      "acidic": 20.7,
+      "basicUnknown": 14.5
+     },
+     "seHPLC": {
+      "hmw": 0.2,
+      "lmw": null,
+      "main": 99.8
+     },
+     "ceSdsNR": {
+      "h2l1": 4.1,
+      "monomer": 94.3
+     },
+     "nGlycan": {
+      "g0f": 57.9,
+      "g1f": 31.8,
+      "sialicAcid": 0.3,
+      "highMannose": 1.9,
+      "afucosylated": 2.3
+     }
+    },
+    "collectedAt": "2024-12-24"
+   },
+   {
+    "id": "SMP-B321-1-01",
+    "name": "B321-1-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B321-1",
+    "primary": true,
+    "storage": {
+     "box": "B07",
+     "pos": "E4",
+     "rack": "R3",
+     "temp": "-80 °C",
+     "freezer": "FR-02",
+     "aliquots": 3,
+     "volumeMl": 1.1,
+     "freezeThaw": 0
+    },
+    "studyId": "STD-0321",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 65.75,
+      "lc": 32.74,
+      "lcHc": 98.49,
+      "nghc": 1.32
+     },
+     "ieHPLC": {
+      "main": 48.4,
+      "basic": 19.9,
+      "acidic": 33.7,
+      "basicUnknown": 13.9
+     },
+     "seHPLC": {
+      "hmw": 0.4,
+      "lmw": null,
+      "main": 99.6
+     },
+     "ceSdsNR": {
+      "h2l1": 1.5,
+      "monomer": 97.4
+     },
+     "nGlycan": {
+      "g0f": 51.3,
+      "g1f": 26.3,
+      "sialicAcid": 0.8,
+      "highMannose": 14.1,
+      "afucosylated": 15.2
+     }
+    },
+    "collectedAt": "2025-01-23"
+   },
+   {
+    "id": "SMP-B321-2-01",
+    "name": "B321-2-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B321-2",
+    "primary": true,
+    "storage": {
+     "box": "B02",
+     "pos": "H8",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-02",
+     "aliquots": 3,
+     "volumeMl": 1,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0321",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 64.9,
+      "lc": 32.9,
+      "lcHc": 97.8,
+      "nghc": 0.7
+     },
+     "ieHPLC": {
+      "main": 50.3,
+      "basic": 17,
+      "acidic": 32.8,
+      "basicUnknown": 11.2
+     },
+     "seHPLC": {
+      "hmw": 0.5,
+      "lmw": null,
+      "main": 99.5
+     },
+     "ceSdsNR": {
+      "h2l1": 2.5,
+      "monomer": 96.4
+     },
+     "nGlycan": {
+      "g0f": 50.5,
+      "g1f": 26.1,
+      "sialicAcid": 0.8,
+      "highMannose": 14.8,
+      "afucosylated": 15.9
+     }
+    },
+    "collectedAt": "2025-01-23"
+   },
+   {
+    "id": "SMP-B321-3-01",
+    "name": "B321-3-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B321-3",
+    "primary": true,
+    "storage": {
+     "box": "B02",
+     "pos": "G4",
+     "rack": "R4",
+     "temp": "-80 °C",
+     "freezer": "FR-02",
+     "aliquots": 3,
+     "volumeMl": 1.7,
+     "freezeThaw": 0
+    },
+    "studyId": "STD-0321",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 64.23,
+      "lc": 32.56,
+      "lcHc": 96.79,
+      "nghc": 0.96
+     },
+     "ieHPLC": {
+      "main": 42.5,
+      "basic": 20,
+      "acidic": 37.5,
+      "basicUnknown": 12.2
+     },
+     "seHPLC": {
+      "hmw": 0.5,
+      "lmw": null,
+      "main": 99.5
+     },
+     "ceSdsNR": {
+      "h2l1": 2.6,
+      "monomer": 96.5
+     },
+     "nGlycan": {
+      "g0f": 58.7,
+      "g1f": 29.2,
+      "sialicAcid": 1.3,
+      "highMannose": 2.8,
+      "afucosylated": 4.4
+     }
+    },
+    "collectedAt": "2025-01-23"
+   },
+   {
+    "id": "SMP-B321-4-01",
+    "name": "B321-4-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B321-4",
+    "primary": true,
+    "storage": {
+     "box": "B12",
+     "pos": "F2",
+     "rack": "R1",
+     "temp": "-80 °C",
+     "freezer": "FR-02",
+     "aliquots": 3,
+     "volumeMl": 1.3,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0321",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 64.69,
+      "lc": 32.76,
+      "lcHc": 97.45,
+      "nghc": 1.15
+     },
+     "ieHPLC": {
+      "main": 44.1,
+      "basic": 17.2,
+      "acidic": 38.8,
+      "basicUnknown": 13
+     },
+     "seHPLC": {
+      "hmw": 0.4,
+      "lmw": null,
+      "main": 99.6
+     },
+     "ceSdsNR": {
+      "h2l1": 5.7,
+      "monomer": 90.9
+     },
+     "nGlycan": {
+      "g0f": 70.6,
+      "g1f": 20.5,
+      "sialicAcid": 0.7,
+      "highMannose": 0.8,
+      "afucosylated": 2.4
+     }
+    },
+    "collectedAt": "2025-01-23"
+   },
+   {
+    "id": "SMP-B321-5-01",
+    "name": "B321-5-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B321-5",
+    "primary": true,
+    "storage": {
+     "box": "B11",
+     "pos": "E5",
+     "rack": "R1",
+     "temp": "-80 °C",
+     "freezer": "FR-02",
+     "aliquots": 3,
+     "volumeMl": 1.8,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0321",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 64.93,
+      "lc": 32.79,
+      "lcHc": 97.72,
+      "nghc": 1
+     },
+     "ieHPLC": {
+      "main": 43.8,
+      "basic": 20.5,
+      "acidic": 35.7,
+      "basicUnknown": 15.1
+     },
+     "seHPLC": {
+      "hmw": 0.4,
+      "lmw": null,
+      "main": 99.6
+     },
+     "ceSdsNR": {
+      "h2l1": 6.3,
+      "monomer": 90.2
+     },
+     "nGlycan": {
+      "g0f": 73.5,
+      "g1f": 18.2,
+      "sialicAcid": 0,
+      "highMannose": 1.2,
+      "afucosylated": 2.3
+     }
+    },
+    "collectedAt": "2025-01-23"
+   },
+   {
+    "id": "SMP-B321-5-02",
+    "name": "B321-5-S2",
+    "note": "재시험용 분취",
+    "stage": "Protein A 용출 후",
+    "active": true,
+    "source": "derived",
+    "batchId": "B321-5",
+    "primary": false,
+    "storage": {
+     "box": "B12",
+     "pos": "D6",
+     "rack": "R1",
+     "temp": "-80 °C",
+     "freezer": "FR-02",
+     "aliquots": 2,
+     "volumeMl": 1.5,
+     "freezeThaw": 0
+    },
+    "studyId": "STD-0321",
+    "analytics": {
+     "ceSdsR": {
+      "hc": null,
+      "lc": null,
+      "lcHc": null,
+      "nghc": null
+     },
+     "ieHPLC": {
+      "main": null,
+      "basic": null,
+      "acidic": null,
+      "basicUnknown": null
+     },
+     "seHPLC": {
+      "hmw": null,
+      "lmw": null,
+      "main": null
+     },
+     "ceSdsNR": {
+      "h2l1": null,
+      "monomer": null
+     },
+     "nGlycan": {
+      "g0f": null,
+      "g1f": null,
+      "sialicAcid": null,
+      "highMannose": null,
+      "afucosylated": null
+     }
+    },
+    "collectedAt": "2025-01-23"
+   },
+   {
+    "id": "SMP-B321-6-01",
+    "name": "B321-6-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B321-6",
+    "primary": true,
+    "storage": {
+     "box": "B10",
+     "pos": "B2",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-02",
+     "aliquots": 3,
+     "volumeMl": 2,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0321",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 64.89,
+      "lc": 33.32,
+      "lcHc": 98.21,
+      "nghc": 0.75
+     },
+     "ieHPLC": {
+      "main": 49,
+      "basic": 19.4,
+      "acidic": 31.6,
+      "basicUnknown": 12.7
+     },
+     "seHPLC": {
+      "hmw": 0.4,
+      "lmw": null,
+      "main": 99.6
+     },
+     "ceSdsNR": {
+      "h2l1": 2.6,
+      "monomer": 96.4
+     },
+     "nGlycan": {
+      "g0f": 59.8,
+      "g1f": 30.7,
+      "sialicAcid": 1.1,
+      "highMannose": 1.3,
+      "afucosylated": 2
+     }
+    },
+    "collectedAt": "2025-01-23"
+   },
+   {
+    "id": "SMP-B321-7-01",
+    "name": "B321-7-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B321-7",
+    "primary": true,
+    "storage": {
+     "box": "B10",
+     "pos": "E7",
+     "rack": "R1",
+     "temp": "-80 °C",
+     "freezer": "FR-02",
+     "aliquots": 3,
+     "volumeMl": 1.1,
+     "freezeThaw": 0
+    },
+    "studyId": "STD-0321",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 64.85,
+      "lc": 32.57,
+      "lcHc": 97.42,
+      "nghc": 0.59
+     },
+     "ieHPLC": {
+      "main": 51.5,
+      "basic": 14.5,
+      "acidic": 34,
+      "basicUnknown": 9.7
+     },
+     "seHPLC": {
+      "hmw": 0.5,
+      "lmw": null,
+      "main": 99.5
+     },
+     "ceSdsNR": {
+      "h2l1": 2.4,
+      "monomer": 96.5
+     },
+     "nGlycan": {
+      "g0f": 58.5,
+      "g1f": 32.7,
+      "sialicAcid": 1,
+      "highMannose": 1.2,
+      "afucosylated": 2.1
+     }
+    },
+    "collectedAt": "2025-01-23"
+   },
+   {
+    "id": "SMP-B321-8-01",
+    "name": "B321-8-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B321-8",
+    "primary": true,
+    "storage": {
+     "box": "B07",
+     "pos": "F2",
+     "rack": "R4",
+     "temp": "-80 °C",
+     "freezer": "FR-02",
+     "aliquots": 3,
+     "volumeMl": 1.7,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0321",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 65.75,
+      "lc": 32.86,
+      "lcHc": 98.61,
+      "nghc": 0.4
+     },
+     "ieHPLC": {
+      "main": 47.5,
+      "basic": 25.4,
+      "acidic": 27.1,
+      "basicUnknown": 16.3
+     },
+     "seHPLC": {
+      "hmw": 0.4,
+      "lmw": null,
+      "main": 99.6
+     },
+     "ceSdsNR": {
+      "h2l1": 7.8,
+      "monomer": 87.5
+     },
+     "nGlycan": {
+      "g0f": 64.3,
+      "g1f": 25.4,
+      "sialicAcid": 1.2,
+      "highMannose": 1.9,
+      "afucosylated": 2.8
+     }
+    },
+    "collectedAt": "2025-01-23"
+   },
+   {
+    "id": "SMP-B321-9-01",
+    "name": "B321-9-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B321-9",
+    "primary": true,
+    "storage": {
+     "box": "B02",
+     "pos": "I6",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-02",
+     "aliquots": 3,
+     "volumeMl": 1.8,
+     "freezeThaw": 2
+    },
+    "studyId": "STD-0321",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 64.49,
+      "lc": 32.92,
+      "lcHc": 97.41,
+      "nghc": 1.12
+     },
+     "ieHPLC": {
+      "main": 45.2,
+      "basic": 20.2,
+      "acidic": 34.6,
+      "basicUnknown": 13
+     },
+     "seHPLC": {
+      "hmw": 0.6,
+      "lmw": null,
+      "main": 99.4
+     },
+     "ceSdsNR": {
+      "h2l1": 2.9,
+      "monomer": 95.9
+     },
+     "nGlycan": {
+      "g0f": 63.7,
+      "g1f": 26.4,
+      "sialicAcid": 1,
+      "highMannose": 1.1,
+      "afucosylated": 2.1
+     }
+    },
+    "collectedAt": "2025-01-23"
+   },
+   {
+    "id": "SMP-B321-10-01",
+    "name": "B321-10-S1",
+    "note": null,
+    "stage": "Protein A 간이정제 후",
+    "active": true,
+    "source": "excel",
+    "batchId": "B321-10",
+    "primary": true,
+    "storage": {
+     "box": "B05",
+     "pos": "F2",
+     "rack": "R2",
+     "temp": "-80 °C",
+     "freezer": "FR-02",
+     "aliquots": 3,
+     "volumeMl": 1.9,
+     "freezeThaw": 1
+    },
+    "studyId": "STD-0321",
+    "analytics": {
+     "ceSdsR": {
+      "hc": 64.68,
+      "lc": 33.34,
+      "lcHc": 98.02,
+      "nghc": 1.63
+     },
+     "ieHPLC": {
+      "main": 47,
+      "basic": 21.9,
+      "acidic": 31.1,
+      "basicUnknown": 13.7
+     },
+     "seHPLC": {
+      "hmw": 0.5,
+      "lmw": null,
+      "main": 99.5
+     },
+     "ceSdsNR": {
+      "h2l1": 2.7,
+      "monomer": 96.2
+     },
+     "nGlycan": {
+      "g0f": 56.5,
+      "g1f": 32.1,
+      "sialicAcid": 1.3,
+      "highMannose": 1.5,
+      "afucosylated": 2.4
+     }
+    },
+    "collectedAt": "2025-01-23"
+   }
+  ],
+  "request": [
+   {
+    "id": "TR-2026-001",
+    "note": null,
+    "dueAt": "2026-10-07",
+    "tests": [
+     "seHPLC",
+     "ieHPLC"
+    ],
+    "status": "requested",
+    "batchId": "B123-3",
+    "history": [
+     {
+      "at": "2026-10-03T09:20:00",
+      "by": "이정호",
+      "note": null,
+      "status": "requested"
+     }
+    ],
+    "purpose": "CEX 용출 조건 비교 — 중간 단계 순도 확인",
+    "studyId": "STD-0123",
+    "priority": "urgent",
+    "sampleIds": [
+     "SMP-B123-3-02"
+    ],
+    "assignedTo": null,
+    "requestedAt": "2026-10-03T09:20:00",
+    "requestedBy": "이정호",
+    "requestedTeam": "downstream"
+   },
+   {
+    "id": "TR-2026-002",
+    "note": null,
+    "dueAt": "2026-10-06",
+    "tests": [
+     "nGlycan"
+    ],
+    "status": "inProgress",
+    "batchId": "B045-2",
+    "history": [
+     {
+      "at": "2026-10-01T14:05:00",
+      "by": "김민수",
+      "note": null,
+      "status": "requested"
+     },
+     {
+      "at": "2026-10-02T10:10:00",
+      "by": "정하은",
+      "note": "시료 수령 확인",
+      "status": "accepted"
+     },
+     {
+      "at": "2026-10-03T13:00:00",
+      "by": "정하은",
+      "note": "전처리 완료",
+      "status": "inProgress"
+     }
+    ],
+    "purpose": "배지 조건별 당쇄 프로파일 비교",
+    "studyId": "STD-0045",
+    "priority": "normal",
+    "sampleIds": [
+     "SMP-B045-2-02"
+    ],
+    "assignedTo": "정하은",
+    "requestedAt": "2026-10-01T14:05:00",
+    "requestedBy": "김민수",
+    "requestedTeam": "upstream"
+   },
+   {
+    "id": "TR-2026-003",
+    "note": null,
+    "dueAt": "2026-10-03",
+    "tests": [
+     "ceSdsNR",
+     "ceSdsR"
+    ],
+    "status": "reported",
+    "batchId": "B321-5",
+    "history": [
+     {
+      "at": "2026-09-28T11:40:00",
+      "by": "이정호",
+      "note": null,
+      "status": "requested"
+     },
+     {
+      "at": "2026-09-29T09:00:00",
+      "by": "정하은",
+      "note": null,
+      "status": "accepted"
+     },
+     {
+      "at": "2026-09-30T09:30:00",
+      "by": "정하은",
+      "note": null,
+      "status": "inProgress"
+     },
+     {
+      "at": "2026-10-02T16:20:00",
+      "by": "정하은",
+      "note": "CE-SDS NR/R 결과 등록 완료. 시스템 적합성 통과.",
+      "status": "reported"
+     }
+    ],
+    "purpose": "재시험 — 이전 결과 시스템 적합성 미달",
+    "studyId": "STD-0321",
+    "priority": "normal",
+    "sampleIds": [
+     "SMP-B321-5-02"
+    ],
+    "assignedTo": "정하은",
+    "requestedAt": "2026-09-28T11:40:00",
+    "requestedBy": "이정호",
+    "requestedTeam": "downstream"
+   }
+  ],
+  "issue": [
+   {
+    "id": "ISS-SEED-1",
+    "tags": [
+     "생존율",
+     "피드",
+     "글루코스",
+     "Harvest",
+     "HCP"
+    ],
+    "team": "upstream",
+    "cause": "Day 10 피드 이후 글루코스가 조기에 소진된 것으로 추정. 해당 일자 잔당 측정값이 없어 확정하지 못했다.",
+    "title": "배양 후기 생존율 급락 (Harvest 59.7%)",
+    "action": "Harvest 를 계획보다 하루 앞당겨 진행하고, 이후 배치부터 Day 9·11 잔당 측정을 추가했다.",
+    "status": "resolved",
+    "batchId": "UNSPEC-01",
+    "outcome": "후속 배치에서는 Harvest 생존율이 63% 이상으로 회복. 다만 이 배치의 HCP·잔류 DNA 는 다른 배치보다 높게 나왔다.",
+    "studyId": "STD-0045",
+    "symptom": "Day 11 이후 생존율이 하루 8~10%p씩 떨어져 Harvest 시점 59.7%로 마감. 같은 Study 다른 배치는 63~70% 구간이었다.",
+    "sampleId": null,
+    "severity": "high",
+    "createdAt": "2026-02-06T17:10:00",
+    "createdBy": "김민수",
+    "updatedAt": "2026-02-08T09:00:00",
+    "prevention": "생존율이 65% 아래로 내려가면 배양을 연장하지 않는다(SOP-UP-014 반영). 잔당은 격일이 아니라 후기에는 매일 측정한다.",
+    "visibility": "all"
+   },
+   {
+    "id": "ISS-SEED-2",
+    "tags": [
+     "N-glycan",
+     "고만노스",
+     "아푸코실화",
+     "생존율",
+     "DoE"
+    ],
+    "team": "analytics",
+    "cause": "시험 오류가 아니라 배양 조건 차이로 판단. 해당 배치는 Harvest 시점 생존율이 낮은 축에 속했고, 아푸코실화 형태도 함께 상승했다.",
+    "title": "High mannose 함량이 특정 조건에서 두 배 이상 상승",
+    "action": "분석팀에서 재시험으로 값 자체는 확인. 배양팀에 조건 정보를 요청해 생존율·배지 Mn 농도와 대조했다.",
+    "status": "unresolved",
+    "batchId": null,
+    "outcome": "생존율이 낮은 조건일수록 High mannose 와 아푸코실화가 동시에 올라가는 경향을 확인했다. 원인 물질까지 특정하지는 못했다.",
+    "studyId": "STD-0123",
+    "symptom": "DoE 조건 중 일부 배치에서 High mannose 가 14~15% 로, 다른 배치(1~3%) 대비 크게 높게 검출되었다. 같은 시료를 재시험해도 재현되었다.",
+    "sampleId": null,
+    "severity": "mid",
+    "createdAt": "2026-05-07T11:25:00",
+    "createdBy": "정하은",
+    "updatedAt": "2026-05-07T11:25:00",
+    "prevention": "역가 단독 최적화 조건은 당쇄를 함께 확인하기 전에는 후속 검증에 올리지 않는다. Mn 농도를 별도 요인으로 분리해 재평가 예정.",
+    "visibility": "all"
+   },
+   {
+    "id": "ISS-SEED-3",
+    "tags": [
+     "HCP",
+     "Protein A",
+     "CEX",
+     "세정",
+     "수율"
+    ],
+    "team": "downstream",
+    "cause": "Harvest 시점 생존율이 낮아 세포 파쇄가 늘었고, 그만큼 숙주세포단백질 부하가 컸던 것으로 본다. 컬럼 자체는 사이클 여유가 남아 있었다.",
+    "title": "Protein A 용출 후 HCP 가 평소의 3배 이상",
+    "action": "CEX 로딩 전 전도도를 조정하고, 세정 단계를 1회 추가했다.",
+    "status": "resolved",
+    "batchId": null,
+    "outcome": "최종 HCP 는 규격 범위 안으로 들어왔으나 CEX 단계 수율이 약 3%p 떨어졌다.",
+    "studyId": "STD-0045",
+    "symptom": "동일 공정으로 진행했는데 Protein A 용출액의 HCP 가 평소 범위를 크게 넘겼다. 후속 CEX 에서 대부분 제거되어 최종 규격에는 영향이 없었다.",
+    "sampleId": null,
+    "severity": "mid",
+    "createdAt": "2026-08-05T15:40:00",
+    "createdBy": "이정호",
+    "updatedAt": "2026-08-07T10:05:00",
+    "prevention": "배양 생존율이 낮게 끝난 배치는 정제 전에 미리 공유받아 세정 조건을 조정한 뒤 시작한다. 팀 간 인계 시 생존율을 필수 항목으로.",
+    "visibility": "team"
+   }
+  ],
+  "todo": [
+   {
+    "id": "TD-SEED-1",
+    "due": "2026-10-04",
+    "done": false,
+    "team": "upstream",
+    "text": "B123-9 Day 7 Sampling",
+    "createdAt": "2026-10-04T08:10:00",
+    "createdBy": "김민수"
+   },
+   {
+    "id": "TD-SEED-2",
+    "due": "2026-10-04",
+    "done": false,
+    "team": "downstream",
+    "text": "CEX Column Elution 진행 (B045-2)",
+    "createdAt": "2026-10-04T08:20:00",
+    "createdBy": "이정호"
+   },
+   {
+    "id": "TD-SEED-3",
+    "due": "2026-10-04",
+    "done": true,
+    "team": "analytics",
+    "text": "SEC 컬럼 시스템 적합성 확인",
+    "doneAt": "2026-10-04T09:05:00",
+    "createdAt": "2026-10-04T07:50:00",
+    "createdBy": "정하은"
+   }
+  ],
+  "booking": [
+   {
+    "id": "bk-muty11gv1ssz",
+    "end": "11:00",
+    "who": "박서연",
+    "date": "2026-10-04",
+    "equip": "BR-101",
+    "start": "09:00",
+    "deleted": true,
+    "purpose": "동기화 확인",
+    "deletedAt": "2026-10-05T00:02:23"
+   }
+  ]
+ },
+ "values": {},
+ "meta": {
+  "collections.seeded": [
+   "event",
+   "request",
+   "issue",
+   "todo"
+  ],
+  "hub.entries.aux": {
+   "groups": [],
+   "samples": []
+  },
+  "hub.aliases.v1": {
+   "hidden": {},
+   "labels": {
+    "col:analytics|B321-1|v.name": "test-1"
+   },
+   "history": {
+    "col:analytics|B321-1|v.name": [
+     {
+      "at": "2026-10-05T17:40:54",
+      "by": "박서연",
+      "to": "test-1",
+      "from": "B321-1-S1",
+      "original": "B321-1-S1"
+     }
+    ]
+   }
+  },
+  "hub.ebr.live": {
+   "kind": "line",
+   "pick": [
+    "maxVCD"
+   ],
+   "scope": "batch"
+  },
+  "hub.ws.cols": {
+   "upstream|B045-1": [
+    {
+     "id": "D10",
+     "sub": "배양 10일차",
+     "name": "D10",
+     "dayKey": "D10",
+     "seeded": true
+    },
+    {
+     "id": "D11",
+     "sub": "배양 11일차",
+     "name": "D11",
+     "dayKey": "D11",
+     "seeded": true
+    },
+    {
+     "id": "D12",
+     "sub": "배양 12일차",
+     "name": "D12",
+     "dayKey": "D12",
+     "seeded": true
+    },
+    {
+     "id": "D13",
+     "sub": "배양 13일차",
+     "name": "D13",
+     "dayKey": "D13",
+     "seeded": true
+    },
+    {
+     "id": "D14",
+     "sub": "배양 14일차",
+     "name": "D14",
+     "dayKey": "D14",
+     "seeded": true
+    },
+    {
+     "id": "D15",
+     "sub": "배양 15일차",
+     "name": "D15",
+     "dayKey": "D15",
+     "seeded": true
+    },
+    {
+     "id": "D16",
+     "sub": "배양 16일차",
+     "name": "D16",
+     "dayKey": "D16",
+     "seeded": true
+    },
+    {
+     "id": "D17",
+     "sub": "배양 17일차",
+     "name": "D17",
+     "dayKey": "D17",
+     "seeded": true
+    },
+    {
+     "id": "D18",
+     "sub": "배양 18일차",
+     "name": "D18",
+     "dayKey": "D18",
+     "seeded": true
+    },
+    {
+     "id": "D19",
+     "sub": "배양 19일차",
+     "name": "D19",
+     "dayKey": "D19",
+     "seeded": true
+    },
+    {
+     "id": "D20",
+     "sub": "배양 20일차",
+     "name": "D20",
+     "dayKey": "D20",
+     "seeded": true
+    }
+   ],
+   "upstream|B321-1": [
+    {
+     "id": "D10",
+     "sub": "배양 10일차",
+     "name": "D10",
+     "dayKey": "D10",
+     "seeded": true
+    },
+    {
+     "id": "D11",
+     "sub": "배양 11일차",
+     "name": "D11",
+     "dayKey": "D11",
+     "seeded": true
+    },
+    {
+     "id": "D12",
+     "sub": "배양 12일차",
+     "name": "D12",
+     "dayKey": "D12",
+     "seeded": true
+    },
+    {
+     "id": "D13",
+     "sub": "배양 13일차",
+     "name": "D13",
+     "dayKey": "D13",
+     "seeded": true
+    },
+    {
+     "id": "D14",
+     "sub": "배양 14일차",
+     "name": "D14",
+     "dayKey": "D14",
+     "seeded": true
+    },
+    {
+     "id": "D15",
+     "sub": "배양 15일차",
+     "name": "D15",
+     "dayKey": "D15",
+     "seeded": true
+    },
+    {
+     "id": "D16",
+     "sub": "배양 16일차",
+     "name": "D16",
+     "dayKey": "D16",
+     "seeded": true
+    },
+    {
+     "id": "D17",
+     "sub": "배양 17일차",
+     "name": "D17",
+     "dayKey": "D17",
+     "seeded": true
+    },
+    {
+     "id": "D18",
+     "sub": "배양 18일차",
+     "name": "D18",
+     "dayKey": "D18",
+     "seeded": true
+    },
+    {
+     "id": "D19",
+     "sub": "배양 19일차",
+     "name": "D19",
+     "dayKey": "D19",
+     "seeded": true
+    },
+    {
+     "id": "D20",
+     "sub": "배양 20일차",
+     "name": "D20",
+     "dayKey": "D20",
+     "seeded": true
+    }
+   ],
+   "analytics|B321-1": [
+    {
+     "id": "v",
+     "sub": "배치 기준",
+     "name": "test-1",
+     "dayKey": null,
+     "seeded": true
+    }
+   ],
+   "downstream|B321-1": [
+    {
+     "id": "v",
+     "sub": "배치 단위",
+     "name": "값",
+     "dayKey": null,
+     "seeded": true
+    }
+   ]
+  }
+ }
+}

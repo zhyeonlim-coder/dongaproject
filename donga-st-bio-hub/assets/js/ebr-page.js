@@ -653,15 +653,21 @@
 
      ★ seeded 인 열은 id 가 고정이고 이름만 바뀝니다. 사용자가 더한 열은
        이름이 곧 id 입니다. */
+  /* ★ 읽기만 합니다. 예전에는 저장된 것이 없으면 **씨앗을 저장까지** 했는데,
+     그게 다른 PC 의 열을 지우고 있었습니다.
+
+     서버 모드에서는 화면이 뜨는 순간 아직 서버 사본이 오기 전이라 "저장된
+     열이 없다" 로 읽힙니다. 거기서 씨앗을 저장해 버리면, 잠시 뒤 도착하는
+     진짜 목록이 아니라 **방금 쓴 기본값이 서버에 남습니다.** 다른 PC 에서
+     만든 열이 페이지를 열기만 해도 사라졌습니다.
+
+     씨앗은 매번 계산해도 같은 값이므로 저장할 이유가 없습니다. 저장은
+     사용자가 열을 더하거나 고칠 때(saveCols)만 합니다. */
   function colsOf(team, batch) {
-    const bid = batch.id;
     const m = window.Persist.getJSON(COLS_KEY, {}) || {};
-    const k = team + "|" + bid;
+    const k = team + "|" + batch.id;
     if (Array.isArray(m[k]) && m[k].length) return m[k];
-    const seed = seedCols(team, batch);
-    m[k] = seed;
-    window.Persist.setJSON(COLS_KEY, m);
-    return seed;
+    return seedCols(team, batch);
   }
   function saveCols(team, bid, list) {
     const m = window.Persist.getJSON(COLS_KEY, {}) || {};
@@ -988,7 +994,7 @@
   let liveScopeMode = "batch";
 
   try {
-    const s = window.Persist.getJSON(LIVE_KEY, null);
+    const s = window.Persist.getLocalJSON(LIVE_KEY, null);
     if (s) {
       liveKind = s.kind === "bar" ? "bar" : "line";
       liveScopeMode = s.scope === "study" ? "study" : "batch";
@@ -998,7 +1004,7 @@
 
   function saveLive() {
     try {
-      window.Persist.setJSON(LIVE_KEY, { kind: liveKind, scope: liveScopeMode, pick: livePick });
+      window.Persist.setLocalJSON(LIVE_KEY, { kind: liveKind, scope: liveScopeMode, pick: livePick });
     } catch (e) {}
   }
 
