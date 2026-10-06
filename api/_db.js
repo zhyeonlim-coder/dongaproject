@@ -116,40 +116,72 @@ async function snapshot() {
 
 /* ── 쓰기 ─────────────────────────────────────────────────────────────
    한 번의 요청이 여러 변경을 담을 수 있습니다. 칸 하나 고칠 때마다 왕복하면
-   표에 값을 줄줄이 적는 동안 요청이 수십 개가 됩니다. */
+   표에 값을 줄줄이 적는 동안 요청이 수십 개가 됩니다.
+
+   ★ 한 줄씩 보내지 않습니다.
+     예전에는 레코드마다 INSERT 를 한 번씩 보냈습니다. Study·Batch·시료를
+     저장하면 62개 레코드가 그대로 62번의 왕복이 되었고, Neon 왕복이
+     한 번에 수십 ms 라 한 번 저장에 몇 초가 걸렸습니다. 느린 날에는
+     함수 제한시간을 넘겨 **504 로 실패했고, 그러면 클라이언트가 메모리를
+     되돌려 화면에서도 값이 사라졌습니다** — "저장했는데 다른 PC 에 반영이
+     안 된다" 의 정체입니다.
+
+     unnest 로 묶어 종류당 한 번만 보냅니다. 62번 → 3번.
+     한 번에 너무 큰 묶음을 보내지 않도록 CHUNK 로 끊습니다. */
+const CHUNK = 500;
+
+function chunks(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
 async function apply(patch) {
   await init();
   const q = driver();
   const p = patch || {};
   let n = 0;
 
+  /* ── 값 ── */
   const vals = p.values || {};
+  const vIns = [], vDel = [];
   for (const key of Object.keys(vals)) {
     const i = key.indexOf("|");
     if (i < 1) continue;
-    const scope = key.slice(0, i), field = key.slice(i + 1);
-    const data = vals[key];
-    if (data === null) {
-      await q`DELETE FROM entry_values WHERE scope = ${scope} AND field = ${field}`;
-    } else {
-      await q`INSERT INTO entry_values (scope, field, data, updated_at)
-              VALUES (${scope}, ${field}, ${JSON.stringify(data)}::jsonb, now())
-              ON CONFLICT (scope, field)
-              DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
-    }
-    n++;
+    const pair = [key.slice(0, i), key.slice(i + 1)];
+    if (vals[key] === null) vDel.push(pair);
+    else vIns.push([pair[0], pair[1], JSON.stringify(vals[key])]);
+  }
+  for (const part of chunks(vIns, CHUNK)) {
+    await q`INSERT INTO entry_values (scope, field, data, updated_at)
+            SELECT s, f, d::jsonb, now()
+            FROM unnest(${part.map(x => x[0])}::text[],
+                        ${part.map(x => x[1])}::text[],
+                        ${part.map(x => x[2])}::text[]) AS t(s, f, d)
+            ON CONFLICT (scope, field)
+            DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
+    n += part.length;
+  }
+  for (const part of chunks(vDel, CHUNK)) {
+    await q`DELETE FROM entry_values
+            WHERE (scope, field) IN (
+              SELECT s, f FROM unnest(${part.map(x => x[0])}::text[],
+                                      ${part.map(x => x[1])}::text[]) AS t(s, f))`;
+    n += part.length;
   }
 
+  /* ── 레코드 ── */
   const recs = p.records || {};
   for (const kind of Object.keys(recs)) {
-    const list = recs[kind] || [];
-    for (const rec of list) {
-      if (!rec || !rec.id) continue;
+    const list = (recs[kind] || []).filter(r => r && r.id);
+    for (const part of chunks(list, CHUNK)) {
       await q`INSERT INTO records (kind, id, data, updated_at)
-              VALUES (${kind}, ${rec.id}, ${JSON.stringify(rec)}::jsonb, now())
+              SELECT ${kind}, i, d::jsonb, now()
+              FROM unnest(${part.map(r => String(r.id))}::text[],
+                          ${part.map(r => JSON.stringify(r))}::text[]) AS t(i, d)
               ON CONFLICT (kind, id)
               DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
-      n++;
+      n += part.length;
     }
   }
 
@@ -161,24 +193,15 @@ async function apply(patch) {
 
      이 길은 초기화와 검사 뒷정리처럼 "그 줄 자체가 없어져야 하는" 경우에만
      씁니다. [[kind, id], …] 형태로 받습니다. */
-  const dels = Array.isArray(p.deleteRecords) ? p.deleteRecords : [];
-  for (const pair of dels) {
-    if (!Array.isArray(pair) || pair.length < 2) continue;
-    await q`DELETE FROM records WHERE kind = ${String(pair[0])} AND id = ${String(pair[1])}`;
-    n++;
-  }
-
-  const meta = p.meta || {};
-  for (const k of Object.keys(meta)) {
-    const data = meta[k];
-    if (data === null) {
-      await q`DELETE FROM meta WHERE k = ${k}`;
-    } else {
-      await q`INSERT INTO meta (k, data, updated_at)
-              VALUES (${k}, ${JSON.stringify(data)}::jsonb, now())
-              ON CONFLICT (k) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
-    }
-    n++;
+  const dels = (Array.isArray(p.deleteRecords) ? p.deleteRecords : [])
+    .filter(x => Array.isArray(x) && x.length >= 2)
+    .map(x => [String(x[0]), String(x[1])]);
+  for (const part of chunks(dels, CHUNK)) {
+    await q`DELETE FROM records
+            WHERE (kind, id) IN (
+              SELECT k, i FROM unnest(${part.map(x => x[0])}::text[],
+                                      ${part.map(x => x[1])}::text[]) AS t(k, i))`;
+    n += part.length;
   }
   return n;
 }

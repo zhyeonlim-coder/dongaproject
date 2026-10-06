@@ -72,14 +72,48 @@ window.Dataset = (function () {
       return { studies: r.studies || [], batches: r.batches || [], samples: r.samples || [] };
     } catch (e) { return null; }
   }
+  /* 마지막으로 서버와 맞춘 모습 — 무엇이 달라졌는지 견주는 기준입니다.
+     hydrate 가 서버에서 받아올 때마다 새로 찍습니다. */
+  let pushed = {};
+  function stamp(list) {
+    const m = {};
+    (list || []).forEach(function (r) { if (r && r.id) m[r.id] = JSON.stringify(r); });
+    return m;
+  }
+  function stampAll() {
+    pushed = { study: stamp(state.studies), batch: stamp(state.batches), sample: stamp(state.samples) };
+  }
+  function diffFromPushed() {
+    const out = {};
+    let any = false;
+    [["study", state.studies], ["batch", state.batches], ["sample", state.samples]]
+      .forEach(function (p) {
+        const kind = p[0], now = stamp(p[1]), was = pushed[kind] || {};
+        const list = [];
+        Object.keys(now).forEach(function (id) {
+          if (was[id] !== now[id]) { list.push(JSON.parse(now[id])); }
+        });
+        if (list.length) { out[kind] = list; any = true; }
+        pushed[kind] = now;
+      });
+    return any ? out : null;
+  }
+
   function save() {
     if (SEED_ONLY) return true;          /* 검사 중에는 사용자 데이터를 건드리지 않습니다 */
     /* 어디에 저장할지는 Persist 가 압니다. 서버 모드에서는 records 표로
        나가고 localStorage 는 쓰지 않습니다. */
     if (window.Persist && window.Persist.isServer()) {
-      window.Persist.pushRecords({
-        study: state.studies, batch: state.batches, sample: state.samples
-      });
+      /* ★ 바뀐 것만 보냅니다.
+         예전에는 저장할 때마다 Study·Batch·시료 **전부**를 보냈습니다.
+         값 하나 고쳐도 62개 레코드가 통째로 올라갔고, 요청이 무거워져
+         실패하기 쉬웠습니다. 실패하면 메모리가 되돌아가 화면에서도 값이
+         사라집니다 — 저장된 줄 알았는데 다른 PC 에 안 보이는 이유였습니다.
+
+         그리고 전부 보내면, 이쪽 사본이 조금 낡았을 때 **남이 방금 고친
+         레코드까지 옛 내용으로 되돌려 놓습니다.** */
+      const changed = diffFromPushed();
+      if (changed) window.Persist.pushRecords(changed);
       return true;
     }
     try { localStorage.setItem(KEY, JSON.stringify(state)); return true; }
@@ -301,6 +335,9 @@ window.Dataset = (function () {
     state = {
       studies: r.study || [], batches: r.batch || [], samples: r.sample || []
     };
+    /* 방금 서버에서 받은 모습이 곧 "맞춰진 모습" 입니다. 여기서 찍어 두지
+       않으면 다음 저장이 받은 것을 그대로 되쓰게 됩니다. */
+    stampAll();
     applyToGlobals();
     if (window.Aliases && window.Aliases.apply) window.Aliases.apply();
     subs.slice().forEach(function (f) { try { f("hydrate", true); } catch (e) {} });
