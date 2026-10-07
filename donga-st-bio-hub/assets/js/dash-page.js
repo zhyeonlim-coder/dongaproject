@@ -90,44 +90,25 @@
   function setView(next) { view = next || null; render(); }
 
   /* ── KPI — 팀을 고르면 그 팀 지표로 바뀝니다 ────────────────────────── */
-  function kpiRow(batches, team, samples) {
-    let cards;
+  /* ★ 여기도 항목을 적어 두지 않습니다 — 서식에서 읽습니다.
 
-    if (team === "downstream") {
-      const ty = nums(batches, b => b.downstream && b.downstream.totalYield);
-      const mp = nums(batches, b => b.downstream && b.downstream.monomerPurity);
-      const hcp = nums(batches, b => b.downstream && b.downstream.hcp);
-      cards = [
-        { k: "시료", v: batches.length, u: "건" },
-        { k: "평균 Total Yield", v: fmt(avg(ty), 1), u: "%" },
-        { k: "평균 Monomer", v: fmt(avg(mp), 2), u: "%" },
-        { k: "최대 HCP", v: hcp.length ? fmt(Math.max.apply(null, hcp), 1) : L.empty, u: "ppm" }
-      ];
-    } else if (team === "analytics") {
-      /* 분석 KPI 는 시료 기준입니다 — 배치로 세면 한 배치의 두 시료가 하나로 묻힙니다 */
-      const ss = samples || [];
-      const mono = nums(ss, s => window.Repo.valueOfSample(s, "ceSdsNR", "monomer"));
-      const sia = nums(ss, s => window.Repo.valueOfSample(s, "nGlycan", "sialicAcid"));
-      const se = nums(ss, s => window.Repo.valueOfSample(s, "seHPLC", "main"));
-      cards = [
-        { k: "시료", v: ss.length, u: "건" },
-        { k: "평균 SE-HPLC Main", v: fmt(avg(se), 1), u: "%" },
-        { k: "평균 CE-SDS Monomer", v: fmt(avg(mono), 1), u: "%" },
-        { k: "평균 Sialic acid", v: fmt(avg(sia), 1), u: "%" }
-      ];
-    } else {
-      const titers = nums(batches, b => b.upstream.titerHCCF);
-      const viab = nums(batches, b => b.upstream.finalViability);
-      /* "해당 없음"으로 표시한 칸은 분모에서 빠집니다 (repo.completeness) */
-      const c = window.Repo.completeness(batches, window.DATA_ANALYTE_GROUPS);
-      const filled = c.filled, total = c.total;
-      cards = [
-        { k: "시료", v: batches.length, u: "건" },
-        { k: "최고 Titer HCCF", v: titers.length ? fmt(Math.max.apply(null, titers), 1) : L.empty, u: "mg/L" },
-        { k: "평균 Viability", v: fmt(avg(viab), 1), u: "%" },
-        { k: "데이터 완성도", v: total ? Math.round(filled / total * 100) : 0, u: "%" }
-      ];
-    }
+     팀마다 지표 셋이 박혀 있어서, 지표를 재설정해 Monomer · HCP · CE-SDS ·
+     Sialic acid 가 없어진 뒤에도 맨 윗줄에 "미입력" 으로 남아 있었습니다.
+     팀 카드·그래프·표를 전부 서식 기준으로 돌렸으니 이 줄도 같이 갑니다.
+
+     맨 앞의 시료 수와 맨 뒤의 완성도는 어느 팀에나 같은 뜻이라 그대로 둡니다.
+     가운데 두 칸만 그 팀 서식의 앞 항목 둘로 채웁니다 — 네 칸이 한 줄이라
+     더 넣으면 줄이 넘칩니다. */
+  function kpiRow(batches, team, samples) {
+    const rows = byTeam(batches, team);
+    const picked = teamMetrics(team, rows).slice(0, 2);
+    const groups = (window.DATA_ANALYTE_GROUPS || [])
+      .filter(g => !g.empty && (!team || g.team === team));
+    const c = window.Repo.completeness(rows, groups);
+    const cards = [{ k: "시료", v: rows.length, u: "건" }]
+      .concat(picked)
+      .concat([{ k: "데이터 완성도",
+                 v: c.total ? Math.round(c.filled / c.total * 100) : 0, u: "%" }]);
 
     return cards.map(c =>
       '<div class="card stat"><div class="stat-label">' + esc(c.k) + '</div>' +
