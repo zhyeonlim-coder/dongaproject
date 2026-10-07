@@ -24,6 +24,11 @@
 (function () {
   "use strict";
 
+  /* ★ 예시 시료는 검사에서만 만듭니다 (2026-10).
+     화면을 띄우는 페이지에서는 빈 목록입니다 — 비운 DB 가 비어 보여야
+     사용자가 적은 것과 예시를 구분할 수 있습니다. */
+  if (!window.HUB_EXCEL_FIXTURE) { window.DATA_SAMPLES = []; return; }
+
   if (!window.DATA_BATCHES) return;
 
   /* 두 번 실행되면 안 됩니다.

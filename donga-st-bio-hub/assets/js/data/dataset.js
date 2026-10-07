@@ -365,10 +365,20 @@ window.Dataset = (function () {
      왜냐면 예시 수치가 실제 입력과 섞이면 둘을 구별할 방법이 없고, 예시의
      옛 범위 때문에 멀쩡한 입력에 범위 경고가 붙었습니다.
 
-     엑셀 정의(batches.js · studies.js · samples.js)는 지웁니다가 아니라
-     **그대로 둡니다** — 검사 스위트가 늘 같은 입력에서 돌아야 하고
-     (HUB_DATASET_SEED_ONLY), 되돌리고 싶을 때 돌아올 자리이기 때문입니다.
-     켜려면 화면을 열기 전에 window.HUB_SEED_EXCEL = true 를 두면 됩니다. */
+     ★ 2026-10 부터 한 겹 더 막았습니다. 예전에는 여기서 심지 않아도
+       batches.js · studies.js 가 실리기만 하면 메모리에는 28배치가 올라와
+       있었습니다. 그래서 DB 를 비워도 화면에는 예시 Study 가 남았습니다 —
+       "Feasibility test" 가 지워지지 않는다는 보고의 정체입니다.
+
+       이제 그 파일들은 window.HUB_EXCEL_FIXTURE 가 올라가 있을 때만
+       목록을 채웁니다. 올리는 곳은 검사 페이지뿐이라 화면에서는 늘 빈
+       목록이고, 따라서 여기 SEED 도 비어 있습니다.
+
+     정의 자체는 지우지 않고 둡니다 — 검사 스위트가 늘 같은 입력에서
+     돌아야 하고(HUB_DATASET_SEED_ONLY), 되돌리고 싶을 때 돌아올 자리이기
+     때문입니다. 되돌리려면 화면을 열기 전에 두 줄이 필요합니다:
+     window.HUB_EXCEL_FIXTURE = true (실어 오기) 와
+     window.HUB_SEED_EXCEL = true (빈 DB 에 심기). */
   function seedPayload() {
     if (!window.HUB_SEED_EXCEL) return { study: [], batch: [], sample: [] };
     return { study: clone(SEED.studies), batch: clone(SEED.batches), sample: clone(SEED.samples) };

@@ -25,7 +25,19 @@
    각 배치에 b.downstream 을 채웁니다.
    ========================================================================== */
 
-window.DATA_BATCHES = [  {
+/* ★ 기본값은 **빈 목록**입니다 (2026-10).
+
+   예전에는 이 파일이 실리기만 하면 28배치가 화면에 올라왔습니다. DB 를
+   비워도 예시가 남아, 사용자가 적은 것과 예시를 구분할 수 없었습니다.
+
+   아래 한 벌은 이제 **검사 스위트의 고정 입력**입니다. 검사 페이지가
+   window.HUB_EXCEL_FIXTURE 를 올린 뒤에만 들어갑니다 — 화면을 띄우는
+   페이지는 그 깃발을 올리지 않으므로 늘 빈 목록입니다.
+
+   되살리고 싶으면 화면을 열기 전에 콘솔에서 같은 깃발을 올리면 됩니다. */
+window.DATA_BATCHES = [];
+
+if (window.HUB_EXCEL_FIXTURE) window.DATA_BATCHES = [  {
     id: "UNSPEC-01", studyId: "STD-0045", team: "upstream", expNo: null,
     initialDate: "2024-08-16", endDate: "2024-08-29", cultureDays: 13,
     upstream: {

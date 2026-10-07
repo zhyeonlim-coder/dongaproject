@@ -231,7 +231,10 @@ window.StudySelector = (function () {
        고른 것이 곧 하나 있다는 뜻이기 때문입니다. */
     function studyGate(list, studyId) {
       if (studyId) return null;
-      return (list && list.length) ? null : "하위 Study 없음";
+      /* "하위 Study 없음" 은 어딘가에 상위가 있고 그 아래가 비었다는 말로
+         읽혔습니다. 예시 Study 를 걷어낸 뒤로 이 자리는 대부분 "아직 아무도
+         안 만들었다" 입니다 — 무엇을 해야 하는지가 보이게 적습니다. */
+      return (list && list.length) ? null : "등록된 Study 없음 — [+ 새 Study] 로 만드세요";
     }
 
     function field(key, label, list, val, emptyMsg) {

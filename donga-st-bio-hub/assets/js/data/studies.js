@@ -22,42 +22,20 @@
    과제 여부는 접두어("DA-")가 아니라 projectId 로 판별합니다.
    ========================================================================== */
 
-window.DATA_STUDIES = [
-  {
-    id: "STD-0045",
-    projectId: "PRJ-1234",
-    name: "Media screening test",
-    type: "Media screening",
-    /* 시작일이 11-01 이 아니라 08-16 인 이유는 위 편입 기록 참고 */
-    startDate: "2024-08-16",
-    endDate: "2024-11-15",
-    status: "완료",
-    objective: null,
-    batchCount: 6
-  },
-  {
-    id: "STD-0123",
-    projectId: "PRJ-1234",
-    name: "DoE test",                // 원본 "DA-1234 DOE test" 에서 과제 코드 제거
-    type: "DOE",
-    startDate: "2024-12-10",
-    endDate: "2024-12-24",
-    status: "완료",
-    objective: null,
-    batchCount: 12
-  },
-  {
-    id: "STD-0321",
-    projectId: "PRJ-4321",
-    name: "Feasibility test",        // 원본 "DA-4321 feasibility test"
-    type: "Feasibility",
-    startDate: "2025-01-09",
-    endDate: "2025-01-23",
-    status: "완료",
-    objective: null,
-    batchCount: 10
-  }
-];
+/* ★ 예시 Study 를 여기서 **지웠습니다** (2026-10).
+
+   Media screening test · DoE test · Feasibility test 세 개가 이 파일에
+   박혀 있었습니다. DB 가 비어 있어도 — 비운 직후에도 — 드롭다운에 나타났고,
+   사용자가 만든 Study 와 섞여서 어느 것이 진짜 자기 데이터인지 구분할 수
+   없었습니다.
+
+   이제 Study 는 **사용자가 만든 것만** 있습니다. 빈 시스템은 비어 보입니다.
+
+   예시 엑셀 한 벌(3 Study · 28 Batch · 31 시료)은 검사 스위트의 고정 입력
+   으로 tests/fixtures/ 에 남아 있습니다. 검사는 늘 같은 입력에서 같은 답이
+   나와야 하므로 그쪽에는 있어야 합니다. 화면을 띄우는 페이지는 그 파일을
+   싣지 않습니다 — tests/ 는 배포에서도 제외됩니다(.vercelignore). */
+window.DATA_STUDIES = [];
 
 /* ── 측정 항목 스키마 ───────────────────────────────────────────────────
    각 그룹에 team 을 붙여 팀 축을 만듭니다. Excel에 팀 컬럼은 없지만
