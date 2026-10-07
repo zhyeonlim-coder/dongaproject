@@ -27,10 +27,39 @@
 window.Persist = (function () {
   "use strict";
 
-  let mode = "local";                    /* bootstrap 이 서버 확인 후 바꿉니다 */
+  /* ── 모드는 **첫 줄부터** 알아야 합니다 ──────────────────────────────
+     예전에는 "local" 로 시작해서, bootstrap 이 서버를 확인한 뒤에야
+     "server" 로 바뀌었습니다. 문제는 dataset.js · entries.js 가 그보다
+     **먼저** 실행된다는 것입니다. 그 둘은 자기가 local 모드인 줄 알고
+     이 브라우저에 남아 있던 옛 사본을 읽어 화면에 올렸습니다.
 
-  function setMode(m) { mode = (m === "server") ? "server" : "local"; }
+     그래서 중앙 DB 를 비워도 예시 Study 와 가득 찬 뱃지가 그대로 보였습니다.
+     잠시 뒤 서버 사본이 도착해 갈아 끼우기는 하지만, 사용자는 그전에 이미
+     "안 지워졌다" 를 본 뒤입니다. 응답이 늦거나 실패하면 영영 그 상태입니다.
+
+     지난번에 서버였다면 이번에도 서버입니다 — 그 힌트를 남겨 둡니다.
+     틀렸을 때(서버가 꺼졌을 때)는 bootstrap 이 setMode("local") 로 바로잡고,
+     그때 두 모듈에게 다시 읽으라고 알립니다. */
+  const MODE_HINT = "hub.store.mode";
+
+  let mode = (function () {
+    try { return localStorage.getItem(MODE_HINT) === "server" ? "server" : "local"; }
+    catch (e) { return "local"; }
+  })();
+
+  function setMode(m) {
+    const next = (m === "server") ? "server" : "local";
+    const changed = next !== mode;
+    mode = next;
+    try { localStorage.setItem(MODE_HINT, mode); } catch (e) {}
+    if (changed) modeSubs.slice().forEach(function (f) { try { f(mode); } catch (e) {} });
+  }
   function isServer() { return mode === "server"; }
+
+  /* 모드가 바뀌면 알려 줍니다 — 서버인 줄 알고 비워 뒀는데 아니었던 경우,
+     이 브라우저의 사본을 다시 읽어야 합니다. */
+  const modeSubs = [];
+  function onModeChange(fn) { modeSubs.push(fn); }
 
   /* ── 서버 사본이 아직 안 왔을 때 ────────────────────────────────────────
      setMode("server") 는 **받아오기 전에** 불립니다. 그 사이에는 메모리
@@ -147,7 +176,7 @@ window.Persist = (function () {
     catch (e) { return false; }
   }
 
-  return { setMode, isServer, ready, mode: () => mode,
+  return { setMode, isServer, ready, mode: () => mode, onModeChange,
            getJSON, setJSON, remove, pushValues, pushRecords,
            getLocalJSON, setLocalJSON,
            pending: () => queued.length };

@@ -236,6 +236,42 @@
   }
   function pendCount() { return Object.keys(pend).length; }
 
+  /* ── 갈 곳이 없어진 저장 전 내용 치우기 ───────────────────────────────
+     저장 전 값과 열은 <studyId>|<팀> 으로 묶여 있습니다. 그 Study 가 사라지면
+     (중앙 DB 를 비웠거나 다른 사람이 지웠거나) 그 묶음은 **저장할 길이
+     없습니다** — 화면에 닿지도 않고, [전체 저장] 을 눌러도 갈 곳이 없습니다.
+
+     ★ 통째로 지우지 않습니다. 저장 전 내용은 아직 기록이 아닐 뿐 사용자가
+       친 것입니다. 지금 적고 있는 Study 의 것까지 지우면, 비우기 한 번에
+       남의 작업이 날아갑니다. 갈 곳이 없어진 것만 치웁니다.
+
+     ★ 서버 사본이 도착하기 전에는 하지 않습니다. 그때는 Study 목록이 아직
+       비어 있어서, 멀쩡한 것까지 "없어진 Study" 로 보입니다. */
+  function pruneOrphanDrafts() {
+    if (window.Persist && window.Persist.ready && !window.Persist.ready()) return;
+    const alive = {};
+    (window.DATA_STUDIES || []).forEach(function (s) { if (s && s.id) alive[s.id] = true; });
+
+    [DRAFT_KEY, NEWCOL_KEY].forEach(function (key) {
+      const m = window.Persist.getLocalJSON(key, {}) || {};
+      let dropped = 0;
+      Object.keys(m).forEach(function (pair) {
+        const studyId = pair.slice(0, pair.lastIndexOf("|"));
+        if (!alive[studyId]) { delete m[pair]; dropped++; }
+      });
+      if (dropped) {
+        window.Persist.setLocalJSON(key, m);
+        if (window.console && console.info) {
+          console.info("[EBR] 없어진 Study 의 저장 전 내용 " + dropped + "묶음을 치웠습니다");
+        }
+      }
+    });
+    /* 메모리에 들고 있던 것도 같이 — 안 그러면 다음 저장에서 되살아납니다 */
+    if (pendPair && !alive[pendPair.slice(0, pendPair.lastIndexOf("|"))]) {
+      pend = {}; pendPair = null;
+    }
+  }
+
   /* ── 렌더 ──────────────────────────────────────────────────────────────
      폼 렌더는 배치를 비동기로 받아 그립니다. 그 사이에 다른 렌더가 시작되면
      먼저 시작한 쪽이 나중에 끝나 화면을 덮어씁니다 — 의뢰를 등록하자마자
@@ -247,6 +283,7 @@
     const my = ++renderSeq;
     const sel = window.Scope.get();
     const desc = window.Scope.describe();
+    pruneOrphanDrafts();
     paintSubnav();
 
     /* 과제 › Study › 팀 › Sample.
@@ -274,7 +311,10 @@
 
     if (!sel.scopeId) { gate("상단에서 과제를 선택하세요."); return; }
     if (!window.Scope.skipsStudyStep() && !sel.studyId) {
-      gate("좌측 필터에서 Study를 선택하세요."); return;
+      gate((window.DATA_STUDIES || []).some(s => s.projectId === sel.scopeId)
+        ? "Study 를 먼저 선택하세요. 팀은 그다음에 고를 수 있습니다."
+        : "이 과제에는 등록된 Study 가 없습니다. 위 [+ 새 Study] 로 만들면 입력 표가 열립니다.");
+      return;
     }
     if (!sel.team) {
       gate("팀을 선택해야 입력 표가 열립니다. (팀 미지정 상태에서는 저장할 수 없습니다)"); return;
@@ -1802,6 +1842,16 @@
       if (k === "__requests") { mode = "requests"; location.hash = "requests"; render(); return; }
       mode = "form";
       if (location.hash) location.hash = "";
+      /* ★ Study 가 없으면 팀을 정하지 않습니다.
+
+         계층은 과제 → Study → 팀 → Sample 입니다. 그런데 이 사이드바는
+         Study 를 거치지 않고 팀을 바로 세웠습니다. 그래서 Study 는 "전체"
+         인데 팀만 '배양공정팀' 으로 켜진, 위 선택기(팀 드롭다운이 Study
+         전에는 잠겨 있는)와 앞뒤가 안 맞는 상태가 만들어졌습니다.
+
+         팀만 정해진 상태는 가리키는 대상이 없습니다 — 어느 Study 에
+         기록할지가 비어 있으니까요. 그래서 고르지 않고 안내만 바꿉니다. */
+      if (!window.Scope.get().studyId) { render(); return; }
       window.Scope.setTeam(k);
       render();
     });

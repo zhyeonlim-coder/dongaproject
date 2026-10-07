@@ -390,9 +390,30 @@ window.StudySelector = (function () {
       render();
       if (o.onChange) o.onChange(sel, reason);
     });
+
+    /* ★ Study 목록이 바뀌어도 다시 그립니다.
+
+       예전에는 Scope(과제·Study·팀 선택)가 바뀔 때만 다시 그렸습니다.
+       그런데 목록 자체는 Scope 와 무관하게 바뀝니다 — 서버 사본이 도착하거나,
+       다른 사람이 Study 를 만들거나, 중앙 DB 를 비웠을 때입니다.
+
+       그래서 **DB 를 비운 뒤에도 드롭다운에는 옛 목록이 그대로 남아 있었습니다.**
+       화면 안쪽(입력 표)은 Repo 통지를 받아 비워졌는데 이 패널만 처음 그린
+       모습으로 멈춰 있어서, 지운 Study 를 계속 고를 수 있었습니다. */
+    let unsubRepo = null;
+    if (window.Repo && window.Repo.subscribe) {
+      unsubRepo = window.Repo.subscribe(function (what) {
+        if (what === "remote" || what === "dataset") render();
+      });
+    }
+
     render();
 
-    return { destroy: function () { if (unsub) unsub(); host.innerHTML = ""; } };
+    return { destroy: function () {
+      if (unsub) unsub();
+      if (unsubRepo) unsubRepo();
+      host.innerHTML = "";
+    } };
   }
 
   return { mount };

@@ -64,13 +64,65 @@ window.Dataset = (function () {
     return m;
   }
 
-  /* ── 저장 · 불러오기 ──────────────────────────────────────────────── */
+  /* ── 저장 · 불러오기 ────────────────────────────────────────────────
+     ★ 서버 모드에서는 이 브라우저의 사본을 **읽지 않습니다.**
+
+     예전에는 모드와 상관없이 localStorage 를 읽었습니다. 그래서 중앙 DB 를
+     비운 뒤에도, 이 브라우저에 남아 있던 옛 사본(예시 Study 3개 · 배치 28개)
+     이 화면에 그대로 올라왔습니다. 잠시 뒤 서버 사본이 도착해 갈아 끼우기는
+     하지만, 그 전까지 사용자는 지운 데이터를 보고 있고 — 서버 응답이 늦거나
+     실패하면 **영영 그 상태로 남습니다.** 지웠는데 안 지워진 것처럼 보이는
+     길이었습니다.
+
+     서버 모드에서 정본은 서버 하나뿐입니다. 올 때까지 비어 있는 것이
+     맞습니다. 비어 있는 것과 옛것을 보여 주는 것 중에서는 비어 있는 쪽이
+     덜 위험합니다 — 틀린 숫자를 사실로 읽지는 않으니까요.
+
+     그리고 낡은 사본은 **지웁니다.** 남겨 두면 다음에 다른 경로로 다시
+     새어 나옵니다. 서버에 이미 올라간 것이므로 잃는 것은 없습니다. */
+  function serverMode() {
+    return !!(window.Persist && window.Persist.isServer && window.Persist.isServer());
+  }
+
   function load() {
+    /* ★ 읽지 않을 뿐, 지우지는 않습니다.
+
+       지우기까지 하면 이런 길이 생깁니다: 지난번 힌트가 "server" 였는데
+       오늘 서버가 꺼져 있다 → 처음에 안 읽고 지운다 → bootstrap 이
+       "local 이다" 로 바로잡는다 → 되읽을 것이 이미 없다. 사용자의
+       이 브라우저 데이터가 통째로 사라집니다.
+
+       지우는 것은 **서버 사본이 실제로 도착했을 때**(hydrate)뿐입니다.
+       그때는 정본이 서버에 있다는 증거가 있습니다. */
+    if (serverMode()) return null;
     try {
       const r = JSON.parse(localStorage.getItem(KEY) || "null");
       if (!r || !Array.isArray(r.batches)) return null;
       return { studies: r.studies || [], batches: r.batches || [], samples: r.samples || [] };
     } catch (e) { return null; }
+  }
+
+  function dropLocalCopy() {
+    try { localStorage.removeItem(KEY); } catch (e) {}
+  }
+
+  /* 서버인 줄 알고 비워 뒀는데 아니었던 경우 — 이 브라우저의 사본을 다시
+     읽습니다. 안 하면 서버가 꺼진 날 사용자 데이터가 통째로 사라져 보입니다.
+     ★ 등록은 state 초기화 뒤에 합니다 (아래) — 콜백이 state 를 건드립니다. */
+  function watchMode() {
+    if (!window.Persist || !window.Persist.onModeChange) return;
+    window.Persist.onModeChange(function (m) {
+      if (SEED_ONLY) return;
+      /* server 로 바뀌어도 지우지 않습니다 — 아직 서버 사본이 도착하기
+         전이라, 여기서 지우면 서버가 답하지 않았을 때 되돌릴 것이 없습니다.
+         지우는 것은 hydrate 뿐입니다. */
+      if (m === "server") return;
+      const next = load();
+      if (!next) return;
+      state = next;
+      applyToGlobals();
+      subs.slice().forEach(function (f) { try { f("reload", true); } catch (e) {} });
+    });
   }
   /* 마지막으로 서버와 맞춘 모습 — 무엇이 달라졌는지 견주는 기준입니다.
      hydrate 가 서버에서 받아올 때마다 새로 찍습니다. */
@@ -350,6 +402,9 @@ window.Dataset = (function () {
     state = {
       studies: sane(r.study), batches: sane(r.batch), samples: sane(r.sample)
     };
+    /* 서버 사본이 왔으면 이 브라우저의 낡은 사본은 쓸 데가 없습니다.
+       남겨 두면 다음 접속에서 또 한 번 유령으로 올라옵니다. */
+    dropLocalCopy();
     /* 방금 서버에서 받은 모습이 곧 "맞춰진 모습" 입니다. 여기서 찍어 두지
        않으면 다음 저장이 받은 것을 그대로 되쓰게 됩니다. */
     markSynced();
@@ -385,6 +440,7 @@ window.Dataset = (function () {
   }
 
   applyToGlobals();
+  watchMode();
 
   return {
     addStudy, addBatch, patch, deactivate,

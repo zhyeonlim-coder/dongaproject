@@ -38,9 +38,27 @@ window.Entries = (function () {
   const subs = [];
   let state;
 
+  /* ★ 서버 모드에서는 이 브라우저의 사본을 읽지 않습니다 (dataset.js 와 같은 이유).
+
+     중앙 DB 를 비워도 여기 남아 있던 옛 측정값이 화면에 올라왔습니다.
+     팀 현황 뱃지(배양 50/50 …)가 비운 뒤에도 가득 차 보이던 정체입니다 —
+     완성도는 이 값 표를 세기 때문입니다.
+
+     서버 모드에서 정본은 서버 하나뿐입니다. 도착할 때까지 비어 있는 것이
+     맞고, 낡은 사본은 지웁니다. */
+  function serverMode() {
+    return !!(window.Persist && window.Persist.isServer && window.Persist.isServer());
+  }
+
   try {
-    const raw = localStorage.getItem(KEY);
-    state = raw ? Object.assign({}, EMPTY, JSON.parse(raw)) : JSON.parse(JSON.stringify(EMPTY));
+    /* ★ 읽지 않을 뿐, 지우지는 않습니다 — 서버가 답하지 않았을 때 되돌릴
+       것이 남아 있어야 합니다. 지우는 것은 hydrate 뿐입니다 (dataset.js 참고). */
+    if (serverMode()) {
+      state = JSON.parse(JSON.stringify(EMPTY));
+    } else {
+      const raw = localStorage.getItem(KEY);
+      state = raw ? Object.assign({}, EMPTY, JSON.parse(raw)) : JSON.parse(JSON.stringify(EMPTY));
+    }
   } catch (e) { state = JSON.parse(JSON.stringify(EMPTY)); }
 
   /* ── 저장 ─────────────────────────────────────────────────────────────
@@ -88,6 +106,8 @@ window.Entries = (function () {
     state.samples = (aux && aux.samples) || [];
     state.groups = (aux && aux.groups) || [];
     dirty = {};
+    /* 서버 사본이 왔으면 이 브라우저의 낡은 사본은 쓸 데가 없습니다 */
+    try { localStorage.removeItem(KEY); } catch (e) {}
     subs.slice().forEach(fn => { try { fn("hydrate", state); } catch (e) {} });
   }
   function subscribe(fn) { subs.push(fn); return () => { const i = subs.indexOf(fn); if (i > -1) subs.splice(i, 1); }; }
@@ -336,7 +356,20 @@ window.Entries = (function () {
   /* 저장소에서 다시 읽어 들입니다 — 다른 탭이 값을 바꿨을 때 씁니다.
      메모리 사본을 그대로 두면 그 탭은 자기가 들고 있던 옛 값을 계속
      보여 주고, 두 화면이 서로 다른 숫자를 띄운 채 둘 다 그럴듯합니다. */
+  /* 서버인 줄 알고 비워 뒀는데 아니었던 경우 — 이 브라우저의 사본을 다시
+     읽습니다. 안 하면 서버가 꺼진 날 적어 둔 값이 통째로 사라져 보입니다. */
+  if (window.Persist && window.Persist.onModeChange) {
+    window.Persist.onModeChange(function (m) {
+      if (m === "server") return;     /* 지우는 것은 hydrate 뿐입니다 */
+      reload();
+    });
+  }
+
   function reload() {
+    /* 서버 모드에서 다시 읽을 곳은 서버입니다 — 여기서 localStorage 를
+       읽으면 방금 지운 옛 값이 되살아납니다 (HubServer 의 폴링이 hydrate 로
+       가져옵니다). */
+    if (serverMode()) return false;
     try {
       const raw = localStorage.getItem(KEY);
       state = raw ? Object.assign({}, EMPTY, JSON.parse(raw)) : JSON.parse(JSON.stringify(EMPTY));
