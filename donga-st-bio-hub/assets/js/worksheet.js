@@ -97,7 +97,16 @@ window.Worksheet = (function () {
           'id="ws-' + esc(id) + '" data-r="' + esc(row.k) + '" data-c="' + esc(col.id) + '" ' +
           (c.readonly ? "readonly " : "") +
           (measure
-            ? 'type="text" inputmode="decimal" autocomplete="off" list="val-tokens"'
+            /* ★ 추천값 목록(list="val-tokens")을 떼었습니다.
+
+               칸을 누를 때마다 <1 · >200 · ND · NA 네 줄짜리 창이 열려서
+               아래 칸들을 가렸습니다. 숫자를 옮겨 적는 사람에게는 매번
+               치워야 하는 장애물입니다 — 네 값은 한 해에 몇 번 쓰는데,
+               숫자는 하루에 수백 번 칩니다.
+
+               값 자체는 그대로 받습니다. ND 나 <1 을 직접 치면 VAL.parse 가
+               예전과 똑같이 알아듣습니다. 고른 것이 아니라 친 것이 됐을 뿐입니다. */
+            ? 'type="text" inputmode="decimal" autocomplete="off"'
             : 'type="' + (row.type === "date" ? "date" : "text") + '"') +
           ' value="' + esc(c.display == null ? "" : c.display) + '">' +
         (edited

@@ -57,7 +57,9 @@ window.DataGrid = (function () {
             (c.bounded ? " is-bounded" : "") + '" ' +
             'id="in-' + esc(f.k) + '" data-f="' + esc(f.k) + '" ' +
             (measure
-              ? 'type="text" inputmode="decimal" autocomplete="off" list="val-tokens" ' +
+              /* 추천값 목록은 뺐습니다 — 칸을 누를 때마다 창이 열려 아래를
+                 가렸습니다 (worksheet.js 참고). 값 자체는 그대로 받습니다. */
+              ? 'type="text" inputmode="decimal" autocomplete="off" ' +
                 'placeholder="숫자 · <1 · ND"'
               : 'type="' + (f.type === "date" ? "date" : "text") + '" ') +
             ' value="' + esc(c.display == null ? "" : c.display) + '">' +

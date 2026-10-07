@@ -1450,17 +1450,14 @@
     }
   }
 
-  /* 입력 표기 안내용 목록만 남깁니다 — 화면에는 아무것도 그리지 않습니다.
+  /* 사유 창의 자주 쓰는 문구 목록만 남깁니다 — 화면에는 아무것도 그리지 않습니다.
 
-     예전에는 여기에 "값 입력 표기" 접힘 패널이 함께 있었습니다. 패널은
-     걷어냈지만 datalist 는 남겨야 합니다 — 입력칸이 list="val-tokens" 로,
-     사유 창이 list="reason-presets" 로 이 목록을 참조합니다. 같이 지우면
-     자동완성이 조용히 사라지고, 사라진 것을 아무도 눈치채지 못합니다. */
+     ★ 값 칸의 추천값 목록(val-tokens)은 뺐습니다. 칸을 누를 때마다 창이
+       열려 아래 칸을 가렸습니다 (worksheet.js 참고). 사유 창의 목록은
+       그대로 둡니다 — 거기는 한 번 뜨고 마는 모달이라 가릴 것이 없고,
+       문장을 매번 새로 짜게 하면 "수정" 같은 한 단어만 남습니다. */
   function valueHelp() {
-    return '<datalist id="val-tokens">' +
-        ['<1', '>200', 'ND', 'NA', 'INV'].map(t => '<option value="' + t + '">').join("") +
-      '</datalist>' +
-      '<datalist id="reason-presets">' +
+    return '<datalist id="reason-presets">' +
         E.REASON_PRESETS.map(t => '<option value="' + esc(t) + '">').join("") +
       '</datalist>';
   }

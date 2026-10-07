@@ -267,19 +267,18 @@
     /* ── 식별 컬럼 ──────────────────────────────────────────────────────
        과제 → Study → 팀 → Sample. 계층 그대로입니다.
 
-       ★ 'Exp. No.' 와 'Initial / End Date' · 'Days' 를 내렸습니다.
-         셋 다 그릇(hidden batch)의 성질인데, 그릇은 이제 시료 하나를 담는
-         내부 자리라 사용자가 적는 곳이 없습니다. 늘 비어 있는 컬럼이
-         남아 있으면 "입력이 빠졌다" 로 읽힙니다.
+       ★ 'Exp. No.' · 'Initial / End Date' · 'Days' · '채취 단계' · '채취일'
+         을 전부 내렸습니다. 사용자가 적는 곳이 없는 칸들입니다 — Data 입력
+         표에는 그 항목이 없고, 그릇(hidden batch)의 날짜는 자동으로 찍히는
+         값입니다. 늘 "미입력" 인 컬럼이 여섯 개나 서 있으면 미입력이
+         신호가 아니라 배경이 됩니다.
 
-         대신 '채취일' 을 둡니다 — 시료 자신의 성질입니다. */
+         남는 것은 **무엇의 값인가**(과제 · Study · 팀 · 시료)와 측정값뿐입니다. */
     const base = [
       { key: "projectLabel", label: "과제",      type: "s", w: 120 },
       { key: "studyName",    label: "Study",     type: "s", w: 140 },
       { key: "teamLabel",    label: "팀",        type: "s", w: 80 },
-      { key: "sampleName",   label: L.ui.sampleName, type: "s", w: 170 },
-      { key: "sampleStage",  label: "채취 단계", type: "s", w: 120 },
-      { key: "collectedAt",  label: "채취일",    type: "s", w: 100 }
+      { key: "sampleName",   label: L.ui.sampleName, type: "s", w: 190 }
     ];
 
     const measure = [];
@@ -386,8 +385,7 @@
   }
 
   function cellValue(row, key) {
-    if (["projectLabel","studyName","teamLabel","sampleName","sampleStage","collectedAt",
-         "id","initialDate","endDate","cultureDays"].indexOf(key) > -1)
+    if (["projectLabel","studyName","teamLabel","sampleName"].indexOf(key) > -1)
       return row[key] === undefined ? null : row[key];
     /* Data 입력에서 더한 항목 — 배치 범위에 ws_ 키로 들어 있습니다.
        아래 "그룹.항목" 가르기보다 먼저 봐야 합니다 (키에 점이 있습니다). */
@@ -467,6 +465,44 @@
       })));
     });
     return out;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     값이 하나도 없는 시료는 숨깁니다
+
+     시료를 만들어 두고 아직 아무것도 적지 않으면, 측정 컬럼이 전부 "미입력"
+     인 줄이 섭니다. 그런 줄이 여럿이면 표는 "미입력" 으로 가득 차고, 진짜
+     빠진 값 하나가 그 안에 묻힙니다.
+
+     ★ 지우는 것이 아니라 접는 것입니다. 몇 줄을 접었는지 표 위에 적고,
+       한 번 눌러 펼칠 수 있습니다. 이 프로젝트의 규칙은 "조건 밖이면
+       강조만 하고 지우지 않는다" 이고, 데이터는 늘 한 번에 볼 수 있어야
+       합니다 — 기본만 접어 두는 것이지 닿지 못하게 하지 않습니다. */
+  let showBlank = false;
+
+  function keepMeasured(rows, cols) {
+    const measure = (cols || []).filter(c => c.type === "n");
+    if (!measure.length) return rows;
+    return (rows || []).filter(function (r) {
+      return measure.some(function (c) {
+        const v = cellValue(r, c.key);
+        return v !== null && v !== undefined && v !== "";
+      });
+    });
+  }
+
+  function paintBlankNote(n) {
+    const host = $("#blank-note");
+    if (!host) return;
+    if (!n) { host.innerHTML = ""; return; }
+    host.innerHTML = '<div class="demo-note" style="display:flex;gap:var(--s-3);' +
+      'align-items:center;flex-wrap:wrap">' +
+      '<span>값이 아직 하나도 없는 시료 <b>' + n + '개</b>' +
+        (showBlank ? '를 함께 보고 있습니다.' : '를 접어 두었습니다.') + '</span>' +
+      '<button class="btn btn-ghost btn-sm" id="blank-toggle">' +
+        (showBlank ? "접기" : "펼쳐 보기") + '</button></div>';
+    const b = $("#blank-toggle");
+    if (b) b.addEventListener("click", function () { showBlank = !showBlank; render(); });
   }
 
   /* ── 정렬 ───────────────────────────────────────────────────────────── */
@@ -592,11 +628,14 @@
       const titerDays = window.DATA_TITER_DAYS.filter(d =>
         batches.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
 
+      const cols = columns(titerDays, { batches: batches });
+
       let rows = buildRows(batches, studies);
+      const blankCount = rows.length - keepMeasured(rows, cols).length;
+      if (!showBlank) rows = keepMeasured(rows, cols);
       rows = applyColFilters(rows);
       rows = applySort(rows);
 
-      const cols = columns(titerDays, { batches: batches });
       const sortLabel = window.Repo.SORTS[sel.sort] || window.Repo.SORTS[window.Repo.DEFAULT_SORT];
       const undated = window.Repo.undatedExcluded(sel);
       $("#count").textContent = rows.length + "개 시료" +
@@ -604,6 +643,7 @@
         (window.Scope.periodLabel() ? " · " + window.Scope.periodLabel() : "") +
         (undated ? " · 날짜 미기재 " + undated + "건 제외" : "") +
         " · " + (titerDays.length ? "Titer " + titerDays[0] + "~" + titerDays[titerDays.length - 1] : "Titer 미입력");
+      paintBlankNote(blankCount);
 
       paintSampleBar(batches);
       /* 숨긴 컬럼으로 정렬·필터가 걸려 있을 수 있습니다. 보이는 컬럼만

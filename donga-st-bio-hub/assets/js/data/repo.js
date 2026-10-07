@@ -442,12 +442,18 @@ window.Repo = (function () {
       .filter(b => ids.indexOf(b.studyId) > -1)
       .filter(b => inRange(b, s.from, s.to));
 
-    /* 팀으로 배치를 걸러내지 않습니다.
-       배치는 배양 산물이고(team "upstream"), 분석팀은 그 배치를 측정할 뿐이라
-       팀으로 배치를 필터링하면 분석팀 선택 시 결과가 0건이 됩니다.
-       팀 선택은 "어떤 측정 항목을 볼지"를 정하는 축이며,
-       컬럼 필터링은 getAnalyteGroups(team) 이 담당합니다. */
-    return ok(sortRows(overlay(clone(batches)), s.sort, "batch"));
+    /* ★ 팀으로도 거릅니다 (2026-10).
+
+       예전에는 거르지 않았습니다. 그때는 배치가 "배양의 산물" 이고 분석팀은
+       그 배치를 측정할 뿐이라, 팀으로 거르면 분석팀 선택 시 0건이 됐습니다.
+
+       이제 다릅니다. 시료 하나에 그릇 하나가 1:1 로 붙고, 그 그릇은 만들 때
+       팀이 정해집니다 — 정제공정팀 시료와 배양공정팀 시료는 **서로 다른
+       레코드**입니다. 거르지 않으면 [배양공정팀] 을 골랐는데 정제팀 시료가
+       배양 항목 전부 "미입력" 인 줄로 함께 나옵니다. 그 줄은 값이 빠진 것이
+       아니라 **애초에 그 팀 것이 아닙니다.** */
+    const byTeam = s.team ? batches.filter(b => b.team === s.team) : batches;
+    return ok(sortRows(overlay(clone(byTeam)), s.sort, "batch"));
   }
 
   /* ── 입력값을 배치 객체에 덮어씁니다 ──────────────────────────────────

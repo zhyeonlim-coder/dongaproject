@@ -67,11 +67,14 @@ window.DATA_STUDIES = [];
 window.DATA_ANALYTE_GROUPS = [
   { id: "upstream", team: "upstream", label: "배양", items: [
     { key: "ivcd",           label: "IVCD",            unit: "10⁶ cells/mL", dp: 1, lo: 0, hi: 5000, cumulative: true },
-    { key: "maxVCD",         label: "Max VCD",         unit: "10⁶ cells/mL", dp: 2, lo: 0, hi: 200 },
+    /* peak: 요약에서 평균이 아니라 **최고값**을 적는 항목입니다. 배양이
+       진행되며 올라가는 값이라 평균은 중간 시점이 섞여 뜻이 흐려집니다.
+       (cumulative 와 달리 입력 경고에는 쓰이지 않습니다 — 표시 규칙입니다) */
+    { key: "maxVCD",         label: "Max VCD",         unit: "10⁶ cells/mL", dp: 2, lo: 0, hi: 200, peak: true },
     { key: "finalVCD",       label: "Final VCD",       unit: "10⁶ cells/mL", dp: 2, lo: 0, hi: 200 },
     /* 키는 titerHCCF 그대로 둡니다 — 이미 저장된 값과 별칭이 이 키를 가리킵니다.
        화면에 보이는 이름만 "Titer" 로 바꿉니다. */
-    { key: "titerHCCF",      label: "Titer",           unit: "mg/L",         dp: 1, lo: 0, hi: 20000 },
+    { key: "titerHCCF",      label: "Titer",           unit: "mg/L",         dp: 1, lo: 0, hi: 20000, peak: true },
     { key: "finalViability", label: "Final Viability", unit: "%",            dp: 1, lo: 0, hi: 100 }
   ]},
 

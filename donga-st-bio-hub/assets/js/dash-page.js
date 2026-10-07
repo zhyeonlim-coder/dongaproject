@@ -207,32 +207,42 @@
     }).join("") + '</div>';
   }
 
+  /* ── 팀 카드의 요약 지표 ──────────────────────────────────────────────
+     ★ 항목을 여기 적어 두지 않습니다. **스키마에서 읽습니다.**
+
+     예전에는 팀마다 세 줄이 코드에 박혀 있었습니다. 그래서 지표를 재설정해
+     HCP · Monomer · CE-SDS · IE-HPLC · N-glycan 이 없어진 뒤에도 카드에는
+     그대로 남아 "미입력" 으로 떴습니다. 정제공정팀 카드가 그랬습니다 —
+     사용자가 적는 것은 Yield 인데, 적을 곳조차 없는 HCP 가 빈칸으로
+     나란히 서 있었습니다. 빠진 값처럼 보이지만 애초에 없는 항목입니다.
+
+     이제 Data 입력 표와 **같은 목록**(DATA_ANALYTE_GROUPS)을 지납니다.
+     표에 있는 항목만 카드에 뜨고, 항목을 더하거나 빼면 카드가 따라옵니다.
+
+     값은 Repo.valueOf 로 읽습니다 — 배치 객체를 직접 뒤지면 Data 입력이
+     적은 값을 건너뛰고 원본만 보게 됩니다.
+
+     집계도 스키마가 정합니다: peak 또는 cumulative 인 항목은 **최고**,
+     나머지는 **평균**. 올라가는 값의 평균은 중간 시점이 섞여 뜻이 흐려집니다.
+     어느 쪽인지는 항목 정의에 적혀 있지, 여기서 이름으로 짐작하지 않습니다. */
   function teamMetrics(team, batches) {
-    if (team === "upstream") {
-      const t = nums(batches, b => b.upstream.titerHCCF);
-      const v = nums(batches, b => b.upstream.finalViability);
-      const p = nums(batches, b => b.upstream.maxVCD);
-      return [
-        { k: "최고 Titer", v: t.length ? fmt(Math.max.apply(null, t), 0) : L.empty, u: "mg/L" },
-        { k: "최고 Max VCD", v: p.length ? fmt(Math.max.apply(null, p), 2) : L.empty, u: "10⁶/mL" },
-        { k: "평균 Viability", v: fmt(avg(v), 1), u: "%" }
-      ];
-    }
-    if (team === "downstream") {
-      const ty = nums(batches, b => b.downstream && b.downstream.totalYield);
-      const hcp = nums(batches, b => b.downstream && b.downstream.hcp);
-      const mp = nums(batches, b => b.downstream && b.downstream.monomerPurity);
-      return [
-        { k: "평균 Total Yield", v: fmt(avg(ty), 1), u: "%" },
-        { k: "평균 HCP", v: fmt(avg(hcp), 1), u: "ppm" },
-        { k: "평균 Monomer", v: fmt(avg(mp), 2), u: "%" }
-      ];
-    }
-    return [
-      { k: "CE-SDS Monomer", v: fmt(avg(nums(batches, b => window.Repo.valueOf(b, "ceSdsNR", "monomer"))), 1), u: "%" },
-      { k: "IE-HPLC Main", v: fmt(avg(nums(batches, b => window.Repo.valueOf(b, "ieHPLC", "main"))), 1), u: "%" },
-      { k: "N-glycan G0F", v: fmt(avg(nums(batches, b => window.Repo.valueOf(b, "nGlycan", "g0f"))), 1), u: "%" }
-    ];
+    const out = [];
+    (window.DATA_ANALYTE_GROUPS || []).forEach(function (g) {
+      if (g.team !== team || g.empty) return;
+      (g.items || []).forEach(function (it) {
+        const vals = nums(batches, b => window.Repo.valueOf(b, g.id, it.key));
+        const peak = !!(it.peak || it.cumulative);
+        const n = peak
+          ? (vals.length ? Math.max.apply(null, vals) : null)
+          : avg(vals);
+        out.push({
+          k: (peak ? "최고 " : "평균 ") + it.label,
+          v: (n === null || n === undefined || !isFinite(n)) ? L.empty : fmt(n, it.dp),
+          u: it.unit || ""
+        });
+      });
+    });
+    return out;
   }
 
   /* ── 그래프 구획 공통 ───────────────────────────────────────────────── */
