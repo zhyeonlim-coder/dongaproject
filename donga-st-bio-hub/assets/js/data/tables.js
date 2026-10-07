@@ -188,8 +188,10 @@ window.AskTables = (function () {
 
     return {
       id: batchList ? "scoped" : "internal", kind: "internal",
-      label: label || "사내 실험 데이터 (Batch)",
-      note: note || "배양·분석 항목은 Batch_Data_example.xlsx 원본입니다. 정제 항목은 원본에 컬럼이 없어 생성한 값입니다.",
+      label: label || "사내 실험 데이터 (시료)",
+      /* 예시 엑셀을 더 이상 싣지 않습니다 — 여기 값은 전부 Data 입력에
+         기록된 것입니다. 옛 문구를 두면 AI 가 출처를 그렇게 말합니다. */
+      note: note || "Data 입력에 기록된 값입니다. 적히지 않은 칸은 미입력이며 값을 추정하지 않습니다.",
       columns, rows, unverified: unverified
     };
   }

@@ -98,7 +98,7 @@
       const mp = nums(batches, b => b.downstream && b.downstream.monomerPurity);
       const hcp = nums(batches, b => b.downstream && b.downstream.hcp);
       cards = [
-        { k: "배치", v: batches.length, u: "건" },
+        { k: "시료", v: batches.length, u: "건" },
         { k: "평균 Total Yield", v: fmt(avg(ty), 1), u: "%" },
         { k: "평균 Monomer", v: fmt(avg(mp), 2), u: "%" },
         { k: "최대 HCP", v: hcp.length ? fmt(Math.max.apply(null, hcp), 1) : L.empty, u: "ppm" }
@@ -122,7 +122,7 @@
       const c = window.Repo.completeness(batches, window.DATA_ANALYTE_GROUPS);
       const filled = c.filled, total = c.total;
       cards = [
-        { k: "배치", v: batches.length, u: "건" },
+        { k: "시료", v: batches.length, u: "건" },
         { k: "최고 Titer HCCF", v: titers.length ? fmt(Math.max.apply(null, titers), 1) : L.empty, u: "mg/L" },
         { k: "평균 Viability", v: fmt(avg(viab), 1), u: "%" },
         { k: "데이터 완성도", v: total ? Math.round(filled / total * 100) : 0, u: "%" }
@@ -257,7 +257,10 @@
 
   /* 여러 시리즈를 행(배치 또는 시료) 축에 세우는 막대 그래프 + 범례 + 대체 표 */
   function barBlock(batches, cfg) {
-    const cats = batches.map(b => b.name || b.id);
+    /* 가로축 이름은 부르는 쪽이 정합니다. 기본값(b.id)은 그릇의 내부
+       식별자라, 사용자가 본 적 없는 글자입니다 — B-9RCDXB6 처럼. */
+    const labelOf = cfg.labelOf || (b => b.name || b.id);
+    const cats = batches.map(labelOf);
     const series = cfg.series.map((s, i) => ({
       name: s.name, color: s.color || PALETTE[i % PALETTE.length],
       data: batches.map(s.get)
@@ -275,7 +278,7 @@
         ? '<p style="font-size:11px;color:var(--c-text-mute);margin:var(--s-2) 0 0">' +
           '세로축은 ' + cfg.min + ' 부터 시작합니다 — 값이 좁은 구간에 몰려 있어 0부터 그리면 차이가 보이지 않습니다.</p>'
         : "") +
-      C.dataTable(cfg.title, ["배치"].concat(series.map(s => s.name)),
+      C.dataTable(cfg.title, ["시료"].concat(series.map(s => s.name)),
         cats.map((c, i) => [c].concat(series.map(s =>
           s.data[i] === null || !isFinite(s.data[i]) ? L.empty : String(s.data[i])))));
   }
@@ -283,7 +286,7 @@
   /* 화면에 실제로 보이는 표 (대체 표가 아니라 데이터 자체를 보여줄 때).
      nameOf / subOf 를 주면 첫 열을 그 값으로 그립니다 (시료 표에서 사용). */
   function visibleTable(rows, cols, caption, nameOf, subOf) {
-    const head = nameOf ? "시료" : "Exp. No.";
+    const head = "시료";
     return '<div class="tbl-scroll"><table class="tbl">' +
       (caption ? '<caption class="sr-only">' + esc(caption) + '</caption>' : "") +
       '<thead><tr><th scope="col">' + head + '</th>' +
@@ -306,156 +309,127 @@
       '</tbody></table></div>';
   }
 
-  /* ── 배양공정팀 ─────────────────────────────────────────────────────── */
-  function upstreamSection(batches) {
-    const days = window.DATA_TITER_DAYS.filter(d => batches.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
-    const shown = batches.slice(0, 12);
+  /* ══════════════════════════════════════════════════════════════════════
+     팀별 상세 — Data 입력 서식에서 그대로 읽습니다
 
-    const trend = days.length
-      ? (function () {
-          const series = shown.map((b, i) => ({
-            name: b.id, color: PALETTE[i % PALETTE.length],
-            data: days.map(d => b.upstream?.titer?.[d] ?? null)
-          }));
-          return C.legend(series) +
-            '<div class="chart-wrap" style="margin-top:var(--s-3)">' +
-              C.line({ x: days, series, h: CH_H, w: 820, aria: "배치별 Titer 일자 추이" }) + '</div>' +
-            C.dataTable("배치 × Day Titer", ["배치"].concat(days),
-              shown.map(b => [b.id].concat(days.map(d =>
-                (b.upstream?.titer?.[d] ?? null) === null ? L.empty : b.upstream.titer[d])))) +
-            (batches.length > 12
-              ? '<p style="font-size:11.5px;color:var(--c-text-mute);margin:var(--s-3) 0 0">' +
-                '배치 ' + batches.length + '개 중 12개만 표시합니다 — Study나 조건으로 범위를 좁히세요.</p>' : "");
-        })()
-      : '<div class="empty"><div class="empty-title">Titer 일자별 데이터가 없습니다</div></div>';
+     ★ 팀마다 그래프와 표가 코드에 박혀 있었습니다. 그래서 지표를 재설정해
+       HCP · Residual DNA · SEC Monomer · CE-SDS · IE-HPLC · N-glycan 이
+       없어진 뒤에도 카드와 컬럼이 남아, 정제공정팀 화면에 "SEC-HPLC 단량체
+       순도 — 미입력" "잔류 불순물 — 미입력" 두 장이 빈 채로 서 있었습니다.
+       표에도 적을 곳 없는 열 셋이 늘 "미입력" 이었습니다.
 
-    /* VCD 와 Viability 를 한 카드에 겹쳐 두던 것을 나눴습니다 — 2단에서는
-       카드 하나가 곧 그래프 하나여야 높이가 맞습니다. */
-    return grid2([
-      card("Titer 일자별 추이", "Day 축에 배치를 겹쳐 비교 (1,000 mg/L = 1 g/L)",
-        trend, teamColor("upstream")),
+       빠진 값처럼 보이지만 **애초에 그 팀 서식에 없는 항목**입니다.
 
-      card("배치별 Titer HCCF", "Harvest 시점 생산량 — CPP 조건 변경의 최종 결과",
-        barBlock(batches, {
-          title: "배치별 Titer HCCF",
-          series: [{ name: "Titer HCCF (mg/L)", get: b => b.upstream.titerHCCF, color: "#0369A1" }]
-        })),
+     이제 DATA_ANALYTE_GROUPS 를 지납니다. Data 입력 표에 있는 항목만 그리고,
+     항목을 더하거나 빼면 여기가 따라옵니다 — 고칠 곳이 없습니다.
 
-      card("배치별 VCD", "생세포도 — Max 와 Final",
-        barBlock(batches, {
-          title: "배치별 VCD",
-          series: [
-            { name: "Max VCD (10⁶ cells/mL)",   get: b => b.upstream.maxVCD,   color: "#0369A1" },
-            { name: "Final VCD (10⁶ cells/mL)", get: b => b.upstream.finalVCD, color: "#7C3AED" }
-          ]
-        })),
+     ── 한 그래프에 한 단위 ────────────────────────────────────────────────
+     그룹을 그대로 한 장에 담지 않고 **단위별로 나눕니다.** 배양 그룹에는
+     10⁶ cells/mL · mg/L · % 가 섞여 있어, 한 축에 올리면 Titer(1400)가
+     Viability(60)를 깔아뭉개 막대가 보이지 않습니다.
+     ══════════════════════════════════════════════════════════════════════ */
 
-      card("Final Viability", "Harvest 시점 생존율",
-        barBlock(batches, {
-          title: "배치별 Final Viability",
-          min: 40,
-          series: [{ name: "Final Viability (%)", get: b => b.upstream.finalViability, color: "#0F766E" }]
-        }))
-    ]);
+  /* 가로축 이름 — 그릇의 내부 id(B-9RCDXB6)가 아니라 시료 이름입니다.
+     내부 id 는 사용자가 지은 것도, 본 적도 없는 글자입니다. */
+  function rowLabel(b) {
+    if (!b) return "";
+    if (b.name) return b.name;
+    const s = (window.Repo.samplesOfBatch ? window.Repo.samplesOfBatch(b.id) : [])[0];
+    return (s && s.name) || b.expNo || b.id;
   }
 
-  /* ── 정제공정팀 ─────────────────────────────────────────────────────── */
-  function downstreamSection(batches) {
-    const d = k => (b => b.downstream ? b.downstream[k] : null);
-
-    return grid2([
-      card("정제 단계별 수율", "Protein A → CEX → AEX 3-step · Total 은 세 단계의 곱",
-        barBlock(batches, {
-          title: "정제 단계별 수율",
-          min: 60,
-          series: [
-            { name: "Protein A (%)", get: d("proteinAYield"), color: "#6D28D9" },
-            { name: "CEX (%)",       get: d("cexYield"),      color: "#9333EA" },
-            { name: "AEX (%)",       get: d("aexYield"),      color: "#0369A1" },
-            { name: "Total (%)",     get: d("totalYield"),    color: "#B45309" }
-          ]
-        }), teamColor("downstream")),
-
-      card("SEC-HPLC 단량체 순도", "Monomer Purity",
-        barBlock(batches, {
-          title: "SEC-HPLC Monomer Purity",
-          min: 95,
-          series: [{ name: "SEC-HPLC Monomer (%)", get: d("monomerPurity"), color: "#0F766E" }]
-        })),
-
-      card("잔류 불순물", "HCP · Residual DNA",
-        barBlock(batches, {
-          title: "잔류 불순물",
-          series: [
-            { name: "HCP (ppm)",            get: d("hcp"),         color: "#B45309" },
-            { name: "Residual DNA (pg/mg)", get: d("residualDNA"), color: "#B91C1C" }
-          ]
-        }))
-    ]) +
-
-      card("정제 데이터", "배치별 전체 항목",
-        visibleTable(batches, [
-          { label: "Protein A", unit: "%",     dp: 1, get: d("proteinAYield") },
-          { label: "CEX",       unit: "%",     dp: 1, get: d("cexYield") },
-          { label: "AEX",       unit: "%",     dp: 1, get: d("aexYield") },
-          { label: "Total Yield", unit: "%",   dp: 1, get: d("totalYield") },
-          { label: "SEC Monomer", unit: "%",   dp: 2, get: d("monomerPurity") },
-          { label: "HCP",       unit: "ppm",   dp: 1, get: d("hcp") },
-          { label: "Residual DNA", unit: "pg/mg", dp: 2, get: d("residualDNA") }
-        ], "정제 데이터"));
+  /* 값이 좁고 높은 구간에 몰려 있으면 축을 0 부터 그리지 않습니다 —
+     그러면 막대 끝이 다 붙어 보여 차이를 읽을 수 없습니다.
+     ★ 기준을 코드에 박지 않고 값에서 정합니다. 서식이 바뀌어도 맞습니다. */
+  function axisFloor(values) {
+    const v = values.filter(x => x !== null && x !== undefined && isFinite(x));
+    if (v.length < 2) return null;
+    const lo = Math.min.apply(null, v), hi = Math.max.apply(null, v);
+    if (lo <= 0) return null;
+    if (hi - lo > lo * 0.5) return null;            /* 폭이 넓으면 0 부터가 정직합니다 */
+    const floor = Math.floor((lo - (hi - lo) * 0.6) / 10) * 10;
+    return floor > 0 ? floor : null;
   }
 
-  /* ── 바이오분석팀 ───────────────────────────────────────────────────────
-     분석값은 배치가 아니라 **시료**에 붙습니다. 한 배치에서 여러 시료를
-     시험했다면 그래프에도 시료마다 한 칸씩 서야 합니다 — 배치로 묶으면
-     어느 시료의 값인지 사라집니다. */
-  function analyticsSection(samples) {
-    const v = (gid, key) => (s => window.Repo.valueOfSample(s, gid, key));
+  function teamSection(team, batches) {
+    const groups = (window.DATA_ANALYTE_GROUPS || [])
+      .filter(g => g.team === team && !g.empty && (g.items || []).length);
+    const teamKo = (window.DATA_TEAMS.find(t => t.id === team) || {}).ko || team;
+    const cards = [];
+    let first = true;
 
-    return grid2([
-      card("N-glycan 프로파일",
-        "당쇄 조성 — 시알산(Sialic acid)과 High mannose는 품질에 직결됩니다 · 가로축은 시료",
-        barBlock(samples, {
-          title: "N-glycan 프로파일",
-          series: [
-            { name: "G0F (%)",          get: v("nGlycan", "g0f"),          color: "#0F766E" },
-            { name: "G1F (%)",          get: v("nGlycan", "g1f"),          color: "#0369A1" },
-            { name: "High mannose (%)", get: v("nGlycan", "highMannose"),  color: "#B45309" },
-            { name: "Sialic acid (%)",  get: v("nGlycan", "sialicAcid"),   color: "#B91C1C" },
-            { name: "Afucosylated (%)", get: v("nGlycan", "afucosylated"), color: "#7C3AED" }
-          ]
-        }), teamColor("analytics")),
+    /* 배양의 일자별 Titer 는 스키마 항목이 아니라 따로 그립니다
+       (DATA_TITER_DAYS 를 쓸 때만 — 기본은 비어 있어 나오지 않습니다) */
+    if (team === "upstream") {
+      const days = (window.DATA_TITER_DAYS || [])
+        .filter(d => batches.some(b => window.Repo.valueOf(b, "titer", d) !== null));
+      if (days.length) {
+        const shown = batches.slice(0, 12);
+        cards.push(card("Titer 일자별 추이", "Day 축에 시료를 겹쳐 비교 (1,000 mg/L = 1 g/L)",
+          C.swatches(shown.map((b, i) => ({ name: rowLabel(b), color: PALETTE[i % PALETTE.length] }))) +
+          '<div class="chart-wrap" style="margin-top:var(--s-3)">' +
+            C.line({ x: days,
+                     series: shown.map((b, i) => ({
+                       name: rowLabel(b), color: PALETTE[i % PALETTE.length],
+                       data: days.map(d => window.Repo.valueOf(b, "titer", d)) })),
+                     h: CH_H, w: 820, aria: "Titer 일자별 추이" }) + '</div>',
+          teamColor(team)));
+        first = false;
+      }
+    }
 
-      card("Main peak 순도", "SE-HPLC · CE-SDS 기준 순도 (Purity)",
-        barBlock(samples, {
-          title: "Main peak 순도",
-          min: 80,
-          series: [
-            { name: "SE-HPLC Main (%)",      get: v("seHPLC", "main"),     color: "#0F766E" },
-            { name: "CE-SDS NR Monomer (%)", get: v("ceSdsNR", "monomer"), color: "#0369A1" },
-            { name: "CE-SDS R LC+HC (%)",    get: v("ceSdsR", "lcHc"),     color: "#7C3AED" }
-          ]
-        })),
+    groups.forEach(function (g) {
+      /* 단위별로 묶습니다 — 한 축에 한 단위 */
+      const byUnit = [];
+      (g.items || []).forEach(function (it) {
+        const u = it.unit || "";
+        let bucket = byUnit.find(x => x.unit === u);
+        if (!bucket) { bucket = { unit: u, items: [] }; byUnit.push(bucket); }
+        bucket.items.push(it);
+      });
 
-      card("IE-HPLC 전하 변이 분포", "Acidic · Main · Basic 비율",
-        barBlock(samples, {
-          title: "IE-HPLC 전하 변이",
-          series: [
-            { name: "Acidic (%)", get: v("ieHPLC", "acidic"), color: "#B45309" },
-            { name: "Main (%)",   get: v("ieHPLC", "main"),   color: "#0369A1" },
-            { name: "Basic (%)",  get: v("ieHPLC", "basic"),  color: "#7C3AED" }
-          ]
-        }))
-    ]) +
+      byUnit.forEach(function (bucket) {
+        const series = bucket.items.map(function (it, j) {
+          return {
+            name: it.label + (it.unit ? " (" + it.unit + ")" : ""),
+            color: PALETTE[j % PALETTE.length],
+            get: b => window.Repo.valueOf(b, g.id, it.key)
+          };
+        });
+        const all = [];
+        batches.forEach(b => series.forEach(s => all.push(s.get(b))));
+        /* 그룹 이름만 쓰면 "정제" 처럼 한 단어 제목이 되어 무엇을 그린
+           것인지 읽히지 않습니다. 단위가 갈린 경우에만 단위를 덧붙입니다. */
+        const title = g.label +
+          (byUnit.length > 1 && bucket.unit ? " · " + bucket.unit : " 측정값");
+        cards.push(card(title,
+          g.note || bucket.items.map(it => it.label).join(" · "),
+          barBlock(batches, { title: title, min: axisFloor(all), series: series,
+                              labelOf: rowLabel }),
+          first ? teamColor(team) : null));
+        first = false;
+      });
+    });
 
-      card("시료 목록", "배치마다 채취한 시료와 채취 시점",
-        visibleTable(samples, [
-          { label: "SE-HPLC Main", unit: "%", dp: 1, get: v("seHPLC", "main") },
-          { label: "IE-HPLC Main", unit: "%", dp: 1, get: v("ieHPLC", "main") },
-          { label: "CE-SDS Monomer", unit: "%", dp: 1, get: v("ceSdsNR", "monomer") },
-          { label: "Sialic acid", unit: "%", dp: 1, get: v("nGlycan", "sialicAcid") }
-        ], "시료별 분석 결과", s => s.name,
-           s => (s.batchId || "") + (s.stage ? " · " + s.stage : "")));
+    /* 표는 그 팀의 모든 항목을 한 줄에 — 여러 그룹이면 그룹 이름을 붙입니다 */
+    const cols = [];
+    groups.forEach(function (g) {
+      (g.items || []).forEach(function (it) {
+        cols.push({
+          /* 그룹 이름과 항목 이름이 같으면 한 번만 적습니다 ("Potency Potency") */
+          label: (groups.length > 1 && g.label !== it.label ? g.label + " " : "") + it.label,
+          unit: it.unit || "", dp: it.dp,
+          get: b => window.Repo.valueOf(b, g.id, it.key)
+        });
+      });
+    });
+
+    if (!cards.length) return "";
+    return grid2(cards) +
+      (cols.length
+        ? card(teamKo + " 데이터", "시료별 전체 항목",
+            visibleTable(batches, cols, teamKo + " 데이터", rowLabel, null))
+        : "");
   }
 
   /* 팀을 고르지 않았으면 세 팀을 순서대로. 골랐으면 그 팀만.
@@ -488,16 +462,13 @@
   function teamHasAnyValue(team, batches, samples) {
     const some = (list, fn) => (list || []).some(fn);
 
-    if (team === "analytics") {
-      const groups = (window.DATA_ANALYTE_GROUPS || [])
-        .filter(g => g.team === "analytics" && !g.empty);
-      return some(samples, s => groups.some(g =>
-        (g.items || []).some(it => window.Repo.valueOfSample(s, g.id, it.key) !== null)));
-    }
-
+    /* ★ 분석팀도 같은 길입니다. 예전에는 시료 범위(valueOfSample)를 따로
+       봤는데, 값은 이제 그릇 범위에 들어갑니다 — 시료 범위로 물으면 적어
+       놓은 값이 있는데도 "데이터 없음" 이 떴습니다. */
+    const rows = byTeam(batches, team);
     const groups = (window.DATA_ANALYTE_GROUPS || [])
       .filter(g => g.team === team && !g.empty);
-    const hit = some(batches, b => groups.some(g =>
+    const hit = some(rows, b => groups.some(g =>
       (g.items || []).some(it => window.Repo.valueOf(b, g.id, it.key) !== null)));
     if (hit) return true;
 
@@ -603,13 +574,27 @@
       esc(ko) + '</div>';
     const colorOf = id => (window.DATA_TEAMS.find(t => t.id === id) || {}).color;
 
-    if (team === "upstream")   return upstreamSection(batches);
-    if (team === "downstream") return downstreamSection(batches);
-    if (team === "analytics")  return analyticsSection(samples);
-    return head("배양공정팀", colorOf("upstream")) + upstreamSection(batches) +
-           head("정제공정팀", colorOf("downstream")) + downstreamSection(batches) +
-           head("바이오분석팀 · 시료 " + samples.length + "건", colorOf("analytics")) +
-             analyticsSection(samples);
+    /* ★ 세 팀이 같은 함수를 지납니다 — 팀마다 따로 쓰면 또 갈립니다.
+
+       분석팀도 배치(=시료 그릇) 축입니다. 예전에는 시료 축을 따로 썼습니다:
+       배치 하나에 시료가 여럿이던 시절, 그래프에 시료마다 한 칸이 서야
+       어느 시료의 값인지 남았기 때문입니다. 이제 시료 하나에 그릇 하나가
+       1:1 이라 두 축이 같은 것이고, 값도 그릇 범위에 들어갑니다 —
+       시료 축으로 읽으면 Data 입력이 적은 값을 통째로 건너뜁니다. */
+    if (team === "upstream" || team === "downstream" || team === "analytics") {
+      return teamSection(team, byTeam(batches, team));
+    }
+    return window.DATA_TEAMS.map(function (t) {
+      const rows = byTeam(batches, t.id);
+      if (!rows.length) return "";
+      return head(t.ko + " · 시료 " + rows.length + "건", colorOf(t.id)) + teamSection(t.id, rows);
+    }).join("");
+  }
+
+  /* 그 팀의 시료만 — 시료마다 그릇이 하나이고 그릇에 팀이 적혀 있습니다.
+     거르지 않으면 정제팀 화면에 배양팀 시료가 전 항목 "미입력" 으로 섭니다. */
+  function byTeam(batches, team) {
+    return (batches || []).filter(b => !team || b.team === team);
   }
 
   /* 그래프 카드들을 2단으로 묶습니다. 표 카드는 아래에 전체 너비로 둡니다. */
