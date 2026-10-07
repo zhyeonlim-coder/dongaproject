@@ -68,12 +68,34 @@ window.StudySelector = (function () {
         return;
       }
 
+      /* ★ 한 쪽이 실패해도 패널은 그려야 합니다.
+
+         예전에는 Promise.all 이었습니다. 셋 중 하나가 거부되면 then 이 돌지
+         않아 **host.innerHTML 이 아예 갱신되지 않고**, 화면에는 직전 모습이
+         그대로 남습니다 — 고른 값과 보이는 값이 어긋난 채로요. 어느 하나가
+         실패했다는 사실도 화면에 나오지 않습니다.
+
+         Study 목록은 이 패널의 뼈대이므로 특히 그렇습니다. 팀 현황(teamSets)
+         이나 분류 옵션은 못 받아도 드롭다운은 멀쩡해야 합니다. */
+      const soft = (p, fallback) => Promise.resolve(p)
+        .then(v => (v === undefined || v === null ? fallback : v))
+        .catch(() => fallback);
+
       Promise.all([
-        window.Repo.getFilterOptions(sel),
-        window.Repo.searchStudies(sel.q, sel),
-        window.Repo.getTeamDataSetsForSelection(sel)
+        soft(window.Repo.getFilterOptions(sel), { team: [], dataClass: [], status: [] }),
+        soft(window.Repo.searchStudies(sel.q, sel), []),
+        soft(window.Repo.getTeamDataSetsForSelection(sel), [])
       ]).then(function (r) {
-        const opt = r[0], studies = r[1], teamSets = r[2];
+        const opt = r[0], teamSets = r[2];
+        /* 고른 Study 는 목록에서 빠질 수 없습니다.
+
+           드롭다운에 없는 값은 <select> 가 표시하지 못하고 첫 선택지로
+           떨어집니다 — 사용자 눈에는 "고른 것이 저절로 풀렸다" 로 보입니다.
+           목록이 어떤 이유로든 비어서 오면(아직 못 받았거나, 과제가 바뀌는
+           중이거나) 고른 Study 를 되살려 넣습니다. */
+        /* 조회 바에서는 고른 뒤 [조회] 전까지 draft 에만 있습니다 — 둘 다
+           되살려야 "골랐는데 목록에서 사라짐" 이 생기지 않습니다. */
+        const studies = withSelected(withSelected(r[1], sel.studyId), draft.studyId);
         const n = window.Scope.activeCount();
         const desc = window.Scope.describe();
         const dirty = differs(draft, pick(sel));
@@ -96,7 +118,7 @@ window.StudySelector = (function () {
             '<div class="selector-filters">' +
               field("studyId", "Study",
                 studies.map(s => ({ v: s.id, t: s.name })), draft.studyId,
-                studies.length ? null : "하위 Study 없음") +
+                studyGate(studies, draft.studyId)) +
               field("team", "팀", teamList(), draft.team, teamGate(draft.studyId)) +
               /* Study 유형(DOE · Feasibility …) 대신 측정 항목 축을 둡니다.
                  연구자가 실제로 찾는 건 Study 의 성격이 아니라 데이터 항목입니다. */
@@ -162,7 +184,7 @@ window.StudySelector = (function () {
       return '<div class="selector is-pick">' +
         '<div class="selector-filters" style="margin-top:0">' +
           field("studyId", "Study", studies.map(s => ({ v: s.id, t: s.name })),
-                sel.studyId, studies.length ? null : "하위 Study 없음") +
+                sel.studyId, studyGate(studies, sel.studyId)) +
           field("team", "팀", teamList(), sel.team, teamGate(sel.studyId)) +
         '</div>' +
         '<div class="selector-pick-note">' +
@@ -192,6 +214,24 @@ window.StudySelector = (function () {
     function teamGate(studyId) {
       if (!studyId) return "Study 를 먼저 선택하세요";
       return (window.DATA_TEAMS || []).length ? null : "팀 정의 없음";
+    }
+
+    /* 고른 Study 가 목록에 없으면 되살려 넣습니다 (위 render 의 설명 참고).
+       전역 목록에도 없으면 이름을 모르므로 id 로라도 둡니다 — 선택이
+       조용히 풀리는 것보다 낫습니다. */
+    function withSelected(list, studyId) {
+      const out = Array.isArray(list) ? list.slice() : [];
+      if (!studyId || out.some(x => x && x.id === studyId)) return out;
+      const known = (window.DATA_STUDIES || []).find(x => x && x.id === studyId);
+      out.unshift(known || { id: studyId, name: studyId });
+      return out;
+    }
+
+    /* Study 를 고른 상태에서는 "하위 Study 없음" 이 나올 수 없습니다 —
+       고른 것이 곧 하나 있다는 뜻이기 때문입니다. */
+    function studyGate(list, studyId) {
+      if (studyId) return null;
+      return (list && list.length) ? null : "하위 Study 없음";
     }
 
     function field(key, label, list, val, emptyMsg) {

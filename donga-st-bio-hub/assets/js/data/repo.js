@@ -67,10 +67,26 @@ window.Repo = (function () {
 
   /* 선택 범위에 해당하는 Study 목록 — 범위 해석은 이 함수 하나만 합니다.
      화면마다 같은 조건문을 복사하면 반드시 한 군데가 어긋납니다. */
+  /* ── Study 목록 두 가지 ────────────────────────────────────────────────
+     같아 보이지만 뜻이 다릅니다. 한 함수로 두면 부르는 쪽이 어느 뜻인지
+     모른 채 쓰게 되고, 그러면 **고를 수 있는 목록이 이미 고른 하나로
+     줄어듭니다** — 드롭다운에서 선택지가 사라지는 길입니다.
+
+       studiesOfProject(scopeId)   이 과제의 **전체** Study. 고를 수 있는 것들.
+       studiesInScope(sel)         지금 **보고 있는** 범위. Study 를 골랐으면
+                                   그 하나로 좁습니다 (집계 · 목록 필터용).
+
+     드롭다운은 늘 앞의 것을 씁니다. 팀을 바꾸든 무엇을 바꾸든, 고를 수 있는
+     Study 목록은 과제 하나로만 정해집니다 — 데이터 유무와 무관합니다. */
+  function studiesOfProject(scopeId) {
+    if (!scopeId) return [];
+    return (window.DATA_STUDIES || []).filter(x => x && x.projectId === scopeId);
+  }
+
   function studiesInScope(sel) {
     const s = sel || {};
     if (!s.scopeId) return [];
-    let studies = window.DATA_STUDIES.filter(x => x.projectId === s.scopeId);
+    let studies = studiesOfProject(s.scopeId);
     if (s.studyId) studies = studies.filter(x => x.id === s.studyId);
     return studies;
   }
@@ -531,7 +547,7 @@ window.Repo = (function () {
   /* ── 검색 / 필터 ────────────────────────────────────────────────────── */
   function getFilterOptions(sel) {
     const s = sel || {};
-    let studies = studiesInScope({ scopeId: s.scopeId });
+    let studies = studiesOfProject(s.scopeId);
     if (s.status) studies = studies.filter(x => x.status === s.status);
 
     const uniq = a => a.filter((v, i) => v !== null && v !== undefined && a.indexOf(v) === i);
@@ -568,7 +584,7 @@ window.Repo = (function () {
 
     /* studyId 로는 좁히지 않습니다 — 이 목록은 "고를 수 있는 Study" 이므로
        이미 고른 하나만 남기면 다른 Study 로 전환할 방법이 사라집니다. */
-    const out = studiesInScope({ scopeId: s.scopeId })
+    const out = studiesOfProject(s.scopeId)
       .filter(x => {
         if (s.status && x.status !== s.status) return false;
         if (!term || termIsDataClass) return true;
@@ -638,7 +654,7 @@ window.Repo = (function () {
 
   return {
     getProjects, getProject,
-    getStudies, getStudy, getStudiesByProject, studiesInScope,
+    getStudies, getStudy, getStudiesByProject, studiesInScope, studiesOfProject,
     getScopeOptions, getTeamDataSets, getTeamDataSetsForSelection,
     getBatches, getBatch, getBatchesByStudy, resolveBatches,
     samplesOfBatch, primarySample, valueOfSample, resolveSamples,
