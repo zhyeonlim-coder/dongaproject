@@ -116,30 +116,78 @@ window.DATA_TITER_DAYS = [];
      prefixes  : 컬럼 키 접두어 일치 (그룹 전체 · 일자별 Titer)
      alias     : 검색어 매칭용 별칭 (라벨 외에 추가로 걸리게 할 단어)
    ────────────────────────────────────────────────────────────────────── */
+/* ★ 없어진 지표의 분류를 걷어냈습니다 (2026-10).
+
+   SEC-HPLC Monomer · HCP / Residual DNA · IE-HPLC · N-glycan · CE-SDS 다섯이
+   남아 있었습니다. 데이터 조회의 분류 칩으로 떠 있었지만 가리키는 컬럼이
+   더 이상 없어서, 누르면 아무것도 좁혀지지 않았습니다 — 있는 줄 알고 누른
+   사람에게는 "데이터가 없다" 로 읽힙니다.
+
+   AI 도 이 목록으로 검색어를 알아듣습니다. 죽은 분류를 두면 "HCP 알려줘" 를
+   분류로 알아듣고는 빈손으로 돌아옵니다 — 모른다고 하는 편이 낫습니다.
+
+   ★ 여기 적는 keys/prefixes 는 반드시 DATA_ANALYTE_GROUPS 에 있는 것이어야
+     합니다. 아래 validateClasses() 가 열어 볼 때마다 대조합니다. */
 window.DATA_CLASSES = [
-  { id: "vcd",       label: "Max VCD",     team: "upstream",
-    keys: ["ivcd", "maxVCD", "finalVCD"], prefixes: [], alias: ["VCD", "생세포", "IVCD"] },
+  /* ★ 배양 항목은 키가 **두 모양**으로 돌아다닙니다. 조회 표는
+       "upstream.ivcd", 비교 화면은 "ivcd" 입니다. 둘 다 적어 둡니다 —
+       한쪽만 적으면 그 화면에서만 칩이 아무것도 걸러내지 못하고,
+       사용자에게는 "데이터가 없다" 로 보입니다. */
+  { id: "vcd",       label: "VCD",         team: "upstream",
+    keys: ["ivcd", "maxVCD", "finalVCD",
+           "upstream.ivcd", "upstream.maxVCD", "upstream.finalVCD"],
+    prefixes: [], alias: ["VCD", "생세포", "IVCD", "Max VCD"] },
   { id: "viability", label: "Viability",   team: "upstream",
-    keys: ["finalViability"], prefixes: [], alias: ["생존율"] },
+    keys: ["finalViability", "upstream.finalViability"], prefixes: [], alias: ["생존율"] },
   { id: "titer",     label: "Titer",       team: "upstream",
-    keys: ["titerHCCF", "qP"], prefixes: ["titer."], alias: ["HCCF", "생산량", "역가"] },
+    keys: ["titerHCCF", "upstream.titerHCCF"], prefixes: ["titer."],
+    alias: ["HCCF", "생산량", "역가"] },
 
   { id: "stepYield", label: "Step Yield",  team: "downstream",
     keys: ["downstream.proteinAYield", "downstream.cexYield", "downstream.aexYield"],
     prefixes: [], alias: ["수율", "Protein A", "CEX", "AEX"] },
   { id: "totalYield", label: "Total Yield", team: "downstream",
     keys: ["downstream.totalYield"], prefixes: [], alias: ["총수율", "전체 수율"] },
-  { id: "monomer",   label: "SEC-HPLC Monomer", team: "downstream",
-    keys: ["downstream.monomerPurity"], prefixes: [], alias: ["순도", "Purity", "SEC"] },
-  { id: "impurity",  label: "HCP / Residual DNA", team: "downstream",
-    keys: ["downstream.hcp", "downstream.residualDNA"], prefixes: [], alias: ["불순물", "숙주단백"] },
 
   { id: "seHPLC",    label: "SE-HPLC",     team: "analytics",
-    keys: [], prefixes: ["seHPLC."], alias: ["HMW", "LMW", "응집체"] },
-  { id: "ieHPLC",    label: "IE-HPLC",     team: "analytics",
-    keys: [], prefixes: ["ieHPLC."], alias: ["Acidic", "Basic", "전하변이"] },
-  { id: "nGlycan",   label: "N-glycan",    team: "analytics",
-    keys: [], prefixes: ["nGlycan."], alias: ["당쇄", "시알산", "Sialic", "G0F", "Glycan"] },
-  { id: "ceSds",     label: "CE-SDS",      team: "analytics",
-    keys: [], prefixes: ["ceSdsNR.", "ceSdsR."], alias: ["Monomer", "LC", "HC"] }
+    keys: [], prefixes: ["seHPLC."], alias: ["HMW", "LMW", "Monomer", "응집체", "단량체"] },
+  { id: "potency",   label: "Potency",     team: "analytics",
+    keys: [], prefixes: ["potency."], alias: ["역가", "활성"] }
 ];
+
+/* ── 분류가 가리키는 항목이 실제로 있는지 ───────────────────────────────
+   위 목록은 손으로 적는 것이라, 지표를 재설정하면 조용히 어긋납니다. 어긋난
+   분류는 눌러도 아무 일이 없는 칩이 되고 — 고장이 아니라 "데이터가 없네" 로
+   읽혀서 아무도 신고하지 않습니다.
+
+   그래서 화면이 뜰 때마다 스키마와 대조하고, 가리키는 컬럼이 하나도 없는
+   분류는 **목록에서 뺍니다.** 지우는 것이 아니라 내놓지 않는 것이고,
+   콘솔에 무엇이 빠졌는지 남깁니다. */
+(function validateClasses() {
+  const cols = [];
+  (window.DATA_ANALYTE_GROUPS || []).forEach(function (g) {
+    if (g.empty) return;
+    (g.items || []).forEach(function (it) {
+      cols.push(g.id + "." + it.key);
+      if (g.id === "upstream") cols.push(it.key);     /* 배양은 점 없이 씁니다 */
+    });
+  });
+  (window.DATA_TITER_DAYS || []).forEach(function (d) { cols.push("titer." + d); });
+
+  const live = [], dead = [];
+  (window.DATA_CLASSES || []).forEach(function (c) {
+    const hit = cols.some(function (k) {
+      return (c.keys || []).indexOf(k) > -1 ||
+             (c.prefixes || []).some(p => k.indexOf(p) === 0);
+    });
+    (hit ? live : dead).push(c);
+  });
+
+  if (dead.length) {
+    window.DATA_CLASSES = live;
+    if (window.console && console.warn) {
+      console.warn("[DATA_CLASSES] 가리키는 항목이 없어 뺀 분류: " +
+        dead.map(c => c.label).join(" · "));
+    }
+  }
+})();
