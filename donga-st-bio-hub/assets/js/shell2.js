@@ -359,5 +359,10 @@ window.Shell = (function () {
      (schedule-page.js 의 monthCalendar). 레일의 날짜 선택 이벤트를 듣던
      화면은 없었습니다. */
 
-  return { mount, subnav, project, setProject, on, logo };
+  /* 메뉴 목록을 밖에서도 읽습니다 — AI 명령("대시보드 보여줘")이 주소를
+     따로 적어 두면 메뉴가 바뀔 때 한쪽만 따라가고, 사용자는 없는 화면으로
+     보내집니다. 사본을 돌려줘서 밖에서 고칠 수는 없게 둡니다. */
+  function navItems() { return NAV.map(n => ({ id: n.id, href: n.href, ko: n.ko })); }
+
+  return { mount, subnav, project, setProject, on, logo, navItems };
 })();

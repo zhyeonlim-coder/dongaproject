@@ -148,12 +148,26 @@ window.AskTables = (function () {
     const rows = batches.map(b => {
       /* studyOf 는 배치 객체를 받습니다 (studyId 가 아니라) */
       const study = R ? R.studyOf(b) : (window.DATA_STUDIES || []).find(s => s.id === b.studyId) || null;
+      /* ★ Data 입력으로 만든 그릇은 **시료 이름**으로 부릅니다.
+
+         그릇(hidden batch)에는 사용자에게 보이는 이름이 따로 없습니다 —
+         그 줄의 이름은 곧 시료 이름입니다. 만들 때 expNo 에도 같은 이름을
+         적어 두지만, 나중에 시료 이름을 고치면 expNo 는 그대로 남습니다.
+         그러면 데이터 조회는 새 이름, AI 는 옛 이름을 쓰게 되고 — 새
+         이름으로 물은 사용자는 "그런 시료 없습니다" 를 듣습니다.
+
+         hidden 이 아닌 배치(원본 Excel 에서 온 것)는 다릅니다. 자기
+         Exp. No. 가 있고 그 아래 시료가 여럿일 수 있어서, 시료 하나의
+         이름을 행 이름으로 쓰면 배치를 가리킬 수가 없게 됩니다. */
+      const smp = (b.hidden && R && R.samplesOfBatch)
+        ? ((R.samplesOfBatch(b.id) || [])[0] || null) : null;
       const row = {
         __id: b.id,
-        __label: b.expNo || b.id,
+        __label: (smp && smp.name) || b.expNo || b.id,
+        __sampleId: smp ? smp.id : null,
         /* 원본에 Exp. No. 가 비어 있어 가져올 때 id 를 이름으로 쓴 행입니다.
            지어낸 이름을 실제 배치번호처럼 읽지 않도록 표시해 둡니다. */
-        __unnamed: !b.expNo,
+        __unnamed: !(smp && smp.name) && !b.expNo,
         project: study ? projectCode(study.projectId) : null,
         study: study ? study.name : null,
         team: teamKo(b.team),
@@ -228,10 +242,22 @@ window.AskTables = (function () {
      그대로면, Global AI 와 통계는 계속 옛 숫자를 답합니다 — 화면은 새 값,
      AI 는 옛 값이 되고 둘 다 그럴듯해서 어느 쪽이 틀렸는지 알 수 없습니다.
      Repo 가 값 변경을 알려 줄 때마다 다시 만듭니다. */
+  /* ★ 어떤 변경이든 버립니다 — 종류를 골라 듣다가 새 데이터를 통째로
+       놓쳤습니다.
+
+     예전에는 "value" · "store" · "label" 세 가지만 들었습니다. 그래서
+     **서버에서 한 벌 받아왔을 때("remote")도, 새 시료·Study 를 만들었을
+     때("dataset")도 이 표는 그대로였습니다.** 화면 스크립트가 로드 중에
+     이 표를 한 번 만들면 그때는 아직 서버 응답이 오기 전이라 0행이고,
+     서버 데이터가 도착해도 캐시가 버려지지 않아 AI 는 끝까지 0행을
+     봤습니다 — "TA1 알려줘" 가 "조건에 맞는 데이터가 0건입니다" 로
+     돌아온 이유입니다. 화면에는 보이는 데이터를 AI 만 못 보는 상태입니다.
+
+     이 표는 다시 만드는 비용이 작고(배치 수만큼의 루프), 틀린 캐시의
+     비용은 "없는 데이터라고 답하는 것"입니다. 그래서 고르지 않고 전부
+     듣습니다. 종류를 더해도 여기 손댈 일이 없습니다. */
   if (window.Repo && window.Repo.subscribe) {
-    window.Repo.subscribe(function (what) {
-      if (what === "value" || what === "store" || what === "label") invalidate();
-    });
+    window.Repo.subscribe(function () { invalidate(); });
   }
 
   /* ══════════════════════════════════════════════════════════════════════

@@ -327,7 +327,71 @@ window.AskEngine = (function () {
   function matchesName(text, name) {
     const a = nameAliases(name);
     if (a.all.some(x => x && has(text, x))) return true;
-    return a.strong.some(x => x && has(text, x));
+    if (a.strong.some(x => x && has(text, x))) return true;
+    /* 공백·붙임표만 다른 표기도 같은 이름으로 봅니다 ("Test-JH" ↔ "test jh") */
+    return labelHit(text, name);
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     이름 맞추기 — 공백 · 대소문자 · 붙임표를 무시합니다
+
+     시료 이름은 사람이 손으로 적는 칸입니다. "TA1" 과 "ta1" · "TA-1" ·
+     "TA 1" 은 같은 것을 가리키는데, 글자 그대로만 맞추면 적은 사람만
+     자기 데이터를 찾을 수 있습니다.
+
+     느슨하게 하면서 두 군데는 조입니다 —
+       · 뒤에 영문·숫자가 더 붙으면 다른 이름입니다. "TA1" 로 "TA10" 을
+         찾아 주면 묻지 않은 시료의 값을 답하게 됩니다.
+       · 앞에 영문·숫자가 붙어 있으면 다른 낱말의 일부입니다 ("data1" 안의
+         "A1"). 한글은 조사라서 허용합니다 ("ta1에" · "시료ta1").
+     ══════════════════════════════════════════════════════════════════════ */
+  function squash(s) {
+    return String(s === null || s === undefined ? "" : s)
+      .toLowerCase().replace(/[\s\-_.·]/g, "");
+  }
+  function labelHit(text, label) {
+    const l = squash(label);
+    if (l.length < 2) return false;
+
+    /* ① 문장을 통째로 붙여 놓고 찾습니다 — 이름 안의 공백을 사용자가
+          빼고 적어도("시료A") 걸립니다. */
+    const t = squash(text);
+    let i = t.indexOf(l);
+    while (i > -1) {
+      const before = i > 0 ? t.charAt(i - 1) : "";
+      const after = t.charAt(i + l.length);
+      if (!/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after)) return true;
+      i = t.indexOf(l, i + 1);
+    }
+
+    /* ② 낱말 단위로 한 번 더 봅니다.
+
+       ①만 두면 이름 **뒤에 영문 낱말이 붙은 경우**를 놓칩니다 —
+       "시료A maxvcd 알려줘" 는 공백을 지우면 "시료amaxvcd" 가 되어
+       이름 다음 글자가 영문이 되고, "TA1" 로 "TA1B" 를 물은 것과 구별할
+       수 없게 됩니다. 낱말을 하나씩 보면 그 둘이 갈립니다. */
+    return String(text || "").split(/[\s,()[\]"']+/).some(function (raw) {
+      const tok = squash(raw);
+      if (!tok || tok.indexOf(l) !== 0) return false;
+      const rest = tok.slice(l.length);
+      /* 뒤에 남은 것이 한글(조사)이면 같은 이름, 영문·숫자면 다른 이름 */
+      return rest === "" || !/^[a-z0-9]/.test(rest);
+    });
+  }
+
+  /* 이 낱말이 "이미 범위로 읽은 이름" 인가 — 조사가 붙어도 같게 봅니다.
+     이것이 없으면 제대로 찾아 놓고도 "\"ta1에\" 를 조건으로 읽지 못했습니다"
+     라는 경고를 함께 띄웁니다. 사용자는 답이 반쪽이라고 읽습니다. */
+  function entityToken(tok, table) {
+    const x = squash(tok);
+    if (!x) return false;
+    const names = (table && table.rows ? table.rows : []).map(r => r.__label)
+      .concat((window.DATA_STUDIES || []).map(s => s && s.name))
+      .concat((window.DATA_PROJECTS || []).map(p => p && p.code));
+    return names.some(function (n) {
+      const s = squash(n);
+      return s.length >= 2 && x.indexOf(s) === 0;
+    });
   }
 
   /* 범위를 "명세"로 만들어 둡니다 — 후속 질문이 이어받을 수 있어야 하고,
@@ -351,9 +415,12 @@ window.AskEngine = (function () {
       if (s.name && matchesName(text, s.name)) spec.studies.push(s.name);
     });
 
-    /* 배치 이름 직접 지목 */
+    /* 시료 이름 직접 지목 — 대소문자 · 공백 · 붙임표를 무시합니다.
+       같은 이름의 시료가 팀마다 하나씩 있으면 그 전부를 범위로 잡습니다
+       (배양 TA1 · 정제 TA1 · 분석 TA1 → 3건). 한 팀만 골라 주면 나머지
+       팀의 값이 조용히 빠집니다. */
     table.rows.forEach(function (r) {
-      if (r.__label && has(text, String(r.__label).toLowerCase())) spec.batchIds.push(r.__id);
+      if (r.__label && labelHit(text, r.__label)) spec.batchIds.push(r.__id);
     });
 
     /* 팀(배양 · 정제 · 분석)은 더 이상 행을 자르지 않습니다.
@@ -390,7 +457,14 @@ window.AskEngine = (function () {
     }
     if (s.batchIds.length) {
       scope.filters.push(r => s.batchIds.indexOf(r.__id) > -1);
-      const labels = table.rows.filter(r => s.batchIds.indexOf(r.__id) > -1).map(r => r.__label);
+      /* 같은 이름이 여러 번 적히지 않게 합니다. 팀마다 같은 시료 이름이
+         하나씩 있으면 예전에는 "범위 TA1, TA1, TA1" 이라고 적혔습니다 —
+         시료가 셋인 것처럼 읽힙니다. 건수는 머리말이 따로 말합니다. */
+      const labels = [];
+      table.rows.forEach(function (r) {
+        if (s.batchIds.indexOf(r.__id) === -1) return;
+        if (labels.indexOf(r.__label) === -1) labels.push(r.__label);
+      });
       scope.label.push(labels.join(", "));
     }
     return scope;
@@ -915,9 +989,11 @@ window.AskEngine = (function () {
     c.ignoredTokens = (t.match(/\S*\d+\S*/g) || [])
       .map(x => x.replace(/[?!.,·]+$/, ""))
       .filter(x => x.length > 0 && x.length < 20)
-      /* 배치 · 과제 이름은 범위로 이미 처리됐으므로 뺍니다 */
-      .filter(x => !(table.rows || []).some(r => String(r.__label || "").toLowerCase() === x))
-      .filter(x => !(window.DATA_PROJECTS || []).some(p => String(p.code || "").toLowerCase() === x))
+      /* 시료 · Study · 과제 이름은 범위로 이미 읽었으므로 뺍니다.
+         ★ 예전에는 **글자가 똑같을 때만** 뺐습니다. 그래서 "TA1에 대한
+           데이터" 처럼 조사가 붙으면 "ta1에" 가 남아, 범위를 제대로 잡아
+           놓고도 "조건으로 읽지 못했습니다" 라는 경고가 함께 나갔습니다. */
+      .filter(x => !entityToken(x, table))
       /* 일자 토큰(d25)은 따로 더 정확한 문구로 알려 주므로 여기서 빼서
          같은 말을 두 번 하지 않게 합니다 */
       .filter(x => !/^d\d{1,2}$/.test(x))
@@ -1460,6 +1536,24 @@ window.AskEngine = (function () {
     if (!rows.length) {
       const rg = dateRangeOf(table);
       const hints = [];
+
+      /* ★ 표 자체가 비어 있는 것과 "조건에 안 맞는 것" 은 다른 상황입니다.
+
+         예전에는 둘 다 "조건에 맞는 데이터가 0건입니다" 라고 답했습니다.
+         그러면 아직 아무것도 입력하지 않은 시스템에서 무엇을 물어도 조건이
+         틀린 것처럼 읽히고, 사용자는 질문을 계속 고쳐 씁니다 — 고칠 것이
+         질문이 아닌데도. 무엇이 없는지 그대로 말합니다. */
+      if (!table.rows.length) {
+        return decorate(Object.assign(base, {
+          ok: false, kind: "no-rows",
+          headline: "아직 조회할 데이터가 없습니다 — 기록된 시료가 0건입니다.",
+          hints: ["[Data 입력] 화면에서 Study 와 팀을 고르고 표에 값을 적으면 " +
+                  "저장하는 즉시 여기서 조회됩니다.",
+                  "이미 입력하셨다면 상단 연결 배지가 초록(서버)인지 확인해 주세요 — " +
+                  "서버에 닿지 못하면 이 브라우저에 적힌 것만 보입니다."],
+          suggestions: []
+        }), cond, table);
+      }
       /* 어느 조건에서 0건이 됐는지 짚어 줍니다. 기간 안에 데이터가 있는데도
          "그 기간에 기록이 없다"고 말하면 그 자체가 잘못된 안내가 됩니다. */
       const afterPeriod = cond.period
@@ -2572,6 +2666,7 @@ window.AskEngine = (function () {
     _stats: stats, _detectIntent: detectIntent, _norm: norm, _has: has,
     _detectMetrics: detectMetrics, _fmt: fmt, NOT_RECORDED,
     _parseConditions: parseConditions, _applyConditions: applyConditions,
+    _labelHit: labelHit, _squash: squash,
     _dateRangeOf: dateRangeOf, _detectScope: detectScope,
     /* 카탈로그 · 가드가 씁니다 */
     ALIAS: ALIAS, TEAM_DEFAULT_METRIC: TEAM_DEFAULT_METRIC,

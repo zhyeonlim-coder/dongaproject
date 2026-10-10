@@ -1873,5 +1873,23 @@
     });
   }
   window.Requests.subscribe(render);
+
+  /* ── 챗봇이 부를 수 있는 것 ───────────────────────────────────────────
+     "새 Study 창 열어줘" 가 이 함수를 부릅니다. 창을 여는 것까지만
+     맡깁니다 — 이름을 적고 [등록] 을 누르는 것은 사람입니다.
+
+     주소로도 열립니다 (ebr.html#new-study). 다른 화면에서 말했을 때
+     이 화면으로 옮긴 뒤 창을 열어야 하는데, 옮기면 스크립트가 다시
+     시작되므로 넘길 자리가 주소밖에 없습니다. */
+  if (window.AIContext && window.AIContext.registerHook) {
+    window.AIContext.registerHook("newStudy", function () { openNewStudy(); });
+  }
+
   render();
+
+  if (location.hash === "#new-study") {
+    /* 주소에서 지웁니다 — 새로고침할 때마다 창이 뜨면 화면을 쓸 수 없습니다 */
+    try { history.replaceState(null, "", location.pathname); } catch (e) {}
+    openNewStudy();
+  }
 })();

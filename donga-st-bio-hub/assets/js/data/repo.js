@@ -204,8 +204,15 @@ window.Repo = (function () {
       try { f(what); } catch (e) { /* 구독자 오류가 저장을 되돌리지 않습니다 */ }
     });
   }
-  /* 저장소가 스스로 바뀐 경우(다른 탭 · 나중엔 서버 push)도 흘려보냅니다 */
-  store.onChange(function (what) { if (what === "value") notify("value"); });
+  /* 저장소가 스스로 바뀐 경우(다른 탭 · 나중엔 서버 push)도 흘려보냅니다.
+
+     ★ 값(value)만 흘려보내던 것을 전부로 넓혔습니다. 시료를 새로
+       만들거나 이름을 고치는 것은 "value" 가 아니라 "sample" 로 나오는데,
+       그것이 여기서 멈춰 AI 가 보는 표에 새 시료가 올라오지 않았습니다.
+       값은 적혔지만 그 값이 누구 것인지를 AI 만 모르는 상태입니다. */
+  store.onChange(function (what) {
+    notify(what === "value" ? "value" : "entries");
+  });
 
   /* ── 다른 탭에서 바뀐 것 받아오기 ──────────────────────────────────
      이 앱은 화면마다 페이지가 따로입니다. 대시보드를 한 탭에, Data 입력을

@@ -442,6 +442,146 @@ window.SSOTTest = (function () {
       }
     })();
 
+    /* ══════════════════════════════════════════════════════════════════
+       ⑬ 방금 만든 시료를 AI 가 바로 보는가
+
+       이 검사는 실제로 놓친 사고에서 나왔습니다. AI 가 보는 표
+       (AskTables)는 캐시인데, 캐시를 버리는 신호를 세 가지만 듣고
+       있었습니다 — 값 · 저장소 · 라벨. 그래서 **서버에서 한 벌 받아와도
+       (remote), 새 시료를 만들어도(dataset/sample) 표가 그대로였습니다.**
+
+       화면을 먼저 그리고 서버 데이터는 나중에 도착하는 구조라, 로드
+       중에 캐시가 한 번 만들어지면 그 뒤로 AI 는 끝까지 0행을 봤습니다.
+       "TA1 알려줘" → "조건에 맞는 데이터가 0건입니다". 화면에는 보이는
+       데이터를 AI 만 못 보는 상태이고, 화면만 봐서는 알 수 없습니다.
+       ══════════════════════════════════════════════════════════════════ */
+    (function liveTableChecks() {
+      const D = window.Dataset, E = window.Entries, AT = window.AskTables;
+      if (!D || !E || !AT) { T.add("⑬ 모듈 있음", false, "Dataset·Entries·AskTables 중 없음"); return; }
+
+      const beforeStore = (function () {
+        try { return localStorage.getItem("hub.dataset.v1"); } catch (e) { return null; }
+      })();
+      const beforeEntries = (function () {
+        try { return localStorage.getItem("hub.entries.v1"); } catch (e) { return null; }
+      })();
+      const study = (window.DATA_STUDIES || [])[0];
+      const madeId = "ZZLIVE-" + Date.now().toString(36);
+      const NAME = "ZZ-LIVE-1";
+
+      try {
+        /* 캐시를 먼저 한 번 만들어 둡니다 — 사고가 났던 순서 그대로입니다 */
+        const n0 = AT.internal().rows.length;
+
+        const r = D.addBatch({ studyId: study.id, id: madeId, team: "upstream",
+                               expNo: NAME, hidden: true, initialDate: "2026-01-01" });
+        T.add("⑬ 시료 그릇을 만들 수 있음", r.ok, r.reason || "");
+        if (!r.ok) return;
+        const s = E.addSample({ batchId: madeId, studyId: study.id,
+                                team: "upstream", name: NAME });
+        T.add("⑬ 시료를 만들 수 있음", s.ok, s.reason || "");
+
+        const n1 = AT.internal().rows.length;
+        T.add("⑬ 새 시료가 AI 표에 바로 올라옴", n1 === n0 + 1,
+          "전 " + n0 + " → 후 " + n1 + " (캐시가 버려지지 않았습니다)");
+
+        const row = AT.internal().rows.find(x => x.__id === madeId);
+        T.add("⑬ 행 이름이 시료 이름", row && row.__label === NAME,
+          "라벨 → " + (row ? row.__label : "행 없음"));
+
+        /* 이름을 고치면 따라와야 합니다 — expNo 에 머무르면 조회 화면은
+           새 이름, AI 는 옛 이름을 쓰게 됩니다 */
+        if (s.ok && E.renameSample) {
+          const rn = E.renameSample(s.sample.id, NAME + "-R");
+          const row2 = AT.internal().rows.find(x => x.__id === madeId);
+          T.add("⑬ 시료 이름을 고치면 AI 표도 따라옴",
+            rn && rn.ok && row2 && row2.__label === NAME + "-R",
+            "라벨 → " + (row2 ? row2.__label : "행 없음"));
+        }
+
+        /* ⑭ 이름 맞추기 — 대소문자 · 공백 · 붙임표는 무시하고, 뒤에 글자가
+           더 붙은 다른 이름은 구별해야 합니다. 느슨함과 엄격함을 한 쌍으로
+           봅니다 — 한쪽만 보면 "전부 걸리게" 고치고 끝낼 수 있습니다. */
+        const H = window.AskEngine && window.AskEngine._labelHit;
+        if (H) {
+          const want = [
+            ["TA1에 대한 데이터를 알려줘", "TA1", true],
+            ["ta1 titer 알려줘", "TA1", true],
+            ["TA-1 알려줘", "TA1", true],
+            ["시료A maxvcd 알려줘", "시료 A", true],
+            ["TA10 알려줘", "TA1", false],
+            ["ta1b 알려줘", "TA1", false],
+            ["data1 평균", "A1", false]
+          ];
+          const bad = want.filter(x => H(x[0], x[1]) !== x[2]);
+          T.add("⑭ 이름 맞추기 — 조사·대소문자는 같게, 뒷글자는 다르게",
+            !bad.length, bad.map(x => "\"" + x[0] + "\"~" + x[1]).join(" / "));
+        }
+
+        /* ⑮ 범위를 제대로 잡았으면 "못 읽은 조건" 경고가 붙지 않아야
+           합니다. 제대로 답하면서 경고를 함께 띄우면 사용자는 답이 반쪽
+           이라고 읽습니다. */
+        const ans = window.AskEngine.answer(NAME + "-R 에 대한 데이터를 알려줘");
+        T.add("⑮ 범위를 잡았으면 못 읽은 조건 경고가 없음",
+          ans.kind !== "no-rows" && !/조건으로 읽지 못/.test(String(ans.note || "")),
+          "kind=" + ans.kind + " note=" + String(ans.note || "").slice(0, 80));
+      } finally {
+        /* 메모리와 저장소를 검사 전으로 되돌립니다 */
+        try {
+          const list = D.all().batches;
+          const i = list.findIndex(b => b.id === madeId);
+          if (i > -1) list.splice(i, 1);
+          const arr = window.DATA_BATCHES || [];
+          const j = arr.findIndex(b => b.id === madeId);
+          if (j > -1) arr.splice(j, 1);
+        } catch (e) { /* */ }
+        if (E.reset) E.reset();
+        restore(beforeEntries);
+        try {
+          if (beforeStore === null) localStorage.removeItem("hub.dataset.v1");
+          else localStorage.setItem("hub.dataset.v1", beforeStore);
+        } catch (e) { /* */ }
+        AT.invalidate();
+        const after = AT.internal().rows.some(x => x.__id === madeId);
+        T.add("⑬ 검사가 데이터를 남기지 않음", !after, "검사용 시료가 남아 있습니다");
+      }
+    })();
+
+    /* ══════════════════════════════════════════════════════════════════
+       ⑯ 화면 조작 명령 — 읽는 것과 읽지 않는 것
+
+       실행은 여기서 하지 않습니다 (화면을 옮기면 검사 페이지가 사라집니다).
+       확인하는 것은 **경계** 하나입니다 — 값을 묻는 말을 조작으로 읽으면
+       사용자는 답 대신 화면이 바뀌는 것을 보게 되고, 되돌릴 말을 또 찾아야
+       합니다. 그 경계가 무너지는 쪽이 더 나쁩니다.
+       ══════════════════════════════════════════════════════════════════ */
+    (function commandChecks() {
+      const C = window.AICommands;
+      if (!C) { T.add("⑯ AICommands 있음", false, "window.AICommands 없음"); return; }
+      const cases = [
+        ["대시보드 보여줘", "navigate"],
+        ["데이터 조회로 이동", "navigate"],
+        ["배양공정팀 선택해줘", "team"],
+        ["새 스터디 창 열어줘", "newStudy"],
+        ["DB 비워줘", "refuse"],
+        ["전체 삭제해줘", "refuse"],
+        /* 값을 묻는 말은 조작이 아닙니다 — 지금까지처럼 조회로 가야 합니다 */
+        ["정제 데이터 보여줘", null],
+        ["정제공정팀 수율 평균", null],
+        ["TA1에 대한 데이터를 알려줘", null],
+        ["Max VCD 가장 높은 시료는?", null]
+      ];
+      const bad = cases.filter(function (c) {
+        const p = C.detect(c[0]);
+        return (p ? p.kind : null) !== c[1];
+      });
+      T.add("⑯ 조작 명령만 조작으로 읽음", !bad.length,
+        bad.map(function (c) {
+          const p = C.detect(c[0]);
+          return "\"" + c[0] + "\" → " + (p ? p.kind : "null") + " (기대 " + (c[1] || "null") + ")";
+        }).join(" / "));
+    })();
+
     return Promise.all(pending).then(function () {
     const bad = T.out.filter(x => !x.pass);
     return {

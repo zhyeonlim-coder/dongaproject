@@ -423,6 +423,29 @@ window.AITools = (function () {
     catch (e) { return false; }
   }
 
+  /* ── 17. 화면 조작 — 이것만 바로 실행합니다 ─────────────────────────
+     위의 propose* 와 다릅니다. 저쪽은 **보고 있는 표의 내용**을 바꾸므로
+     사용자가 읽던 숫자를 잃을 수 있어 [적용] 을 받습니다. 이쪽은 이동과
+     선택이라 결과가 바로 보이고 한 번 더 말하면 되돌아옵니다.
+
+     실행은 AICommands 가 합니다 — 여기서 Scope 를 직접 만지면 "자연어로
+     하는 길" 과 "버튼으로 하는 길" 이 둘이 됩니다. */
+  function runUiCommand(args) {
+    if (!window.AICommands) return no("화면 조작 모듈이 로드되지 않았습니다.");
+    const plan = (args && args.plan) ||
+      window.AICommands.detect(String((args && args.command) || ""));
+    if (!plan) return no("어느 화면·팀·Study 를 말씀하시는지 읽지 못했습니다. " +
+      "예: \"대시보드 보여줘\" · \"데이터 조회로 이동\" · \"배양공정팀 선택해줘\"");
+
+    const r = window.AICommands.run(plan);
+    /* 실패도 data 로 돌려줍니다 — 무엇을 하려 했고 왜 못 했는지가 한 칸에
+       함께 있어야 화면이 그 둘을 같이 보여 줄 수 있습니다. */
+    return ok({ kind: "ui-action", did: r.ok, message: r.message,
+                refused: !!r.refused, navigating: !!r.navigating,
+                plan: plan.kind },
+      { source: "화면 조작" });
+  }
+
   /* 정렬 제안 — 실행하지 않습니다 */
   function proposeSort(args) {
     if (!window.Scope || !window.Scope.setFilter) return no("이 화면에는 정렬이 없습니다.");
@@ -579,6 +602,10 @@ window.AITools = (function () {
     { name: "proposeSelect", ko: "배치 선택 제안",
       description: "특정 배치를 화면에서 선택하도록 제안합니다. 실행하지 않고 제안만 만듭니다.",
       params: { batch: "string" }, run: proposeSelect },
+    { name: "runUiCommand", ko: "화면 조작",
+      description: "화면 이동 · 탭 전환 · 과제/Study/팀 선택 · 새 Study 창 열기를 " +
+        "바로 실행합니다. 데이터를 저장·삭제하거나 값을 입력하지는 않습니다.",
+      params: { command: "string" }, run: runUiCommand },
     { name: "formatResult", ko: "결과 정리",
       description: "직전 조회 결과를 표 또는 연구보고서 문장으로 다시 정리합니다. " +
         "새로 조회하거나 새 수치를 만들지 않고, 이미 나온 값만 옮깁니다.",

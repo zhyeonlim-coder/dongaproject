@@ -1107,5 +1107,19 @@
   }
 
   window.Shell.on("project", paint);
+
+  /* 챗봇이 탭을 열 수 있게 합니다 ("AI 검색 탭 열어줘").
+     사용자가 탭을 누를 때와 같은 길입니다 — tab 을 바꾸고 주소에 적고
+     다시 그립니다. 없는 탭 이름이면 손대지 않고 그렇다고 알립니다. */
+  if (window.AIContext && window.AIContext.registerHook) {
+    window.AIContext.registerHook("section", function (key) {
+      const known = ["doe", "ai", "wiki", "spec", "qlog"];
+      if (known.indexOf(key) === -1) throw new Error("그런 탭이 없습니다: " + key);
+      tab = key;
+      location.hash = key;
+      paint();
+    });
+  }
+
   paint();
 })();

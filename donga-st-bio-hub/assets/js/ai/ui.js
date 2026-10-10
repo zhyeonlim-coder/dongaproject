@@ -21,6 +21,8 @@ window.GlobalAIUI = (function () {
   let root = null, panel = null, body = null, input = null, fab = null;
   let open = false, busy = false, full = false;
   let lastProposal = null;
+  /* 챗봇이 방금 화면을 옮겼을 때 새 화면에서 보여 줄 한 줄 */
+  let carried = null;
 
   /* ── 마운트 ──────────────────────────────────────────────────────────── */
   function mount() {
@@ -100,7 +102,19 @@ window.GlobalAIUI = (function () {
     /* 화면 상태가 바뀌면 머리말도 따라 바뀝니다 */
     window.AIContext.on(paintCtx);
     paintCtx();
+
+    /* ── 방금 챗봇이 화면을 옮겼다면, 옮긴 뒤 한 줄을 남깁니다 ──────────
+       페이지를 옮기면 이 패널도 새로 만들어져 대화가 사라집니다. 아무
+       말도 남기지 않으면, 사용자는 요청한 화면이 맞는지 · 자기 말이
+       전달된 것인지를 바뀐 화면만 보고 추측하게 됩니다.
+
+       남은 쪽지가 있을 때만 패널을 열어 둡니다 — 평소에는 닫힌 채입니다. */
+    carried = (window.AICommands && window.AICommands.takeCarried)
+      ? window.AICommands.takeCarried() : null;
+    const had = !!carried;
     welcome();
+    carried = null;              /* 한 번만 보여 줍니다 ([비우기] 뒤에 되살아나지 않게) */
+    if (had) show();
   }
 
   function paintCtx() {
@@ -181,6 +195,11 @@ window.GlobalAIUI = (function () {
     const s = window.GlobalAI.suggestions();
     body.innerHTML =
       '<div class="gai-msg">' +
+        (carried
+          ? '<div class="gai-row is-ai">' + avatarHTML() +
+            '<div class="gai-bub is-ai"><div class="gai-a">' +
+            '<div class="gai-headline">' + esc(carried) + "</div></div></div></div>"
+          : "") +
         '<div class="gai-row is-ai">' + avatarHTML() +
           '<div class="gai-bub is-ai"><div class="gai-a">무엇을 도와드릴까요?<br>' +
           '지금 보고 계신 화면을 기준으로 답합니다. 답에 쓰인 수치는 모두 ' +
@@ -285,7 +304,10 @@ window.GlobalAIUI = (function () {
     if (!window.GlobalAI.narrate) return;
     if (out.kind === "error" || out.kind === "empty" ||
         out.kind === "action-proposal" || out.kind === "no-data" ||
-        out.kind === "unsupported" || out.kind === "literature-one") return;
+        out.kind === "unsupported" || out.kind === "literature-one" ||
+        /* 화면 조작은 이미 한 일의 보고입니다 — 해설을 붙일 것이 없고,
+           외부 모델에 보낼 이유도 없습니다 */
+        out.kind === "ui-action") return;
 
     const box = document.createElement("div");
     box.className = "gai-narr";
@@ -362,6 +384,7 @@ window.GlobalAIUI = (function () {
         srcHTML(out.meta) + "</div>" + suggHTML(out.suggestions);
     }
     if (out.kind === "records") return recordsHTML(out);
+    if (out.kind === "ui-action") return uiActionHTML(out);
     if (out.kind === "action-proposal") return actionHTML(out);
     if (out.kind === "formatted") return formattedHTML(out);
     if (out.kind === "literature") return litHTML(out);
@@ -635,6 +658,26 @@ window.GlobalAIUI = (function () {
     }
     if (d.note) h += '<div class="gai-note">' + esc(d.note) + "</div>";
     return h + srcHTML(out.meta) + suggHTML(d.suggestions);
+  }
+
+  /* ── 화면 조작 — 이미 한 일을 보고합니다 ─────────────────────────────
+     아래 actionHTML(제안)과 짝이 아니라 반대입니다. 저쪽은 "할까요?",
+     이쪽은 "했습니다". 그래서 버튼이 없고, 한 일을 그대로 적습니다.
+
+     못 한 경우(과제를 아직 안 골랐다 · 그 화면에 그 탭이 없다)도 같은
+     모양으로 보여 줍니다 — 실패를 조용히 삼키면 사용자는 명령이 먹은
+     줄 알고 바뀌지 않은 화면을 읽습니다. */
+  function uiActionHTML(out) {
+    const d = out.data || {};
+    if (!d.did) {
+      return '<div class="gai-warn">' + esc(d.message || "실행하지 못했습니다.") + "</div>";
+    }
+    return '<div class="gai-a"><div class="gai-headline">' + esc(d.message) + "</div>" +
+      (d.navigating
+        ? '<div class="gai-note">화면을 옮기는 중입니다 — 이 대화는 새 화면에서 ' +
+          "다시 시작됩니다.</div>"
+        : "") +
+      "</div>" + srcHTML(out.meta);
   }
 
   /* 화면 조작 — 제안만 하고 사용자가 누를 때만 실행 */

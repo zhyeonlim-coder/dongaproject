@@ -19,6 +19,7 @@
     "proposeFilter",
     "proposeSort",
     "proposeSelect",
+    "runUiCommand",
     "formatResult"
   ]
 }
