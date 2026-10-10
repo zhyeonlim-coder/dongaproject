@@ -1,14 +1,21 @@
 /* ==========================================================================
-   Mock session layer
+   누가 적었는가 — 이름표 한 장
 
-   ⚠ THIS IS NOT AUTHENTICATION.
-   Credentials are compared in the browser against a constant in data.js, and
-   the "session" is a sessionStorage key. There is no server, no token, no
-   verification. It exists so the logged-out → logged-in flow can be demoed.
+   ⚠ 인증이 아닙니다. 막는 것이 하나도 없습니다.
 
-   Replacing it: every real integration point is marked INTEGRATION below.
-   The UI reads only from Auth.current() / Auth.role(), so swapping in real
-   SSO (e.g. Azure AD / SAML) means reimplementing this file and nothing else.
+   2026-10 부터 이 사이트에는 문이 없습니다. 비밀번호도, 서버 접속 비밀값도
+   없습니다. 주소를 아는 사람은 누구나 읽고 씁니다 (소유자 결정 — 배경은
+   api/_auth.js 머리말에 있습니다).
+
+   그래서 이 파일이 하는 일은 하나뿐입니다: **모든 기록에 붙는 작성자
+   이름을 들고 있는 것.** 측정값마다 작성자와 시각이 함께 저장되고
+   (ALCOA+), 이름이 비면 그 기록이 반쪽이 됩니다.
+
+   이름은 비밀번호 없이 고르고, 이 브라우저가 기억하고, 상단에서 바꿉니다.
+   고르지 않으면 "미지정" 입니다 — 막지 않습니다.
+
+   사람별 계정과 진짜 인증이 필요해지면 이 파일 하나를 갈아 끼우면 됩니다.
+   화면은 Auth.current() / Auth.role() 만 읽습니다.
    ========================================================================== */
 
 window.Auth = (function () {
@@ -16,14 +23,16 @@ window.Auth = (function () {
 
   const KEY = "hub.session";
 
-  /* INTEGRATION: replace with a real session lookup (cookie, token, /me call). */
+  /* localStorage 를 먼저 봅니다 — 탭을 닫아도 이름이 남아야 합니다.
+     예전 sessionStorage 사본도 계속 읽습니다 (쓰던 탭이 그대로 이어지도록). */
   function current() {
-    try {
-      const raw = sessionStorage.getItem(KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) {
-      return null;
+    for (const store of [localStorage, sessionStorage]) {
+      try {
+        const raw = store.getItem(KEY);
+        if (raw) return JSON.parse(raw);
+      } catch (e) { /* 저장소가 막힌 브라우저 — 다음 것을 봅니다 */ }
     }
+    return null;
   }
 
   function role() {
@@ -50,16 +59,34 @@ window.Auth = (function () {
     return (r ? r.ko : "현재 권한") + " 계정에는 이 권한이 없습니다 (" + action + ").";
   }
 
-  /* INTEGRATION: replace with an identity-provider redirect + callback. */
-  function signIn(email, password, serverSecret) {
+  /* ══════════════════════════════════════════════════════════════════════
+     ★ 비밀번호와 '서버 접속 비밀값' 을 없앴습니다 (2026-10, 소유자 결정)
+
+     둘 다 지키는 것이 없거나, 지키는 값에 비해 비용이 컸습니다.
+
+       로그인 비밀번호   data.js 안에 있고 로그인 화면에 인쇄돼 있었습니다.
+                        누구나 읽을 수 있으니 애초에 문이 아니었습니다.
+       서버 접속 비밀값  진짜 문이었지만 12시간마다 끊겼고, 끊긴 뒤에는
+                        조용히 이 브라우저에만 저장됐습니다.
+
+     그래서 데이터는 열고, 되돌릴 수 없는 전체 삭제 한 곳만 비밀값으로
+     막았습니다 (api/_auth.js 참고).
+
+     ── 그래도 이름은 남깁니다 ──────────────────────────────────────────
+     문을 없앴다고 **누가 적었는지**까지 없애지는 않았습니다. 모든 측정값에
+     작성자와 시각이 함께 기록되고(ALCOA+), 이름이 비면 그 기록이 반쪽이
+     됩니다. 비밀번호 없이 이름만 고릅니다 — 한 번 고르면 이 브라우저가
+     기억하고, 상단에서 언제든 바꿉니다.
+
+     이것은 신원 증명이 아닙니다. 누가 고쳤는지를 서버가 증명하지는
+     못합니다. 사람별 계정이 필요해지면 그때 올려야 합니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function signIn(email) {
     const e = String(email || "").trim().toLowerCase();
     const user = window.HUB.USERS.find(u => u.email.toLowerCase() === e);
 
     if (!user) {
-      return { ok: false, field: "email", msg: "등록되지 않은 계정입니다 · Account not recognised" };
-    }
-    if (password !== window.HUB.DEMO_PASSWORD) {
-      return { ok: false, field: "password", msg: "비밀번호가 일치하지 않습니다 · Incorrect password" };
+      return { ok: false, field: "email", msg: "목록에 없는 이름입니다 · Name not in the list" };
     }
 
     const session = {
@@ -67,58 +94,61 @@ window.Auth = (function () {
       initials: user.initials, role: user.role, dept: user.dept,
       since: Date.now()
     };
-    sessionStorage.setItem(KEY, JSON.stringify(session));
+    /* ★ 세션이 아니라 이 브라우저에 남깁니다.
 
-    /* ── 서버 세션도 함께 엽니다 ────────────────────────────────────────
-       데이터가 서버에 있으면 화면 로그인만으로는 부족합니다 — 서버는 쿠키를
-       봅니다.
+       sessionStorage 는 탭을 닫으면 사라집니다. 비밀번호가 있던 시절에는
+       그게 맞았지만, 이제는 "내 이름" 일 뿐이라 매번 다시 고르게 할 이유가
+       없습니다. 상단에서 언제든 바꿉니다. */
+    save(session);
 
-       ★ 위 비밀번호를 보내지 않습니다. 그 값은 data.js 안에 있고 data.js 는
-         누구에게나 내려가는 파일입니다. 그것으로 서버를 지키면 페이지 소스를
-         열어 본 사람 누구나 데이터에 닿습니다. 그래서 서버 비밀값은 따로
-         받습니다 (로그인 화면의 '서버 접속 비밀값').
-
-       호출한 쪽이 결과를 기다릴 수 있도록 약속을 함께 돌려줍니다. 서버가
-       켜져 있는데 비밀값이 틀렸다면, 로그인 화면이 통과시키지 않고 되묻습니다
-       — 틀린 채 들어가면 이 브라우저의 옛 데이터를 서버 데이터로 착각합니다. */
-    let server = Promise.resolve({ ok: true, skipped: true });
-    if (serverSecret && window.HubBoot && window.HubBoot.signIn) {
-      try { server = Promise.resolve(window.HubBoot.signIn(serverSecret)); }
-      catch (e) { server = Promise.resolve({ ok: false, reason: "모듈 오류" }); }
-    } else if (serverSecret && window.HubServer && window.HubServer.signIn) {
-      try { server = Promise.resolve(window.HubServer.signIn(serverSecret)); }
-      catch (e) { server = Promise.resolve({ ok: false, reason: "모듈 오류" }); }
-    }
-
-    return { ok: true, user: session, server: server };
+    /* 서버에 보낼 것이 없습니다 — 읽기·쓰기에 비밀값이 필요 없어졌습니다.
+       약속 모양은 그대로 둡니다 (부르는 쪽이 .server 를 기다립니다). */
+    return { ok: true, user: session, server: Promise.resolve({ ok: true, skipped: true }) };
   }
 
-  /* 화면 세션만 되돌립니다 — 서버 비밀값이 틀려 로그인을 취소할 때 씁니다.
-     signOut() 과 달리 페이지를 옮기지 않습니다 (로그인 화면에 그대로 남아
-     비밀값을 다시 묻기 위해서). */
-  function signOutLocal() { sessionStorage.removeItem(KEY); }
+  function save(session) {
+    try { localStorage.setItem(KEY, JSON.stringify(session)); } catch (e) {}
+    try { sessionStorage.setItem(KEY, JSON.stringify(session)); } catch (e) {}
+  }
 
+  function signOutLocal() { forget(); }
+
+  function forget() {
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    try { sessionStorage.removeItem(KEY); } catch (e) {}
+  }
+
+  /* '이름 바꾸기' — 나가는 문이 아니라 이름을 다시 고르는 길입니다.
+     서버 쿠키는 건드리지 않습니다. 그 쿠키는 전체 삭제 전용이고,
+     이름과 아무 관계가 없습니다. */
   function signOut() {
-    sessionStorage.removeItem(KEY);
-    /* 서버 쿠키도 같이 내립니다 — 화면만 나가고 쿠키가 남으면, 같은
-       브라우저를 쓰는 다음 사람이 로그인 없이 데이터에 닿습니다. */
-    if (window.HubServer && window.HubServer.signOut) { try { window.HubServer.signOut(); } catch (e) {} }
+    forget();
     window.location.href = "index.html";
   }
 
-  /* Redirects to login when no session exists. Client-side only — this
-     hides the UI, it does not protect data. */
+  /* ★ 더 이상 막지 않습니다.
+
+     예전에는 세션이 없으면 로그인 화면으로 돌려보냈습니다. 이제 문이
+     없으므로 돌려보낼 이유도 없습니다 — 이름을 아직 안 골랐으면 "미지정"
+     으로 두고 그대로 들여보냅니다. 이름은 상단에서 고릅니다.
+
+     이름이 비어 있어도 기록은 남습니다. 비어 있다는 사실 자체가 기록이고,
+     나중에 누구였는지 되짚을 때 "이름을 고르지 않은 브라우저" 라는 단서가
+     "작성자 없음" 보다 낫습니다. */
   function requireSession() {
-    const u = current();
-    if (!u) { window.location.replace("index.html"); return null; }
-    return u;
+    return current() || GUEST;
   }
+
+  const GUEST = {
+    email: null, name: "미지정", nameEn: "Unassigned",
+    initials: "—", role: "rnd", dept: "—", guest: true
+  };
 
   function switchRole(roleId) {
     const u = current();
     if (!u || !window.HUB.ROLES[roleId]) return null;
     u.role = roleId;
-    sessionStorage.setItem(KEY, JSON.stringify(u));
+    save(u);
     return u;
   }
 

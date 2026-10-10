@@ -140,18 +140,14 @@ window.E2EServer = (function () {
       st.body && st.body.reason ? "reason=" + st.body.reason : "");
     R.check(G1, "Postgres 연결됨", !!(st.body && st.body.db), "db=" + (st.body && st.body.db));
 
-    /* 로그인은 사람이 하는 일입니다. 안 되어 있는 것은 코드의 실패가
-       아니므로 UNKNOWN 으로 둡니다 — 설정은 맞는데 로그인만 안 한 상태를
-       '실패' 로 적으면 어디를 고쳐야 하는지 헷갈립니다. */
-    if (st.body && st.body.signedIn) {
-      R.check(G1, "이 브라우저가 로그인됨", true, "");
-    } else {
-      R.skip(G1, "이 브라우저가 로그인됨",
-        "로그인 화면에서 '서버 접속 비밀값' 을 넣고 다시 여세요");
-    }
+    /* ★ 로그인 확인을 뺐습니다 (2026-10). 읽기·쓰기에 비밀값이 필요
+       없어졌으므로, 로그인 여부는 이 검사가 볼 것이 아닙니다.
+       비밀값은 전체 삭제 한 곳에만 쓰이고 이 검사는 삭제를 하지 않습니다. */
+    R.check(G1, "로그인 없이 데이터에 닿음", true,
+      st.body && st.body.canWipe ? "전체 삭제는 여전히 비밀값이 필요합니다" : "");
 
-    if (!(st.body && st.body.configured && st.body.db && st.body.signedIn)) {
-      R.skip(G1, "이후 전체", "서버가 켜져 있고 로그인된 상태가 아니라 더 진행하지 않습니다");
+    if (!(st.body && st.body.configured && st.body.db)) {
+      R.skip(G1, "이후 전체", "서버 · DB 가 준비되지 않아 더 진행하지 않습니다");
       return;
     }
 

@@ -90,21 +90,43 @@
            " | meta " + Object.keys(snap.meta || {}).length;
   }
 
-  /* 상태 먼저 — 로그인 안 되어 있으면 버튼을 눌러 봐야 401 입니다 */
+  /* ★ 읽기·쓰기는 누구나 됩니다 (2026-10). 비밀값이 필요한 것은 **비우기**
+     하나뿐이라, 여기서 미리 묻지 않고 그 버튼을 누를 때 묻습니다. */
   (async function () {
     const st = await fetch("/api/session", { credentials: "same-origin" })
       .then(r => r.json()).catch(() => null);
     if (!st) { say("서버에 닿지 못했습니다.", "no"); return; }
-    if (!st.configured) { say("HUB_ACCESS_SECRET 이 설정되지 않았습니다.", "no"); return; }
     if (!st.db) { say("Postgres 가 연결되지 않았습니다.", "no"); return; }
-    if (!st.signedIn) {
-      say("로그인되어 있지 않습니다 — 로그인 화면에서 '서버 접속 비밀값' 을 넣고 다시 여세요.", "no");
-      return;
+    say("서버 연결됨", "ok");
+    if (!st.canWipe) {
+      say("HUB_ACCESS_SECRET 이 설정되어 있지 않아 [DB 비우기] 는 쓸 수 없습니다 " +
+          "(내려받기·복원은 됩니다).", "no");
     }
-    say("서버 연결됨 · 로그인됨", "ok");
     const snap = await api("GET");
     if (snap.ok) say("지금 DB: " + counts(snap.body), "ok");
   })();
+
+  /* 비우기 전에 비밀값을 받아 쿠키를 엽니다.
+     이 한 곳만 비밀값을 씁니다 — 되돌릴 수 없는 유일한 길이기 때문입니다. */
+  async function unlockWipe() {
+    const st = await fetch("/api/session", { credentials: "same-origin" })
+      .then(r => r.json()).catch(() => null);
+    if (st && st.signedIn) return { ok: true };
+    if (st && !st.canWipe) {
+      return { ok: false, msg: "HUB_ACCESS_SECRET 이 설정되지 않아 비울 수 없습니다." };
+    }
+    const secret = window.prompt(
+      "전체 삭제에는 서버 접속 비밀값이 필요합니다.\n" +
+      "(Vercel 환경변수 HUB_ACCESS_SECRET 에 넣은 값)");
+    if (secret === null) return { ok: false, msg: "취소했습니다." };
+    const r = await fetch("/api/session", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret: secret })
+    }).catch(() => null);
+    if (!r || !r.ok) return { ok: false, msg: "비밀값이 맞지 않습니다." };
+    return { ok: true };
+  }
 
   document.getElementById("dump").addEventListener("click", async function () {
     this.disabled = true;
@@ -141,6 +163,8 @@
   document.getElementById("wipe").addEventListener("click", async function () {
     if (!confirm("DB 를 전부 비웁니다. 되돌리려면 방금 내려받은 파일로 복원해야 합니다.\n\n계속할까요?")) return;
     this.disabled = true;
+    const u = await unlockWipe();
+    if (!u.ok) { say(u.msg, "no"); this.disabled = false; return; }
     say("비우는 중…");
     const r = await api("DELETE");
     if (!r.ok) { say("비우지 못했습니다 (HTTP " + r.status + ")", "no"); this.disabled = false; return; }
@@ -193,6 +217,10 @@
       a.click();
       say("복원 직전 백업을 내려받았습니다.", "ok");
     }
+
+    /* 복원도 먼저 비우므로 같은 비밀값이 필요합니다 */
+    const u = await unlockWipe();
+    if (!u.ok) { say(u.msg, "no"); this.disabled = false; return; }
 
     say("DB 를 비우는 중…");
     const w = await api("DELETE");

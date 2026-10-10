@@ -65,23 +65,27 @@ window.HubBoot = (function () {
     if (!S || !window.Persist) { state.reason = "모듈 없음"; return note(); }
 
     const st = await S.status();
-    state.signedIn = !!st.signedIn;
+    state.signedIn = !!st.signedIn;      /* 전체 삭제 권한 — 읽기·쓰기와 무관합니다 */
+    state.canWipe = !!st.canWipe;
 
     if (!st.configured) {
-      /* 서버가 아직 설정되지 않았습니다 — 지금까지처럼 이 브라우저에 둡니다.
-         여기서 localStorage 를 걷어내면 설정 전까지 사이트가 멈춥니다. */
+      /* DB 가 안 붙었거나 서버에 닿지 못했습니다 — 지금까지처럼 이 브라우저에
+         둡니다. 여기서 localStorage 를 걷어내면 설정 전까지 사이트가 멈춥니다. */
       window.Persist.setMode("local");
       state.mode = "local";
       state.reason = st.offline ? "서버에 닿지 못함" : "서버 미설정";
       return note();
     }
 
-    if (!st.signedIn) {
-      window.Persist.setMode("local");
-      state.mode = "local";
-      state.reason = "로그인 필요";
-      return note();
-    }
+    /* ★ "로그인 필요" 분기를 없앴습니다 (2026-10).
+
+       예전에는 비밀값 쿠키가 없으면 로컬 모드로 떨어졌습니다. 그래서 매번
+       비밀값을 넣어야 했고, 12시간 뒤 쿠키가 만료되면 **아무 말 없이**
+       이 브라우저에만 저장되기 시작했습니다 — 저장된 줄 알고 계속 적다가
+       다른 PC 에서 안 보이는 그 증상의 뿌리입니다.
+
+       이제 DB 만 붙어 있으면 바로 서버 모드입니다. 읽기·쓰기에 비밀값이
+       필요 없으니 떨어질 이유가 없습니다. */
 
     /* ★ 여기서부터 localStorage 는 쓰지 않습니다 */
     window.Persist.setMode("server");
@@ -130,9 +134,11 @@ window.HubBoot = (function () {
     return note();
   }
 
-  /* 로그인 화면이 부릅니다 — 비밀값이 맞으면 쿠키를 받고 바로 붙습니다.
-     ★ 여기 오는 값은 로그인 비밀번호가 아니라 '서버 접속 비밀값' 입니다.
-       로그인 비밀번호는 data.js 안에 있어 누구나 읽을 수 있습니다. */
+  /* ★ 이제 전체 삭제 화면(/ops/backup.html)만 부릅니다.
+
+     로그인 화면에서 쓰던 길이었는데, 읽기·쓰기에 비밀값이 필요 없어지면서
+     그 자리에서는 사라졌습니다. 남겨 두는 것은 전체 삭제 한 곳 때문입니다 —
+     거기서만 비밀값을 묻고 쿠키를 받습니다. */
   async function signIn(secret) {
     const S = window.HubServer;
     if (!S) return { ok: false, reason: "서버 모듈 없음" };

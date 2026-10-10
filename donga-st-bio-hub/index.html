@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>로그인 · Bio Knowledge Hub — Dong-A ST</title>
+<title>이름 고르기 · Bio Knowledge Hub — Dong-A ST</title>
 <meta name="description" content="Dong-A ST Bio Knowledge Hub — 연구·임상·규제 지식 통합 플랫폼 (concept)">
 <meta name="robots" content="noindex, nofollow">
 
@@ -96,100 +96,54 @@
         </div>
       </div>
 
-      <h2 style="font-size:22px;margin-bottom:var(--s-2)">로그인</h2>
+      <h2 style="font-size:22px;margin-bottom:var(--s-2)">이름 고르기</h2>
       <p style="font-size:13.5px;color:var(--c-text-mute);margin:0 0 var(--s-6)">
-        사내 계정으로 접속하세요 · Sign in with your company account
+        입력하는 값에 작성자로 함께 기록됩니다 · Recorded as the author of your entries
       </p>
 
-      <form id="login-form" novalidate>
+      <!-- ★ 비밀번호와 '서버 접속 비밀값' 칸을 없앴습니다 (2026-10).
+           이 화면은 더 이상 문이 아닙니다 — 막는 것이 하나도 없고,
+           건너뛰어도 "미지정" 으로 들어갑니다. 남은 일은 기록에 붙을
+           이름을 고르는 것 하나뿐입니다. -->
+      <div id="people" class="who-list" role="list"></div>
 
-        <div class="field" style="margin-bottom:var(--s-5)">
-          <label class="field-label" for="email">이메일 · Email</label>
-          <input class="input" type="email" id="email" name="email"
-                 autocomplete="username" placeholder="name@donga-st.demo"
-                 aria-describedby="email-err">
-          <p class="field-error" id="email-err" role="alert"></p>
-        </div>
+      <button class="btn btn-ghost" id="skip" style="width:100%;margin-top:var(--s-5)">
+        나중에 고르기 · Skip for now
+      </button>
 
-        <div class="field" style="margin-bottom:var(--s-5)">
-          <label class="field-label" for="password">비밀번호 · Password</label>
-          <div style="position:relative">
-            <input class="input" type="password" id="password" name="password"
-                   autocomplete="current-password" style="padding-right:52px"
-                   aria-describedby="pw-err">
-            <button type="button" id="pw-toggle" class="btn-icon"
-                    style="position:absolute;right:2px;top:50%;transform:translateY(-50%);width:42px;height:42px"
-                    aria-label="비밀번호 표시 · Show password" aria-pressed="false">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                   stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/>
-                <circle cx="12" cy="12" r="3"/>
-              </svg>
-            </button>
-          </div>
-          <p class="field-error" id="pw-err" role="alert"></p>
-        </div>
-
-        <!-- 서버 접속 비밀값 — 중앙 DB 가 켜져 있을 때만 나타납니다.
-             위 비밀번호와 다른 값입니다. 위 비밀번호는 이 페이지 소스에
-             들어 있어 누구나 읽을 수 있으므로, 그 값으로 서버를 지킬 수는
-             없습니다. 서버 쿠키는 12시간 유효하므로 매번 묻지 않습니다. -->
-        <div class="field" id="secret-field" style="margin-bottom:var(--s-5);display:none">
-          <label class="field-label" for="secret">서버 접속 비밀값 · Server access key</label>
-          <input class="input" type="password" id="secret" name="secret"
-                 autocomplete="off" aria-describedby="secret-err secret-hint">
-          <p id="secret-hint" style="font-size:12px;color:var(--c-text-mute);margin:6px 0 0">
-            중앙 데이터베이스에 연결하는 값입니다 (위 비밀번호와 다릅니다).
-            관리자가 Vercel 환경변수 <code>HUB_ACCESS_SECRET</code> 에 넣은 값입니다.
-          </p>
-          <p class="field-error" id="secret-err" role="alert"></p>
-        </div>
-
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s-6)">
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-            <input type="checkbox" id="remember" style="width:16px;height:16px;accent-color:var(--c-navy-700)">
-            <span>로그인 상태 유지</span>
-          </label>
-          <a href="#" style="font-size:13px;font-weight:600;color:var(--c-navy-700)"
-             onclick="event.preventDefault()">비밀번호 재설정</a>
-        </div>
-
-        <button class="btn btn-primary" type="submit" id="submit-btn" style="width:100%">
-          <span id="submit-label">로그인 · Sign in</span>
-        </button>
-
-        <p class="field-error" id="form-err" role="alert" style="margin-top:var(--s-4)"></p>
-      </form>
+      <p class="field-error" id="form-err" role="alert" style="margin-top:var(--s-4)"></p>
 
       <div class="rule-hair" style="margin:var(--s-8) 0 var(--s-5)"></div>
 
-      <!-- Demo affordance: this is a concept build with no real auth. -->
-      <div class="demo-note">
-        <div style="font-weight:700;margin-bottom:6px">데모 계정 · Demo accounts</div>
-        <div style="display:grid;gap:5px">
-          <button class="mono demo-fill" data-email="s.park@donga-st.demo"
-                  style="text-align:left;background:none;border:0;padding:0;cursor:pointer;font-size:12px;color:#0C4A6E;text-decoration:underline">
-            s.park@donga-st.demo — 연구개발 / R&amp;D
-          </button>
-          <button class="mono demo-fill" data-email="j.kim@donga-st.demo"
-                  style="text-align:left;background:none;border:0;padding:0;cursor:pointer;font-size:12px;color:#0C4A6E;text-decoration:underline">
-            j.kim@donga-st.demo — 메디컬 / Medical Affairs
-          </button>
-          <button class="mono demo-fill" data-email="h.lee@donga-st.demo"
-                  style="text-align:left;background:none;border:0;padding:0;cursor:pointer;font-size:12px;color:#0C4A6E;text-decoration:underline">
-            h.lee@donga-st.demo — 규제 / Regulatory
-          </button>
-        </div>
-        <div style="margin-top:8px">비밀번호 · Password: <b class="mono">hub2026</b></div>
-      </div>
-
-      <p style="font-size:11.5px;color:var(--c-text-soft);margin-top:var(--s-5);line-height:1.6">
-        디자인 컨셉 시안입니다. 실제 인증이 아니며 모든 데이터는 예시입니다.<br>
-        Concept design. Not real authentication; all data is illustrative.
+      <p style="font-size:11.5px;color:var(--c-text-soft);line-height:1.7">
+        이 사이트는 <b>비밀번호 없이</b> 누구나 열람·입력할 수 있습니다.
+        주소를 아는 사람은 모두 같은 데이터를 봅니다 — 주소를 사외로
+        내보내지 마세요.<br>
+        이름은 이 브라우저가 기억하고, 상단에서 언제든 바꿀 수 있습니다.
       </p>
     </div>
   </section>
 </main>
+
+<style>
+  .who-list { display: grid; gap: 8px; }
+  .who {
+    display: flex; align-items: center; gap: 12px; width: 100%;
+    padding: 12px 14px; cursor: pointer; text-align: left;
+    border: 1px solid var(--c-border); border-radius: var(--r-md);
+    background: var(--c-surface);
+  }
+  .who:hover, .who:focus-visible {
+    border-color: var(--c-accent); background: var(--c-paper); outline: none;
+  }
+  .who-ini {
+    width: 34px; height: 34px; flex: none; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--c-navy-700); color: #fff; font-size: 12.5px; font-weight: 700;
+  }
+  .who-name { font-size: 14px; font-weight: 600; }
+  .who-dept { font-size: 11.5px; color: var(--c-text-mute); }
+</style>
 
 <script src="assets/js/data.js"></script>
 <script src="assets/js/data/persist.js"></script>
@@ -199,127 +153,46 @@
 (function () {
   "use strict";
 
-  const form   = document.getElementById("login-form");
-  const email  = document.getElementById("email");
-  const pw     = document.getElementById("password");
-  const btn    = document.getElementById("submit-btn");
-  const label  = document.getElementById("submit-label");
-  const secret = document.getElementById("secret");
-  const secBox = document.getElementById("secret-field");
+  const host = document.getElementById("people");
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-  // Already signed in? Go straight through.
+  /* 이미 고른 이름이 있으면 바로 들어갑니다.
+     ★ 다만 '이름 바꾸기' 로 온 경우에는 멈춥니다 — 바꾸러 왔는데 곧바로
+       되돌려 보내면 바꿀 수가 없습니다. Auth.signOut 이 이름을 지우고
+       오므로, 지워진 상태면 여기 머뭅니다. */
   if (window.Auth.current()) window.location.replace("dashboard.html");
 
-  /* 서버가 켜져 있고 아직 쿠키가 없을 때만 비밀값을 묻습니다.
-     꺼져 있으면 물어 봐야 쓸 데가 없고, 쿠키가 살아 있으면(12시간) 이미
-     붙어 있으므로 묻지 않습니다. */
-  let needSecret = false;
-  if (window.HubServer && window.HubServer.status) {
-    window.HubServer.status().then(function (st) {
-      needSecret = !!(st && st.configured && !st.signedIn);
-      if (needSecret) secBox.style.display = "";
-    }).catch(function () {});
-  }
+  const users = (window.HUB && window.HUB.USERS) || [];
 
-  function setError(input, elId, msg) {
-    const el = document.getElementById(elId);
-    if (msg) {
-      el.textContent = msg;
+  host.innerHTML = users.map(function (u) {
+    const r = (window.HUB.ROLES || {})[u.role] || {};
+    return '<button type="button" class="who" role="listitem" data-email="' + esc(u.email) + '">' +
+      '<span class="who-ini" aria-hidden="true">' + esc(u.initials) + '</span>' +
+      '<span style="min-width:0">' +
+        '<span class="who-name">' + esc(u.name) + '</span>' +
+        '<span class="who-dept" style="display:block">' +
+          esc(u.dept || "") + (r.ko ? " · " + esc(r.ko) : "") + '</span>' +
+      '</span></button>';
+  }).join("");
+
+  function go() { window.location.href = "dashboard.html"; }
+
+  host.addEventListener("click", function (ev) {
+    const b = ev.target.closest("[data-email]");
+    if (!b) return;
+    const res = window.Auth.signIn(b.dataset.email);
+    if (!res.ok) {
+      const el = document.getElementById("form-err");
+      el.textContent = res.msg;
       el.classList.add("is-shown");
-      if (input) input.setAttribute("aria-invalid", "true");
-    } else {
-      el.textContent = "";
-      el.classList.remove("is-shown");
-      if (input) input.removeAttribute("aria-invalid");
+      return;
     }
-  }
-
-  function clearAll() {
-    setError(email, "email-err", "");
-    setError(pw, "pw-err", "");
-    setError(null, "form-err", "");
-  }
-
-  // Show/hide password
-  const toggle = document.getElementById("pw-toggle");
-  toggle.addEventListener("click", function () {
-    const shown = pw.type === "text";
-    pw.type = shown ? "password" : "text";
-    toggle.setAttribute("aria-pressed", String(!shown));
-    toggle.setAttribute("aria-label",
-      shown ? "비밀번호 표시 · Show password" : "비밀번호 숨기기 · Hide password");
-    pw.focus();
+    go();
   });
 
-  // Demo account shortcuts
-  document.querySelectorAll(".demo-fill").forEach(function (b) {
-    b.addEventListener("click", function () {
-      email.value = b.dataset.email;
-      pw.value = window.HUB.DEMO_PASSWORD;
-      clearAll();
-      pw.focus();
-    });
-  });
-
-  // Clear a field's error as soon as the user starts fixing it
-  email.addEventListener("input", function () { setError(email, "email-err", ""); });
-  pw.addEventListener("input", function () { setError(pw, "pw-err", ""); });
-
-  form.addEventListener("submit", function (ev) {
-    ev.preventDefault();
-    clearAll();
-
-    let bad = false;
-    if (!email.value.trim()) { setError(email, "email-err", "이메일을 입력하세요 · Enter your email"); bad = true; }
-    if (!pw.value)           { setError(pw, "pw-err", "비밀번호를 입력하세요 · Enter your password"); bad = true; }
-    if (needSecret && !secret.value) {
-      setError(secret, "secret-err", "서버 접속 비밀값을 입력하세요 · Enter the server access key");
-      bad = true;
-    }
-    if (bad) { (email.value.trim() ? (pw.value && needSecret ? secret : pw) : email).focus(); return; }
-
-    // Loading feedback — never an instant, unexplained state change.
-    btn.disabled = true;
-    label.textContent = "확인 중… · Checking…";
-
-    setTimeout(function () {
-      const res = window.Auth.signIn(email.value, pw.value, needSecret ? secret.value : null);
-      if (!res.ok) {
-        btn.disabled = false;
-        label.textContent = "로그인 · Sign in";
-        if (res.field === "email") { setError(email, "email-err", res.msg); email.focus(); }
-        else                       { setError(pw, "pw-err", res.msg); pw.focus(); }
-        return;
-      }
-
-      if (!needSecret) {
-        label.textContent = "이동 중… · Redirecting…";
-        window.location.href = "dashboard.html";
-        return;
-      }
-
-      /* ★ 서버가 켜져 있으면 쿠키를 받기까지 기다립니다.
-         비밀값이 틀렸는데 그냥 통과시키면, 이 브라우저에 남아 있던 옛
-         데이터를 서버 데이터로 착각하게 됩니다. 조용히 다른 데이터를
-         보여 주는 것이 로그인이 막히는 것보다 나쁩니다. */
-      label.textContent = "서버 연결 중… · Connecting…";
-      res.server.then(function (sr) {
-        if (sr && sr.ok) {
-          label.textContent = "이동 중… · Redirecting…";
-          window.location.href = "dashboard.html";
-          return;
-        }
-        window.Auth.signOutLocal();
-        btn.disabled = false;
-        label.textContent = "로그인 · Sign in";
-        setError(secret, "secret-err",
-          sr && sr.status === 401
-            ? "서버 접속 비밀값이 맞지 않습니다 · Server access key is incorrect"
-            : "서버에 연결하지 못했습니다. 잠시 후 다시 시도하세요 · Could not reach the server");
-        secret.focus();
-      });
-    }, 550);
-  });
+  /* 건너뛰기 — 이름 없이 들어갑니다. 기록에는 "미지정" 으로 남습니다. */
+  document.getElementById("skip").addEventListener("click", go);
 })();
 </script>
 </body>

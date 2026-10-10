@@ -1,9 +1,13 @@
 /* ==========================================================================
-   api/session.js — 로그인 · 로그아웃 · 상태 확인
+   api/session.js — 서버 상태 확인 · (전체 삭제용) 비밀값 로그인
 
-     POST   /api/session   { secret }   → 쿠키 발급
-     GET    /api/session               → 지금 로그인 상태인가
+     GET    /api/session               → 서버·DB 가 쓸 수 있는 상태인가
+     POST   /api/session   { secret }  → 쿠키 발급 (전체 삭제에만 필요)
      DELETE /api/session               → 쿠키 지우기
+
+   ★ 데이터를 읽고 쓰는 데는 로그인이 필요 없습니다 (2026-10). 화면은 이
+     응답의 db 만 보고 서버 모드로 들어갑니다. 여기 남은 로그인은 오직
+     전체 삭제(DELETE /api/data) 한 곳을 위한 것입니다.
 
    ★ 비밀값을 응답에 담지 않습니다. 맞았는지 여부만 돌려줍니다.
    ★ 틀린 비밀값은 일부러 조금 느리게 답합니다 — 빠른 반복 시도를 줄입니다.
@@ -22,12 +26,20 @@ module.exports = async function handler(req, res) {
        멈추지 않도록, 무엇이 비어 있는지는 알려 줍니다.
        ★ 비밀값도 그 길이도 담지 않습니다 — 없음 / 너무 짧음 구분까지입니다.
        ★ db 는 Postgres 가 붙었는지 여부(참·거짓)일 뿐 접속 정보가 아닙니다. */
+    /* ★ configured 는 이제 "데이터를 쓸 수 있는가" 입니다 — 곧 DB 가
+       붙었는가입니다. 예전에는 "비밀값이 설정됐는가" 였고, 화면은 그걸
+       보고 서버 모드로 들어갈지 정했습니다. 읽기·쓰기에 비밀값이 필요
+       없어진 지금 그 기준을 그대로 두면, 비밀값을 지운 순간 화면이
+       통째로 로컬 모드로 떨어집니다.
+
+       canWipe 는 전체 삭제가 가능한 상태인지 — 그 한 곳만 비밀값을 봅니다. */
     const out = {
-      configured: A.configured(),
+      configured: DB.configured(),
+      db: DB.configured(),
       signedIn: A.configured() && A.validToken(A.readCookie(req, A.COOKIE)),
-      db: DB.configured()
+      canWipe: A.configured()
     };
-    if (!out.configured) { out.reason = A.why(); out.minSecretLength = A.MIN_SECRET; }
+    if (!DB.configured()) out.reason = "db-missing";
     return res.status(200).json(out);
   }
 

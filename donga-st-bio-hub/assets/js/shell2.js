@@ -124,13 +124,18 @@ window.Shell = (function () {
         cls = "badge badge-risk"; txt = "서버 끊김";
         tip = "서버에서 데이터를 읽지 못했습니다 (" + (n.reason || "") + "). " +
               "지금 보이는 값은 최신이 아닐 수 있습니다. 새로 고쳐 보세요.";
-      } else if (n.reason === "로그인 필요") {
-        cls = "badge badge-risk"; txt = "서버 미연결";
-        tip = "서버는 켜져 있지만 이 브라우저는 연결되지 않았습니다. " +
-              "다시 로그인해 '서버 접속 비밀값' 을 입력하세요.";
       } else {
+        /* ★ '서버 미연결(로그인 필요)' 상태가 없어졌습니다 (2026-10).
+           읽기·쓰기에 비밀값이 필요 없으니, DB 만 붙어 있으면 바로 서버입니다.
+           여기 남는 경우는 진짜로 서버가 없는 때뿐입니다.
+
+           ★ 그래도 "항상 초록" 으로 못박지는 않았습니다. 서버가 실제로
+             끊겼는데 초록이면, 사용자는 저장된 줄 알고 계속 적습니다 —
+             이 프로젝트에서 가장 비싸게 치른 실패가 그것이었습니다.
+             비밀값 때문에 빨개지는 일은 없어졌고, 남은 빨강은 전부
+             "정말 서버에 닿지 못함" 입니다. */
         cls = "badge"; txt = "이 브라우저";
-        tip = "중앙 서버가 설정되지 않았습니다 (" + (n.reason || "") + "). " +
+        tip = "중앙 서버에 닿지 못했습니다 (" + (n.reason || "") + "). " +
               "데이터는 이 브라우저에만 저장되며 다른 PC 에서는 보이지 않습니다.";
       }
 
@@ -178,11 +183,10 @@ window.Shell = (function () {
       } else if (n.mode === "server") {
         el.textContent = "서버에서 데이터를 읽지 못했습니다 (" + (n.reason || "") +
                          "). 지금 보이는 내용은 최신이 아닐 수 있으니 새로 고쳐 보세요.";
-      } else if (n.reason === "로그인 필요") {
-        el.textContent = "서버는 켜져 있지만 이 브라우저는 연결되지 않았습니다 — 다시 로그인해 " +
-                         "'서버 접속 비밀값' 을 입력하세요. 그 전까지 " + eun + " 이 브라우저에만 남습니다.";
       } else {
-        el.textContent = "중앙 서버가 설정되지 않아 " + eun +
+        /* '로그인 필요' 경우가 없어졌습니다 — 읽기·쓰기에 비밀값이 필요
+           없으니 서버에 닿기만 하면 바로 붙습니다 (bootstrap.js 참고). */
+        el.textContent = "중앙 서버에 닿지 못해 " + eun +
                          " 이 브라우저에만 저장됩니다 — 다른 PC 에서는 보이지 않습니다.";
       }
     }
@@ -240,7 +244,9 @@ window.Shell = (function () {
           'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
           '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>' +
           '<path d="M7 10l5 5 5-5M12 15V3"/></svg></button>' +
-        '<button class="btn-icon" id="signout" aria-label="로그아웃" style="color:#8FA2BB">' +
+        /* 나가는 문이 아니라 **이름을 다시 고르는** 길입니다 — 이 사이트에는
+           로그인이 없습니다 (auth.js 머리말 참고). */
+        '<button class="btn-icon" id="signout" aria-label="이름 바꾸기" title="이름 바꾸기" style="color:#8FA2BB">' +
           '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
           '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>' +
         '</button>' +

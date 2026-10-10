@@ -100,21 +100,46 @@ function secretMatches(given) {
   return crypto.timingSafeEqual(a, b);
 }
 
-/* 모든 데이터 라우트가 첫 줄에서 부릅니다.
+/* ══════════════════════════════════════════════════════════════════════
+   ★ 읽기와 쓰기는 더 이상 막지 않습니다 (2026-10, 소유자 결정)
+
+   예전에는 /api/data 전체가 이 문을 지났습니다. 주소를 아는 사람은 누구나
+   읽고 쓸 수 있으니 막아야 한다는 판단이었습니다. 지금은 반대로, 매번
+   비밀값을 넣고 12시간마다 끊기는 비용이 더 크다고 보고 열어 두기로
+   했습니다.
+
+   그래서 지금 이 파일이 지키는 것은 **전체 삭제 하나뿐**입니다.
+
+     GET  /api/data   누구나
+     POST /api/data   누구나
+     DELETE /api/data 비밀값을 아는 사람만   ← guardDestructive
+
+   읽기·쓰기가 열려 있어도 삭제만은 막아 둡니다. 쓰기는 틀려도 이력이
+   남고 되짚을 수 있지만, 전체 삭제는 한 번의 요청으로 전부 사라지고
+   되돌릴 것이 없습니다. 둘은 같은 위험이 아닙니다.
+
+   ⚠ 이 설정에서 데이터는 주소를 아는 사람에게 공개됩니다. 배포 주소를
+     아무 데나 올리지 않는 것이 유일한 울타리입니다.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* 되돌릴 수 없는 길만 막습니다 (지금은 DELETE 하나).
    통과하면 true, 아니면 응답을 이미 보낸 상태로 false 를 돌려줍니다. */
-function guard(req, res) {
+function guardDestructive(req, res) {
   if (!configured()) {
     res.status(503).json({
       error: "not-configured",
       reason: why(),
       message: why() === "secret-too-short"
-        ? "HUB_ACCESS_SECRET 이 너무 짧습니다 (" + MIN_SECRET + "자 이상). 서버 데이터 기능이 꺼져 있습니다."
-        : "HUB_ACCESS_SECRET 환경변수가 없습니다. 서버 데이터 기능이 꺼져 있습니다."
+        ? "HUB_ACCESS_SECRET 이 너무 짧습니다 (" + MIN_SECRET + "자 이상). 전체 삭제가 꺼져 있습니다."
+        : "HUB_ACCESS_SECRET 환경변수가 없습니다. 전체 삭제가 꺼져 있습니다."
     });
     return false;
   }
   if (!validToken(readCookie(req, COOKIE))) {
-    res.status(401).json({ error: "unauthorized", message: "로그인이 필요합니다." });
+    res.status(401).json({
+      error: "unauthorized",
+      message: "전체 삭제에는 서버 접속 비밀값이 필요합니다."
+    });
     return false;
   }
   return true;
@@ -122,5 +147,5 @@ function guard(req, res) {
 
 module.exports = {
   COOKIE, MAX_AGE, MIN_SECRET, configured, why, makeToken, validToken,
-  readCookie, setCookie, clearCookie, secretMatches, guard
+  readCookie, setCookie, clearCookie, secretMatches, guardDestructive
 };

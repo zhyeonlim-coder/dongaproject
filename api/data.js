@@ -1,10 +1,14 @@
 /* ==========================================================================
-   api/data.js — 중앙 데이터 읽기 · 쓰기  ·  로그인한 요청만 받습니다
+   api/data.js — 중앙 데이터 읽기 · 쓰기
 
-     GET    /api/data            전체 스냅샷 (레코드 · 값 · meta)
-     POST   /api/data            변경 적용   { values, records, meta }
-     POST   /api/data?seed=1     비어 있을 때만 씨앗 심기
-     DELETE /api/data            전부 비우기 (다음 접속에서 씨앗이 다시 심깁니다)
+     GET    /api/data            전체 스냅샷 (레코드 · 값 · meta)   누구나
+     POST   /api/data            변경 적용   { values, records, meta }  누구나
+     POST   /api/data?seed=1     비어 있을 때만 씨앗 심기             누구나
+     DELETE /api/data            전부 비우기                       비밀값 필요
+
+   ★ 읽기·쓰기는 열려 있습니다 (2026-10, 소유자 결정). 삭제만 막습니다 —
+     쓰기는 틀려도 이력이 남지만 전체 삭제는 되돌릴 것이 없습니다.
+     자세한 배경은 _auth.js 머리말에 있습니다.
 
    ── 왜 전체를 한 번에 주고받나 ──────────────────────────────────────────
    화면이 수백 군데에서 값을 **동기적으로** 읽습니다 (Repo.valueOf). 칸마다
@@ -26,7 +30,6 @@ const MAX_BODY = 4 * 1024 * 1024;      /* 4MB — 씨앗 전체가 들어올 수
 module.exports = async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
 
-  if (!A.guard(req, res)) return;                 /* 401 · 503 은 여기서 끝납니다 */
   if (!DB.configured()) return DB.notConfigured(res);
 
   const ip = S.clientIp(req);
@@ -63,6 +66,9 @@ module.exports = async function handler(req, res) {
     }
 
     if (req.method === "DELETE") {
+      /* ★ 되돌릴 수 없는 유일한 길 — 여기서만 비밀값을 봅니다.
+         읽기·쓰기가 열려 있어도 이건 막아 둡니다. */
+      if (!A.guardDestructive(req, res)) return;
       await DB.wipe();
       return res.status(200).json({ ok: true, wiped: true });
     }
