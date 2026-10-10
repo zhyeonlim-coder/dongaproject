@@ -169,8 +169,12 @@ window.Ask = (function () {
       h += '<div class="ask-cond"><span class="ask-cond-k">해석한 조건</span>' +
         r.applied.map(x => '<span class="ask-cond-v">' + esc(x) + "</span>").join("") + "</div>";
     }
+    /* 못 읽은 조건은 계속 보여 줍니다 — 기간이나 값 조건을 반쯤 읽고
+       넘어가면 사용자는 조건이 걸린 줄 알고 다른 범위의 숫자를 읽습니다.
+       바꾼 것은 이름입니다: "반영 못 함" 은 실패 통보처럼 읽히는데, 실제로는
+       "이건 제가 못 읽었으니 다시 알려 주세요" 라는 뜻입니다. */
     if (r.unhandled && r.unhandled.length) {
-      h += '<div class="ask-cond is-miss"><span class="ask-cond-k">반영 못 함</span>' +
+      h += '<div class="ask-cond is-miss"><span class="ask-cond-k">이 부분은 못 읽었습니다</span>' +
         r.unhandled.map(x => '<span class="ask-cond-v">' + esc(x) + "</span>").join("") + "</div>";
     }
     /* 조건이 걸렸는데 아무것도 못 걸렀을 때 — 가장 눈에 띄어야 합니다.

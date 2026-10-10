@@ -124,6 +124,25 @@
 .gai-a { font-size: 13px; line-height: 1.7; color: var(--c-text); }
 .gai-a .gai-headline, .gai-bub .gai-headline { font-weight: 600; margin-bottom: var(--s-2); }
 .gai-note { font-size: 12px; color: var(--c-text-mute); margin-top: var(--s-2); line-height: 1.7; }
+
+/* 대화를 이어 주는 한마디 — "혹시 특정 지표를 원하시나요?"
+
+   경고(gai-warn)와 분명히 달라 보여야 합니다. 주의를 끄는 색을 쓰지 않고,
+   본문과 같은 글자색에 왼쪽 선만 둡니다 — 답의 일부이지 문제 표시가
+   아니기 때문입니다. */
+/* 다음 수 안내 — 왜 그렇게 나왔는지, 무엇을 바꿔 물으면 되는지 */
+.gai-hints {
+  font-size: 12px; line-height: 1.75; color: var(--c-text-soft, #4A5568);
+  margin: var(--s-2) 0 0; padding-left: 1.1em;
+}
+.gai-hints li { margin: 2px 0; }
+
+.gai-follow {
+  font-size: 12.5px; line-height: 1.75; color: var(--c-text);
+  border-left: 2px solid var(--c-accent-mid, #5B8DEF);
+  padding: 2px 0 2px var(--s-3);
+  margin: var(--s-2) 0;
+}
 .gai-warn {
   font-size: 12px; color: var(--c-warn); background: var(--c-warn-bg);
   border: 1px solid #F0DFC4; border-radius: var(--r-md);

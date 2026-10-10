@@ -582,6 +582,68 @@ window.SSOTTest = (function () {
         }).join(" / "));
     })();
 
+    /* ══════════════════════════════════════════════════════════════════
+       ⑰ 넓게 물어도 막지 않되, 없는 것은 없다고 말하는가
+
+       "항목을 특정하지 못했습니다" 경고를 없애면서 반대쪽으로 넘어가기
+       쉬운 자리입니다 — 무엇을 물어도 요약을 내놓으면, **없는 시료를
+       물어도 다른 시료의 표가 답처럼 보입니다.** 0건 경고보다 나쁩니다.
+
+       그래서 셋을 한 쌍으로 봅니다.
+         · 넓은 질문 → 경고 없이 요약 (반영 못 함 이 비어 있어야 함)
+         · 없는 이름 → 머리말에서 "없는 이름" 이라고 말해야 함
+         · 원본에 없는 항목(pH) → "컬럼이 없어" 를 말해야 함
+       ══════════════════════════════════════════════════════════════════ */
+    (function conversationalChecks() {
+      const AE = window.AskEngine, AT = window.AskTables;
+      if (!AE || !AT) { T.add("⑰ 엔진 있음", false, "AskEngine·AskTables 없음"); return; }
+      const t = AT.internal();
+      const anyName = t.rows.length ? t.rows[0].__label : null;
+      if (!anyName) { T.add("⑰ 검사할 시료 있음", false, "표가 비었습니다"); return; }
+
+      /* 넓은 질문 — 경고 없이 요약으로 답해야 합니다 */
+      const wide = AE.answer(anyName + " 어때?");
+      T.add("⑰ 넓게 물으면 경고 없이 요약으로 답함",
+        (wide.kind === "overview" || wide.kind === "entity") &&
+        !(wide.unhandled || []).length &&
+        !/특정하지 못/.test(String(wide.note || "") + String(wide.headline || "")),
+        "kind=" + wide.kind + " unhandled=" + JSON.stringify(wide.unhandled || []));
+      T.add("⑰ 요약에 이어 묻는 한마디가 붙음",
+        !!wide.followUp && /지표|이름/.test(String(wide.followUp)),
+        "followUp=" + String(wide.followUp || "").slice(0, 60));
+
+      /* 없는 이름 — 조용히 전체 요약만 내놓으면 안 됩니다 */
+      const ghost = AE.answer("ZZNOPE9 어때?");
+      T.add("⑰ 없는 이름은 없다고 머리말에서 말함",
+        /없는 이름|기록에 없/.test(String(ghost.headline || "")),
+        "headline=" + String(ghost.headline || "").slice(0, 80));
+
+      /* 원본에 컬럼이 없는 항목 — 값을 만들지도, 조용히 넘어가지도 않습니다 */
+      const ph = AE.answer("pH 평균 알려줘");
+      T.add("⑰ 기록 없는 항목은 없다고 먼저 말함",
+        /컬럼이 없어/.test(String(ph.headline || "") + String(ph.note || "")),
+        "headline=" + String(ph.headline || "").slice(0, 80));
+
+      /* 팀별로 나눠 적은 같은 이름의 시료는 한 줄로 모읍니다 —
+         데이터 조회 화면과 같은 규칙이어야 합니다 */
+      const names = {};
+      t.rows.forEach(function (r) {
+        const k = String(r.study || "") + "|" + String(r.__label || "").toLowerCase();
+        names[k] = (names[k] || 0) + 1;
+      });
+      const dupKey = Object.keys(names).find(k => names[k] > 1);
+      if (dupKey) {
+        const label = dupKey.split("|")[1];
+        const merged = AE.answer(label + " 어때?");
+        T.add("⑰ 같은 이름의 팀별 시료를 한 줄로 모음",
+          merged.kind === "overview" &&
+          (!merged.rows || merged.rows.length < names[dupKey] ||
+           /들어 있는 값을 모아/.test(String(merged.headline || ""))),
+          "rows=" + (merged.rows ? merged.rows.length : "facts") +
+          " (원본 " + names[dupKey] + "행)");
+      }
+    })();
+
     return Promise.all(pending).then(function () {
     const bad = T.out.filter(x => !x.pass);
     return {

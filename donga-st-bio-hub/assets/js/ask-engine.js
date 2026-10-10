@@ -459,11 +459,17 @@ window.AskEngine = (function () {
       scope.filters.push(r => s.batchIds.indexOf(r.__id) > -1);
       /* 같은 이름이 여러 번 적히지 않게 합니다. 팀마다 같은 시료 이름이
          하나씩 있으면 예전에는 "범위 TA1, TA1, TA1" 이라고 적혔습니다 —
-         시료가 셋인 것처럼 읽힙니다. 건수는 머리말이 따로 말합니다. */
-      const labels = [];
+         시료가 셋인 것처럼 읽힙니다. 건수는 머리말이 따로 말합니다.
+
+         공백·대소문자만 다른 표기도 한 번만 적습니다 ("시료 A" 와
+         "시료  a" 는 같은 시료로 보고 묶는 쪽과 같은 규칙입니다). */
+      const labels = [], seen = {};
       table.rows.forEach(function (r) {
         if (s.batchIds.indexOf(r.__id) === -1) return;
-        if (labels.indexOf(r.__label) === -1) labels.push(r.__label);
+        const k = squash(r.__label);
+        if (seen[k]) return;
+        seen[k] = true;
+        labels.push(r.__label);
       });
       scope.label.push(labels.join(", "));
     }
@@ -1170,9 +1176,17 @@ window.AskEngine = (function () {
     if (r.applied.length) {
       r.headline = "[" + r.applied.join(" · ") + "] " + (r.headline || "");
     }
+    /* 못 읽은 조건은 계속 밝힙니다 — 기간이나 값 조건을 반쯤 읽고 넘어가면
+       사용자는 조건이 걸린 줄 알고 다른 범위의 숫자를 읽습니다. 그것이
+       이 프로젝트에서 가장 비싸게 치른 실패입니다.
+
+       바꾼 것은 말투입니다. 답을 가로막는 경고가 아니라, 답 끝에 덧붙이는
+       한마디로 둡니다 — 조건을 못 읽은 것은 사용자의 잘못이 아니고,
+       다시 알려 주면 되는 일입니다. */
     if (r.unhandled.length) {
       r.note = (r.note ? r.note + " " : "") +
-        "이번 조회에 반영하지 못한 조건이 있습니다 — " + r.unhandled.join(" · ") + ".";
+        "다만 " + r.unhandled.join(" · ") + " — 이 부분은 조회에 넣지 못했으니, " +
+        "중요한 조건이면 한 번 더 알려 주세요.";
     }
     /* 출처 한 줄 — 수치가 들어간 응답에는 예외 없이 붙입니다.
        이 데이터는 스캔 이미지 전사본이고, 원본 비고가 판독 오차 가능성을
@@ -1578,11 +1592,43 @@ window.AskEngine = (function () {
         hints.push("범위(" + scope.label.join(" · ") + ")를 빼고 다시 물어보면 전체 " +
           table.rows.length + "건에서 찾습니다.");
       }
+      /* ★ 막다른 답을 주지 않습니다.
+
+         범위(시료 · Study · 과제)는 찾았는데 값 조건·기간에서 0건이 된
+         경우가 많습니다. 그때 "0건입니다" 로 끝내면 사용자는 조건을
+         하나씩 지워 가며 같은 질문을 네 번 다시 씁니다. 범위 안에 실제로
+         무엇이 들어 있는지 **함께** 보여 주는 편이 낫습니다.
+
+         조건을 적용하지 않은 결과라는 사실은 머리말에 그대로 적습니다 —
+         조건이 걸린 줄 알고 이 숫자를 읽으면 그게 조용한 오답입니다.
+
+         ★ 사용자가 **범위를 지목했을 때만** 그렇게 합니다.
+           "2024년 1월부터 7월까지" 처럼 범위 없이 기간만 물었는데 전체
+           목록을 펼치면, 묻지 않은 28건이 답처럼 보입니다. 그 질문의 답은
+           "그 기간에는 기록이 없고, 보유 구간은 ○○~○○ 입니다" 이고,
+           그 문장은 아래 hints 가 이미 만들고 있습니다. */
+      if (scope.filters.length && scoped.length) {
+        const why = [];
+        if (cond.period) why.push("기간 " + cond.period.from + "~" + cond.period.to);
+        cond.thresholds.forEach(th => why.push(th.label + " 조건"));
+        const where = (base.scopeLabel && base.scopeLabel !== "전체")
+          ? base.scopeLabel + " 범위에 " : "";
+        const lead = (why.length ? why.join(" · ") + " 에 맞는 기록은 없었습니다. " : "") +
+          "대신 " + where + "들어 있는 값을 그대로 보여 드립니다 — " +
+          "아래 숫자에는 그 조건이 걸려 있지 않습니다.";
+        const out = briefAnswer(base, table, scoped, scope, missingAsked, lead, false);
+        out.hints = hints;
+        return decorate(out, cond, table);
+      }
+
       if (!hints.length) hints.push("조건을 하나씩 빼면서 다시 물어봐 주세요.");
       return decorate(Object.assign(base, {
         ok: false, kind: "no-rows",
-        headline: "조건에 맞는 데이터가 0건입니다.",
-        hints: hints, suggestions: suggestList(table)
+        headline: "조건에 맞는 기록을 찾지 못했습니다.",
+        hints: hints,
+        followUp: "조건을 조금 넓혀 다시 물어보시면 찾아 드립니다. " +
+          "시료 이름만 말씀하셔도 그 시료에 들어 있는 값을 모아 보여 드립니다.",
+        suggestions: suggestList(table)
       }), cond, table);
     }
 
@@ -1618,6 +1664,13 @@ window.AskEngine = (function () {
       if (dateCols.length) return decorate(dateAnswer(base, table, rows, dateCols), cond, table);
       if (groups.length) return decorate(groupAnswer(base, table, rows, groups, cond), cond, table);
       if (rows.length === 1 || askedEntity) {
+        /* 팀별로 나눠 적은 같은 이름의 시료는 한 줄로 모아 답합니다 —
+           데이터 조회 화면이 한 줄로 보여 주는 것을 챗봇이 세 줄로
+           답하면, 같은 데이터를 두고 어느 쪽이 맞는지 사용자가
+           판단해야 합니다. */
+        if (rows.length > 1 && groupBySample(rows).length === 1) {
+          return decorate(briefAnswer(base, table, rows, scope, missingAsked), cond, table);
+        }
         return decorate(entityAnswer(base, table, rows, missingAsked, askedEntity), cond, table);
       }
     }
@@ -1653,11 +1706,38 @@ window.AskEngine = (function () {
       }
     }
 
+    /* ★ 항목을 고르지 않은 것은 잘못이 아닙니다 — 경고 대신 요약으로 답합니다.
+       (예전에는 여기서 unhandled 에 "항목을 특정하지 못했습니다" 를 넣어
+        답 위에 경고 칸을 띄웠습니다. 놓친 것이 없는데 뜨는 경고였습니다.) */
     if (!metrics.length && intent !== "missing" && intent !== "count") {
-      cond.unhandled.push(scope.label.length
-        ? "조회할 항목을 특정하지 못했습니다 — 범위만 적용하고 그 안의 기록을 그대로 펼쳤습니다"
-        : "질문에서 조회할 항목도 범위(과제 · Study · 배치)도 찾지 못했습니다 — 전체 목록을 보여 드립니다");
-      return decorate(overviewAnswer(base, table, rows, missingAsked), cond, table);
+      /* ★ 없는 이름을 물었으면 그 말을 머리말에서 합니다.
+
+         "TA1 어때?" 인데 TA1 이 기록에 없을 때, 에러를 띄우지 않는다고
+         해서 전체 요약만 내놓으면 사용자는 **그 표를 TA1 의 데이터로
+         읽습니다.** 그게 0건 경고보다 나쁩니다. 없다고 먼저 말하고,
+         그 다음에 지금 있는 것을 보여 줍니다. */
+      let lead = null;
+
+      /* ★ 원본에 없는 항목(pH · DO · 온도 …)을 물었으면 그 말을 **먼저**
+         합니다. 요약을 먼저 내놓고 각주로 적으면, 사용자는 위의 숫자를
+         물어본 항목의 값으로 읽습니다. 지어내지 않는다는 규칙은 값을
+         만들지 않는 것만이 아니라 "없다" 를 분명히 말하는 것까지입니다. */
+      if (missingAsked.length) {
+        lead = missingAsked.join(" · ") + " 은(는) 원본에 컬럼이 없어 " +
+          "값을 보여 드릴 수 없습니다 — 추정해서 채우지 않습니다. 대신";
+        return decorate(briefAnswer(base, table, rows, scope, [], lead, false), cond, table);
+      }
+
+      const unknown = (!scope.label.length && cond.ignoredTokens) ? cond.ignoredTokens : [];
+      if (unknown.length) {
+        lead = "\"" + unknown.join(" ") + "\" 는 아직 기록에 없는 이름입니다 —";
+        /* 머리말에서 말했으니 끝에 또 적지 않습니다 */
+        cond.unhandled = cond.unhandled.filter(function (u) {
+          return unknown.every(tok => String(u).indexOf(tok) === -1);
+        });
+      }
+      return decorate(briefAnswer(base, table, rows, scope, missingAsked, lead, !!lead),
+        cond, table);
     }
 
     const metric = metrics[0];
@@ -2061,6 +2141,8 @@ window.AskEngine = (function () {
         rows: rows.slice(0, 15).map(r => ({ __label: r.__label, project: r.project, study: r.study, date: r.date })),
         evidenceCols: [{ key: "__label", label: "Batch" }, { key: "project", label: "과제" },
                        { key: "study", label: "Study" }, { key: "date", label: "시작일" }],
+        followUp: "이름을 말씀해 주시면 그 건의 기록을 전부 펼쳐 드립니다. " +
+          "지표 이름으로 물으시면 전체에서 계산해 드립니다.",
         suggestions: suggestList(table)
       });
     }
@@ -2096,8 +2178,10 @@ window.AskEngine = (function () {
           (window.Provenance ? window.Provenance.GENERATED_WHY : "") + " " : "") +
         (unvN ? "⚠ 표시된 " + unvN + "개 항목은 여러 배치가 동시에 같은 값이라 원본 스캔과 대조가 필요합니다. " : "") +
         (missingAsked.length
-          ? missingAsked.join(" · ") + "은(는) 원본에 컬럼이 없어 표시할 수 없습니다. " : "") +
-        "특정 항목만 보시려면 항목 이름을 넣어 다시 물어봐 주세요.",
+          ? missingAsked.join(" · ") + "은(는) 원본에 컬럼이 없어 표시할 수 없습니다. " : ""),
+      /* 다음에 무엇을 물을 수 있는지를 각주가 아니라 대화로 둡니다 */
+      followUp: "혹시 특정 지표의 상세 값이나 추이가 필요하시면 이름만 말씀해 주세요" +
+        (vals.length ? " (예: " + vals.slice(0, 3).map(v => v.k).join(" · ") + ")" : "") + ".",
       suggestions: suggestList(table)
     });
   }
@@ -2164,6 +2248,179 @@ window.AskEngine = (function () {
   }
 
   /* 항목 없이 물었을 때의 기본 답 — 범위를 유지한 채 있는 것을 보여 줍니다 */
+  /* ══════════════════════════════════════════════════════════════════════
+     항목을 안 물었을 때 — 경고가 아니라 요약으로 답합니다
+
+     "TA1 어때?" 처럼 넓게 물으면 예전에는 목록을 펼치고 그 위에
+     [반영 못 함: 조회할 항목을 특정하지 못했습니다] 라는 칸을 띄웠습니다.
+     그런데 **아무것도 못 읽은 것이 아닙니다** — 시료는 찾았고, 사용자는
+     애초에 항목을 고르지 않은 것입니다. 잘못한 것이 없는데 경고를 보면
+     사람은 질문을 고쳐 다시 쓰거나, 답을 믿지 않습니다.
+
+     못 읽은 조건을 밝히는 규칙은 그대로입니다 (기간·값 조건을 반쯤 읽고
+     넘어가면 조용한 오답이 됩니다). 여기서 없애는 것은 **실제로 놓친 것이
+     없는데 띄우던 경고** 하나입니다.
+
+     ★ 팀별로 따로 적은 같은 이름의 시료는 한 줄로 모읍니다 — 데이터 조회
+       화면과 같은 규칙입니다. 한 화면은 한 줄, 챗봇은 세 줄이면 같은
+       데이터를 두고 어느 쪽이 맞는지 사용자가 판단해야 합니다.
+     ══════════════════════════════════════════════════════════════════════ */
+
+  /* 같은 Study · 같은 이름이면 한 묶음으로. 이름이 비면 묶지 않습니다. */
+  function groupBySample(rows) {
+    const order = [], at = {};
+    (rows || []).forEach(function (r) {
+      const nk = squash(r.__label);
+      if (!nk) { order.push([r]); return; }
+      const k = String(r.study || "") + "\u0000" + nk;
+      if (at[k] === undefined) { at[k] = order.length; order.push([]); }
+      order[at[k]].push(r);
+    });
+    return order;
+  }
+
+  /* 묶음에서 값 하나 — 팀마다 자기 항목만 적으므로 처음 나오는 값이 그 값입니다 */
+  function pick(parts, key) {
+    for (let i = 0; i < parts.length; i++) {
+      const v = parts[i][key];
+      if (v !== null && v !== undefined && v !== "") return v;
+    }
+    return null;
+  }
+
+  function teamShort(koName) {
+    const t = (window.DATA_TEAMS || []).find(x => x && x.ko === koName);
+    return t ? (t.short || t.ko) : (koName || "");
+  }
+
+  /* 한 시료에 실제로 들어 있는 값을 팀별로 모읍니다 */
+  function filledByTeam(parts, table) {
+    const out = [];
+    const take = function (label, match) {
+      const items = [];
+      table.columns.forEach(function (col) {
+        if (col.group === "base") return;
+        if (!match(col)) return;
+        const v = pick(parts, col.key);
+        if (v === null) return;
+        items.push({ k: label ? label + " " + col.label : col.label,
+                     v: fmt(v, col), label: col.label });
+      });
+      if (items.length) out.push({ name: label || "추가 항목", items: items });
+    };
+    (window.DATA_TEAMS || []).forEach(function (t) {
+      take(t.short || t.ko, col => col.team === t.id);
+    });
+    /* [항목 추가 ↓] 로 만든 칸은 팀이 없습니다 — 어느 팀 밑에 끼워 넣으면
+       그 팀이 적은 것처럼 보이므로 따로 둡니다 */
+    take("", col => !col.team);
+    return out;
+  }
+
+  /* lead      — 머리말 앞에 붙일 한 문장 (없는 이름 · 조건 0건 안내)
+     nameMiss  — 그 lead 가 "이름을 못 찾았다" 인 경우에만 true.
+                 조건 때문에 0건인 경우까지 "이름을 확인해 주세요" 라고
+                 하면 엉뚱한 안내가 됩니다. */
+  function briefAnswer(base, table, rows, scope, missingAsked, lead, nameMiss) {
+    const groups = groupBySample(rows);
+    const avail = suggestList(table);
+
+    /* ── 한 시료 — 그 시료에 들어 있는 값을 팀별로 모아 보여 줍니다 ──── */
+    if (groups.length === 1) {
+      const parts = groups[0];
+      const name = parts[0].__label;
+      const byTeam = filledByTeam(parts, table);
+      const facts = [];
+      if (parts[0].project) facts.push({ k: "과제", v: parts[0].project });
+      if (parts[0].study) facts.push({ k: "Study", v: parts[0].study });
+      const teamNames = parts.map(p => teamShort(p.team)).filter(Boolean);
+      if (teamNames.length) facts.push({ k: "기록한 팀", v: teamNames.join(" · ") });
+      byTeam.forEach(g => g.items.forEach(it => facts.push({ k: it.k, v: it.v })));
+
+      const counted = byTeam.map(g => g.name + " " + g.items.length + "개");
+      const names = [];
+      byTeam.forEach(g => g.items.forEach(it => {
+        if (names.length < 3 && names.indexOf(it.label) === -1) names.push(it.label);
+      }));
+
+      if (!counted.length) {
+        /* 시료는 있는데 값이 아직 없습니다 — 없다고 말하고 어디서 적는지 알려 줍니다 */
+        return Object.assign(base, {
+          kind: "overview",
+          headline: name + " 는 아직 입력된 측정값이 없습니다. 시료만 만들어져 있는 상태입니다.",
+          facts: facts,
+          followUp: "Data 입력 화면에서 그 열에 값을 적으면 바로 여기서 조회됩니다. " +
+            "\"Data 입력으로 이동\" 이라고 말씀하시면 열어 드립니다.",
+          suggestions: ["Data 입력으로 이동"]
+        });
+      }
+
+      return Object.assign(base, {
+        kind: "overview",
+        headline: (lead ? lead + " " : "") + name + " 에 지금 들어 있는 값을 모아 봤습니다 — " +
+          counted.join(" · ") + " 입니다.",
+        facts: facts,
+        followUp: "혹시 특정 지표의 상세 값이 필요하시면 이름만 말씀해 주세요" +
+          (names.length ? " (예: " + names.join(" · ") + ")" : "") + ". " +
+          "평균 · 최고 · 추이처럼 물으시면 그렇게 계산해 드립니다.",
+        note: missingAsked.length
+          ? missingAsked.join(" · ") + "은(는) 원본에 컬럼이 없어 값을 보여 드릴 수 없습니다."
+          : "",
+        suggestions: names.map(l => name + " " + l + " 알려줘")
+          .concat(names.length ? [name + " 와 비슷한 시료 비교해줘"] : avail.slice(0, 2))
+      });
+    }
+
+    /* ── 여러 시료 — 묶어서 한 줄에 한 시료씩 ─────────────────────────── */
+    const preferred = ["maxVCD", "finalViability", "titerHCCF", "downstream_totalYield",
+                       "seHPLC_main", "potency_potency", "cultureDays"];
+    const cols = preferred
+      .map(k => table.columns.find(c => c.key === k))
+      .filter(c => c && groups.some(g => pick(g, c.key) !== null))
+      .slice(0, 4);
+
+    const evCols = [{ key: "__label", label: "시료" }];
+    if (table.kind === "internal") {
+      evCols.push({ key: "study", label: "Study" }, { key: "team", label: "팀" });
+    }
+    cols.forEach(c => evCols.push({ key: c.key, label: c.label + (c.unit ? " (" + c.unit + ")" : "") }));
+
+    const evRows = groups.slice(0, 15).map(function (g) {
+      const o = { __label: g[0].__label };
+      if (table.kind === "internal") {
+        o.study = g[0].study;
+        o.team = g.map(p => teamShort(p.team)).filter(Boolean).join(" · ");
+      }
+      cols.forEach(function (c) {
+        const v = pick(g, c.key);
+        o[c.key] = v === null ? "미입력" : fmt(v, c);
+      });
+      return o;
+    });
+
+    const where = base.scopeLabel && base.scopeLabel !== "전체"
+      ? base.scopeLabel + " 범위에" : "지금";
+    return Object.assign(base, {
+      kind: "overview",
+      headline: (lead ? lead + " " : "") + where + " 기록된 시료 " + groups.length +
+        "건을 모아 봤습니다." +
+        (cols.length ? " 주요 지표는 " + cols.map(c => c.label).join(" · ") + " 입니다." : ""),
+      facts: [{ k: "시료 수", v: groups.length + "건" },
+              { k: "범위", v: base.scopeLabel }],
+      rows: evRows, evidenceCols: evCols,
+      followUp: (nameMiss ? "이름을 다시 확인해 주시거나, 아래 목록에서 골라 주세요. " : "") +
+        "시료 이름이나 지표 이름을 말씀해 주시면 그것만 자세히 보여 드립니다" +
+        (cols.length ? " (예: \"" + evRows[0].__label + " 알려줘\" · \"" +
+          cols[0].label + " 평균\")" : "") + ".",
+      note: missingAsked.length
+        ? missingAsked.join(" · ") + "은(는) 원본에 컬럼이 없어 값을 보여 드릴 수 없습니다."
+        : "",
+      suggestions: [evRows[0].__label + " 알려줘"]
+        .concat(cols.slice(0, 2).map(c => c.label + " 평균"))
+        .concat(["미입력이 가장 많은 항목은?"])
+    });
+  }
+
   function overviewAnswer(base, table, rows, missingAsked) {
     const avail = suggestList(table);
 

@@ -485,12 +485,35 @@ window.GlobalAIUI = (function () {
     const r = out.answer;
     let h = "";
 
-    const chips = (r.applied || []).map(a => '<span class="gai-chip">' + esc(a) + "</span>")
-      .concat((r.unhandled || []).map(u =>
-        '<span class="gai-chip is-unhandled">반영 못 함: ' + esc(String(u).split(" — ")[0]) + "</span>"));
+    /* ★ 조건 칩은 **읽은 것**만 보여 줍니다.
+
+       예전에는 못 읽은 것까지 [반영 못 함: …] 라는 칸으로 답 위에 띄웠습니다.
+       답을 읽기 전에 경고를 먼저 보면 사람은 답을 믿지 않거나 질문을 고쳐
+       다시 씁니다 — 실제로 놓친 것이 없을 때도 그랬습니다.
+
+       못 읽은 조건 자체는 사라지지 않았습니다. 답 끝의 한마디로 옮겼습니다
+       (ask-engine 의 decorate 가 note 에 붙입니다). 밝히기는 하되 가로막지
+       않는 자리입니다. */
+    const chips = (r.applied || []).map(a => '<span class="gai-chip">' + esc(a) + "</span>");
     if (chips.length) h += '<div class="gai-cond">' + chips.join("") + "</div>";
 
     h += '<div class="gai-headline">' + esc(r.headline) + "</div>";
+
+    /* 대화를 이어 주는 한마디 — "혹시 특정 지표를 원하시나요?" 자리입니다.
+       표보다 먼저 둡니다. 표를 다 읽고 나서야 다음에 무엇을 물을 수 있는지
+       알게 되면, 그 사이에 사람은 창을 닫습니다. */
+    if (r.followUp) h += '<div class="gai-follow">' + esc(r.followUp) + "</div>";
+
+    /* ★ 엔진이 만든 다음 수 안내(hints)를 그리지 않고 있었습니다.
+
+       0건 답에는 "이 데이터의 보유 구간은 … 입니다" · "Titer 의 실제 분포는
+       … 이니 조건을 넓혀 보세요" 같은 문장이 들어 있는데, 화면에 그리는
+       코드가 없어서 사용자에게는 "0건입니다" 한 줄만 보였습니다. 엔진은
+       왜 0건인지 알고 있었고, 그걸 말하지 못한 것은 화면이었습니다. */
+    if (r.hints && r.hints.length) {
+      h += '<ul class="gai-hints">' +
+        r.hints.slice(0, 4).map(x => "<li>" + esc(x) + "</li>").join("") + "</ul>";
+    }
 
     /* 가리키는 대상이 여럿일 때 — 아무거나 고르지 않고 누르게 합니다.
        버튼은 그 배치명으로 다시 묻는 것이므로, 눌러도 새로운 해석이
