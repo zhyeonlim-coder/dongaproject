@@ -384,8 +384,33 @@
     return out;
   }
 
+  const IDENT_COLS = ["projectLabel", "studyName", "teamLabel", "sampleName"];
+
+  /* ── 값 읽기 ──────────────────────────────────────────────────────────
+     한 줄이 여러 팀의 시료를 묶고 있을 수 있습니다 (mergeBySample).
+     그때는 묶인 그릇을 차례로 보고 **처음 나오는 값**을 씁니다.
+
+     한 팀의 서식에 없는 항목은 그 팀 그릇에서 null 로 나오므로, 배양 칸은
+     배양 그릇이, 정제 칸은 정제 그릇이 자연히 채웁니다. 팀을 키로 미리
+     갈라 두지 않는 이유는 [항목 추가 ↓] 로 만든 칸(ws_*)에는 팀이 없기
+     때문입니다 — 갈라 두면 그 칸이 어느 쪽에서도 안 보입니다.
+
+     식별 칸(과제 · Study · 팀 · 시료)은 묶을 때 이미 정해 두었으므로
+     묶음 줄에서 그대로 읽습니다. */
   function cellValue(row, key) {
-    if (["projectLabel","studyName","teamLabel","sampleName"].indexOf(key) > -1)
+    if (row && row._parts && IDENT_COLS.indexOf(key) < 0) {
+      for (let i = 0; i < row._parts.length; i++) {
+        const v = cellOf(row._parts[i], key);
+        if (v !== null && v !== undefined && v !== "") return v;
+      }
+      return null;
+    }
+    return cellOf(row, key);
+  }
+
+  /* 묶이지 않은 한 줄에서 읽습니다 */
+  function cellOf(row, key) {
+    if (IDENT_COLS.indexOf(key) > -1)
       return row[key] === undefined ? null : row[key];
     /* Data 입력에서 더한 항목 — 배치 범위에 ws_ 키로 들어 있습니다.
        아래 "그룹.항목" 가르기보다 먼저 봐야 합니다 (키에 점이 있습니다). */
@@ -415,6 +440,20 @@
   /* 회의 모드에서 남긴 의사결정 핀 — 값이 어디서 지적됐는지 이 화면에서도
      보여야 회의 밖에서 데이터를 볼 때 맥락이 끊기지 않습니다.
      이 화면의 컬럼 키는 "그룹.항목" 이라 그대로 쪼개 쓰면 됩니다. */
+  /* 한 줄이 쓰는 그릇 목록 — 묶인 줄은 여럿입니다 */
+  function rowIds(row) {
+    if (!row) return [];
+    if (row._parts) return row._parts.map(p => p.batchId || p.id).filter(Boolean);
+    const id = row.batchId || row.id;
+    return id ? [id] : [];
+  }
+
+  /* 묶인 줄은 어느 그릇에 찍힌 핀이든 그 줄에 보여야 합니다 — 한쪽만 보면
+     정제 칸을 지적한 핀이 통째로 사라집니다. */
+  function pinMarkRow(row, key) {
+    return rowIds(row).map(id => pinMark(id, key)).join("");
+  }
+
   function pinMark(batchId, key) {
     if (!window.Pins || !batchId) return "";
     const k = String(key);
@@ -440,6 +479,10 @@
      아직 시료 레코드가 없는 옛 그릇도 한 줄로 둡니다. 값은 그 그릇에
      적혀 있으므로, 빼면 적어 둔 숫자가 조회 화면에서 사라집니다. */
   function buildRows(batches, studies) {
+    return mergeBySample(buildSampleRows(batches, studies));
+  }
+
+  function buildSampleRows(batches, studies) {
     const teamById = {};
     window.DATA_TEAMS.forEach(t => { teamById[t.id] = t; });
 
@@ -465,6 +508,96 @@
       })));
     });
     return out;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     같은 시료 이름은 한 줄로 — 팀별 입력, 한 줄 조회
+
+     배양 담당과 정제 담당은 각자 자기 서식에 적습니다. 그래서 같은 시료라도
+     그릇이 둘로 생깁니다. 입력 쪽은 그대로 두는 게 맞습니다 — 자기 팀 항목만
+     보이는 서식이 입력에는 훨씬 빠릅니다.
+
+     하지만 조회 쪽에서 두 줄로 남으면, 같은 시료의 배양 수율과 정제 수율을
+     견주려고 두 줄 사이를 눈으로 왕복하게 됩니다. 그 왕복이 오독입니다.
+     그래서 **같은 Study · 같은 시료 이름**이면 가로로 이어 한 줄로 놓습니다.
+
+     묶는 규칙:
+     · 이름은 앞뒤 공백과 중간 공백 수, 대소문자를 무시해 견줍니다
+       ("Sample 1" = "sample  1"). 사람이 손으로 적는 칸이라 그 차이로
+       같은 시료가 갈라지면 묶이는 이유를 알 수 없습니다.
+     · **다른 팀끼리만** 묶습니다. 한 팀 안에서 이름이 겹치는 두 열은 서로
+       다른 시료일 수 있으므로 합치지 않습니다 — 합치면 둘 중 하나의 값이
+       화면에서 사라집니다.
+     · 이름이 비어 있으면 묶지 않습니다. 빈 이름끼리 묶으면 아무 관계 없는
+       시료가 한 줄이 됩니다.
+     · 한 팀에 같은 이름이 여러 열 있으면 나온 순서대로 짝을 맞춥니다.
+       짝이 없는 쪽은 그 칸만 미입력으로 남습니다.
+
+     원본은 건드리지 않습니다 — 묶음은 보기 방식이고, 각 줄은 자기 그릇을
+     _parts 로 그대로 들고 있습니다 (값·핀·CSV 가 그 그릇을 지납니다).
+     ══════════════════════════════════════════════════════════════════════ */
+  function sampleKeyOf(name) {
+    return String(name === null || name === undefined ? "" : name)
+      .trim().replace(/\s+/g, " ").toLowerCase();
+  }
+
+  function mergeBySample(rows) {
+    const groups = [];
+    const at = {};
+    (rows || []).forEach(function (r) {
+      const nk = sampleKeyOf(r.sampleName);
+      if (!nk) { groups.push([r]); return; }
+      const gk = String(r.studyId || "") + "\u0000" + nk;
+      if (at[gk] === undefined) { at[gk] = groups.length; groups.push([]); }
+      groups[at[gk]].push(r);
+    });
+
+    const out = [];
+    groups.forEach(g => fold(g).forEach(r => out.push(r)));
+    return out;
+  }
+
+  function fold(group) {
+    if (group.length < 2) return group;
+
+    const teams = [], byTeam = {};
+    group.forEach(function (r) {
+      const t = r.team || "";
+      if (!byTeam[t]) { byTeam[t] = []; teams.push(t); }
+      byTeam[t].push(r);
+    });
+    if (teams.length < 2) return group;          // 같은 팀끼리는 묶지 않습니다
+
+    let n = 0;
+    teams.forEach(t => { if (byTeam[t].length > n) n = byTeam[t].length; });
+
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const parts = teams.map(t => byTeam[t][i]).filter(Boolean);
+      out.push(parts.length > 1 ? combine(parts) : parts[0]);
+    }
+    return out;
+  }
+
+  /* 묶인 그릇을 보는 순서를 팀 정의 순서(배양 → 정제 → 분석)로 못박습니다.
+     나온 순서 그대로 두면 표 정렬을 바꿀 때마다 순서가 달라지고, 같은 칸을
+     두 팀이 모두 적은 드문 경우에 **어느 값이 보일지가 정렬에 따라 바뀝니다**.
+     보이는 숫자가 정렬 때문에 달라지면 어느 쪽이 맞는지 알 수 없습니다. */
+  function teamOrder(team) {
+    const i = (window.DATA_TEAMS || []).findIndex(t => t.id === team);
+    return i < 0 ? 99 : i;
+  }
+
+  function combine(parts) {
+    const ordered = parts.slice().sort((a, b) => teamOrder(a.team) - teamOrder(b.team));
+    /* 이름은 팀 순서상 앞선 쪽(보통 배양)에 적힌 표기를 씁니다 — 공백·대소문자만
+       다른 표기 중 하나를 골라야 하고, 그 선택도 정렬과 무관해야 합니다. */
+    const row = Object.assign({}, ordered[0]);
+    row._parts = ordered;
+    /* 팀 칸에는 묶인 팀을 모두 적습니다 — 이 줄의 숫자가 어느 서식에서
+       왔는지가 팀 이름 하나만 보이면 틀리게 읽힙니다. */
+    row.teamLabel = ordered.map(p => p.teamLabel).filter(Boolean).join(" · ");
+    return row;
   }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -638,7 +771,11 @@
 
       const sortLabel = window.Repo.SORTS[sel.sort] || window.Repo.SORTS[window.Repo.DEFAULT_SORT];
       const undated = window.Repo.undatedExcluded(sel);
+      /* 묶인 줄이 몇 개인지 밝혀 둡니다 — 입력한 열 수와 조회 줄 수가
+         다를 때 "하나가 빠졌나" 로 읽히면 안 됩니다. */
+      const merged = rows.filter(r => r._parts).length;
       $("#count").textContent = rows.length + "개 시료" +
+        (merged ? " · " + merged + "건은 팀 데이터를 한 줄로 묶음" : "") +
         " · " + sortLabel +
         (window.Scope.periodLabel() ? " · " + window.Scope.periodLabel() : "") +
         (undated ? " · 날짜 미기재 " + undated + "건 제외" : "") +
@@ -686,10 +823,9 @@
               '</th>';
             }).join("") + '</tr></thead>' +
             '<tbody>' + rows.map(function (r) {
-              const bid = r.batchId || r.id;
               return '<tr>' + cols.map(function (c) {
                 const v = cellValue(r, c.key);
-                const pin = pinMark(bid, c.key);
+                const pin = pinMarkRow(r, c.key);
                 if (v === null || v === undefined)
                   return '<td class="na">' + (c.key === "sampleName" ? "(샘플 미생성)" : L.empty) + pin + '</td>';
                 const txt = c.type === "n" ? Number(v).toFixed(c.dp) : String(v);
@@ -1131,11 +1267,23 @@
       const genInFile = cols.filter(c => isGeneratedLabel(c.label, genLabels)).map(c => c.label);
 
       /* 이 파일에 실제로 들어간 배치 중 검증 필요가 걸린 것 */
+      /* 묶인 줄은 그릇이 여럿입니다 — 한쪽만 보면 정제 그릇에 걸린
+         검증 필요 표시가 파일에서 빠집니다. */
+      const unvOf = function (r) {
+        const out = [];
+        rowIds(r).concat(r.expNo ? [r.expNo] : []).forEach(function (id) {
+          (pv.unvByBatch[id] || []).forEach(function (x) {
+            if (out.indexOf(x) === -1) out.push(x);
+          });
+        });
+        return out;
+      };
+
       const unvRows = [];
       if (pv) {
         rows.forEach(function (r) {
-          const list = pv.unvByBatch[r.id] || pv.unvByBatch[r.expNo];
-          if (list && list.length) unvRows.push({ id: r.id, items: list });
+          const list = unvOf(r);
+          if (list.length) unvRows.push({ id: rowIds(r).join("+") || r.id, items: list });
         });
       }
 
@@ -1172,7 +1320,7 @@
       rows.forEach(function (r) {
         const cells = cols.map(c => q(cellValue(r, c.key)));
         if (pv) {
-          const list = pv.unvByBatch[r.id] || pv.unvByBatch[r.expNo] || [];
+          const list = unvOf(r);
           cells.push(q(list.length ? list.join(" · ") : ""));
         }
         lines.push(cells.join(","));
