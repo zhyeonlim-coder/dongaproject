@@ -141,6 +141,14 @@
     analytics: function () { return schemaFields("analytics"); }
   };
 
+  /* 그 팀이 적는 항목 묶음 — 통합 시트가 세 팀을 차례로 부릅니다.
+     정의가 없는 팀이 생겨도 서식만 비고 표는 그대로 섭니다. */
+  function teamGroups(teamId) {
+    const f = FIELDS[teamId];
+    try { return f ? (f() || []) : schemaFields(teamId); }
+    catch (e) { return []; }
+  }
+
   /* ══════════════════════════════════════════════════════════════════════
      열 = 시료
 
@@ -163,7 +171,25 @@
      시료가 아직 없는 그릇(지표 재설정 전에 만든 Batch)도 한 열로 보여
      줍니다. 안 보여 주면 거기 적어 둔 값이 화면에서 사라지고, 사용자는
      지워진 줄 압니다 — 값은 그대로 있는데 닿을 길만 없어지는 셈입니다. */
-  function savedCols(studyId, team) {
+  /* ══════════════════════════════════════════════════════════════════════
+     한 열 = 한 시료 (팀을 가리지 않습니다)
+
+     예전에는 선택한 팀의 그릇만 열로 세웠습니다. 그래서 같은 TA1 이라도
+     배양 화면과 정제 화면이 서로 다른 표였고, **다른 팀이 그 시료에 무엇을
+     적었는지 보려면 팀을 바꿔 가며 확인해야 했습니다.** 팀을 바꾸면 내가
+     적던 칸은 화면에서 사라지고요.
+
+     이제 Study 안의 시료를 이름으로 모아 한 열로 둡니다. 열 하나가 팀마다
+     그릇을 따로 들고 있고(byTeam), 각 팀 구간의 칸은 그 팀 그릇으로
+     들어갑니다. 쓰기 권한은 상단에서 고른 팀 구간에만 열립니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function squash(s) {
+    return String(s === null || s === undefined ? "" : s)
+      .toLowerCase().replace(/[\s\-_.·]/g, "");
+  }
+
+  /* 그릇 하나하나 — 묶기 전 */
+  function savedSlots(studyId, team) {
     const out = [];
     (window.DATA_BATCHES || []).forEach(function (b) {
       if (!b || b.studyId !== studyId || b.team !== team) return;
@@ -176,25 +202,64 @@
          사용자는 한 번 더 누르고, 그래도 그대로이니 고장으로 봅니다. */
       if (!s && E.inactiveSamples(b.id).length) return;
       out.push({
-        id: s ? s.id : "bx:" + b.id,
+        team: team,
         bid: b.id,
         sid: s ? s.id : null,
         name: s ? s.name : (b.expNo || b.id),
         sub: s ? (s.stage || "") : "",
-        at: (s && s.createdAt) || b.createdAt || "",
-        saved: true
+        at: (s && s.createdAt) || b.createdAt || ""
       });
     });
     out.sort((a, b) => String(a.at).localeCompare(String(b.at)));
     return out;
   }
 
+  /* Study 안의 모든 팀 그릇을 이름으로 모아 열로 만듭니다 */
+  function savedCols(studyId) {
+    const order = [], at = {};
+    (window.DATA_TEAMS || []).forEach(function (t) {
+      savedSlots(studyId, t.id).forEach(function (slot) {
+        const k = squash(slot.name);
+        if (!k) return;
+        if (at[k] === undefined) {
+          at[k] = order.length;
+          order.push({
+            /* 열 식별자는 **이름**에 묶습니다. 그릇 id 에 묶으면 다른 팀이
+               같은 시료에 그릇을 더할 때 열이 갈라집니다. */
+            id: "s:" + k,
+            name: slot.name, sub: slot.sub, at: slot.at,
+            saved: true, byTeam: {}
+          });
+        }
+        const col = order[at[k]];
+        col.byTeam[slot.team] = { bid: slot.bid, sid: slot.sid };
+        if (String(slot.at) < String(col.at)) col.at = slot.at;
+        if (!col.sub && slot.sub) col.sub = slot.sub;
+      });
+    });
+    order.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    return order;
+  }
+
+  /* 아직 저장하지 않은 열. 저장은 팀별 칸에 하지만(내 드래프트는 내 것),
+     **읽을 때는 모든 팀의 것을 함께** 봅니다 — 통합 시트에서 한 사람이
+     만들어 둔 열이 다른 팀 화면에서 안 보이면, 같은 시료를 두 번 만들게
+     됩니다. 이름이 같으면 한 열로 칩니다. */
   function newCols(studyId, team) {
     const m = window.Persist.getLocalJSON(NEWCOL_KEY, {}) || {};
-    return (m[pairKey(studyId, team)] || []).map(c => ({
-      id: c.cid, bid: null, sid: null, name: c.name, sub: c.sub || "",
-      at: c.cid, saved: false
-    }));
+    const seen = {}, out = [];
+    const take = function (list) {
+      (list || []).forEach(function (c) {
+        const k = squash(c.name);
+        if (!k || seen[k]) return;
+        seen[k] = true;
+        out.push({ id: c.cid, name: c.name, sub: c.sub || "",
+                   at: c.cid, saved: false, byTeam: {} });
+      });
+    };
+    take(m[pairKey(studyId, team)]);                /* 내 것 먼저 */
+    (window.DATA_TEAMS || []).forEach(t => take(m[pairKey(studyId, t.id)]));
+    return out;
   }
   function saveNewCols(studyId, team, list) {
     const m = window.Persist.getLocalJSON(NEWCOL_KEY, {}) || {};
@@ -207,10 +272,20 @@
      **아무 데도 적어 두지 않습니다** — 화면을 여는 것만으로 저장소가
      바뀌면, 열어 본 적 없는 조합까지 기록이 생깁니다. */
   function allCols(studyId, team) {
-    const list = savedCols(studyId, team).concat(newCols(studyId, team));
+    const saved = savedCols(studyId);
+    const names = {};
+    saved.forEach(c => { names[squash(c.name)] = true; });
+    /* 이미 저장된 시료와 같은 이름의 드래프트 열은 열을 또 세우지 않습니다 */
+    const fresh = newCols(studyId, team).filter(c => !names[squash(c.name)]);
+    const list = saved.concat(fresh);
     if (list.length) return list;
-    return [{ id: "new-1", bid: null, sid: null, name: "시료 1", sub: "", at: "",
-              saved: false, bare: true }];
+    return [{ id: "new-1", name: "시료 1", sub: "", at: "",
+              saved: false, bare: true, byTeam: {} }];
+  }
+
+  /* 이 열에서 그 팀의 그릇 */
+  function slotOf(col, team) {
+    return (col && col.byTeam && col.byTeam[team]) || null;
   }
 
   /* ── 저장 전 값 ───────────────────────────────────────────────────────
@@ -316,9 +391,13 @@
         : "이 과제에는 등록된 Study 가 없습니다. 위 [+ 새 Study] 로 만들면 입력 표가 열립니다.");
       return;
     }
-    if (!sel.team) {
-      gate("팀을 선택해야 입력 표가 열립니다. (팀 미지정 상태에서는 저장할 수 없습니다)"); return;
-    }
+    /* ★ 팀을 고르지 않아도 표는 **읽기 전용으로** 엽니다.
+
+       예전에는 팀을 고르기 전까지 안내만 떴습니다. 통합 시트가 된 지금은
+       팀 선택이 "무엇을 볼 것인가" 가 아니라 "어느 구간을 쓸 것인가" 이고,
+       보는 것은 팀 없이도 할 수 있어야 합니다 — 회의 전에 이 Study 가 어디까지
+       찼는지 보려고 팀을 고르게 만들 이유가 없습니다. */
+    const readOnlyAll = !sel.team;
 
     /* ★ Scope.batches() 를 기다리지 않습니다.
 
@@ -329,18 +408,23 @@
        덮어쓰는 문제)도 함께 사라집니다. */
     {
       loadPend(sel.studyId, sel.team);
-      const groups = FIELDS[sel.team]();
-      const teamKo = (window.DATA_TEAMS.find(t => t.id === sel.team) || {}).ko || sel.team;
+      const groups = sel.team ? FIELDS[sel.team]() : [];
+      const myKo = (window.DATA_TEAMS.find(t => t.id === sel.team) || {}).ko || "";
       const studyName = ((window.DATA_STUDIES || []).find(s => s.id === sel.studyId) || {}).name || "";
 
       $("#form-host").innerHTML =
         '<section class="card" style="border-top:3px solid ' +
           ((window.DATA_TEAMS.find(t => t.id === sel.team) || {}).color || "var(--c-accent)") + '">' +
           '<div class="card-head" style="flex-wrap:wrap;gap:var(--s-3)">' +
-            '<div><h2 class="card-title">' + esc(teamKo) + ' 서식</h2>' +
+            '<div><h2 class="card-title">통합 입력 시트' +
+              (myKo ? ' — ' + esc(myKo) + ' 입력 중' : ' — 읽기 전용') + '</h2>' +
             '<p class="card-sub">' + esc(studyName) + ' · ' +
-              '표의 <b>열 하나가 시료 하나</b>입니다 — ' +
-              '[시료 추가 →] 로 시료를 늘리고, 머리글을 눌러 이름을 적습니다</p></div>' +
+              '표의 <b>열 하나가 시료 하나</b>이고, 아래로 <b>배양 · 정제 · 분석</b> 구간이 이어집니다 — ' +
+              (myKo
+                ? '<b>' + esc(myKo) + ' 구간만 입력</b>할 수 있고, 다른 팀 값은 읽기 전용입니다 ' +
+                  '(값에 마우스를 올리면 적은 사람과 시각이 보입니다)'
+                : '팀을 고르면 그 팀 구간을 입력할 수 있습니다') +
+              '</p></div>' +
           '</div>' +
 
           (sel.team === "downstream"
@@ -369,7 +453,10 @@
 
           '<div class="card-body" style="border-top:1px solid var(--c-border);display:flex;' +
             'gap:var(--s-3);align-items:center;flex-wrap:wrap">' +
-            '<button class="btn btn-accent" id="save-all">전체 저장</button>' +
+            (readOnlyAll
+              ? '<span style="font-size:12px;color:var(--c-text-mute)">' +
+                '팀을 고르면 그 팀 구간을 입력할 수 있습니다.</span>'
+              : '<button class="btn btn-accent" id="save-all">전체 저장</button>') +
             '<span id="pend-note" style="font-size:12px;color:var(--c-text-mute)"></span>' +
             '<span id="save-msg" style="font-size:12px;color:var(--c-ok);font-weight:600"></span>' +
           '</div>' +
@@ -699,30 +786,56 @@
      ★ 일자별 Titer 를 "한 줄이 일자 열을 가로지르는" 모양으로 접지 않습니다.
        그 모양은 열이 일자였을 때의 것입니다. 열이 시료가 된 지금은 일자마다
        한 줄입니다 (DATA_TITER_DAYS 가 비어 있으면 아예 나오지 않습니다). */
-  function buildRows(studyId, team, groups) {
+  /* ★ 세 팀 구간을 한 표에 이어 붙입니다.
+
+     행 키에 팀을 붙입니다 (upstream::maxVCD). 팀마다 같은 항목 키를 쓸 수
+     있고(추가 항목이 특히 그렇습니다), 키가 겹치면 한 팀에 적은 값이 다른
+     팀 줄에 나타납니다. */
+  function buildRows(studyId, myTeam) {
     const out = [];
-    groups.forEach(function (grp) {
-      (grp.items || []).forEach(function (f) {
-        out.push({ k: f.k, label: rowShownLabel(f, false), orig: rowOrigLabel(f, false),
-                   unit: f.unit, type: f.type, group: grp.g, field: f });
+    (window.DATA_TEAMS || []).forEach(function (t) {
+      const groups = teamGroups(t.id);
+      groups.forEach(function (grp) {
+        (grp.items || []).forEach(function (f) {
+          out.push({
+            k: t.id + "::" + f.k,
+            team: t.id, mine: t.id === myTeam,
+            label: rowShownLabel(f, false), orig: rowOrigLabel(f, false),
+            unit: f.unit, type: f.type,
+            /* 구간 이름이 팀 이름과 같으면 한 번만 적습니다 ("배양 · 배양") */
+            group: (t.short || t.ko) +
+              (grp.g && grp.g !== t.ko && grp.g !== t.short ? " · " + grp.g : ""),
+            field: f
+          });
+        });
       });
-    });
-    customRows(studyId, team).forEach(function (c) {
-      out.push({ k: "ws_" + c.k, name: c.k, label: c.k, orig: c.k,
-                 unit: c.unit || "", type: "num",
-                 group: "직접 추가한 항목", custom: true, field: null });
+      customRows(studyId, t.id).forEach(function (c) {
+        out.push({
+          k: t.id + "::ws_" + c.k,
+          team: t.id, mine: t.id === myTeam,
+          name: c.k, label: c.k, orig: c.k,
+          unit: c.unit || "", type: "num",
+          group: (t.short || t.ko) + " · 직접 추가한 항목",
+          custom: true, field: null
+        });
+      });
     });
     return out;
   }
 
+  /* 저장소에 쓰는 키는 팀 접두 없이 그대로입니다 — 그릇이 이미 팀별로
+     나뉘어 있어서, 키에까지 팀을 넣으면 예전에 적은 값을 못 읽습니다. */
   function rowKeyOf(row) { return row.custom ? ("ws_" + row.name) : row.field.k; }
 
   /* ── 한 칸이 어디로 가는가 ────────────────────────────────────────────
      아직 저장 전인 열은 담을 그릇이 없습니다 — 그 칸은 드래프트에만 있고,
      [전체 저장] 때 그릇이 만들어진 뒤에 자리를 얻습니다. */
+  /* 칸은 **그 행의 팀** 그릇으로 들어갑니다. 상단에서 고른 팀이 아니라
+     행이 속한 팀입니다 — 한 표에 세 팀 구간이 함께 있기 때문입니다. */
   function cellTarget(row, col) {
-    if (!col || !col.bid) return null;
-    return { scope: "batch:" + col.bid, key: rowKeyOf(row), f: row.field };
+    const slot = slotOf(col, row.team);
+    if (!slot || !slot.bid) return null;
+    return { scope: "batch:" + slot.bid, key: rowKeyOf(row), f: row.field };
   }
   /* ── 워크시트 그리기 ─────────────────────────────────────────────────── */
   function mountWorksheet(groups, host) {
@@ -730,11 +843,11 @@
     const team = sel.team, studyId = sel.studyId;
 
     const cols = allCols(studyId, team).map(function (c) {
-      return { id: c.id, bid: c.bid, sid: c.sid, saved: !!c.saved,
+      return { id: c.id, byTeam: c.byTeam || {}, saved: !!c.saved,
                name: c.name, label: c.name, orig: c.name,
                sub: c.sub || "", origSub: c.sub || "" };
     });
-    const rows = buildRows(studyId, team, groups);
+    const rows = buildRows(studyId, team);
 
     host.innerHTML = inactiveStrip(studyId, team) + '<div id="ws-host"></div>';
     $$("[data-revive]", host).forEach(b => b.addEventListener("click", function () {
@@ -750,21 +863,30 @@
          저장 전 값(드래프트)이 있으면 그것이, 없으면 저장된 값이,
          둘 다 없으면 빈 칸입니다. */
       cell: function (row, col) {
-        const dk = col.id + "::" + rowKeyOf(row);
+        const dk = col.id + "::" + row.k;
         const t = cellTarget(row, col);
         const rec = t ? E.getValue(t.scope, t.key) : null;
         const edited = !!(rec && E.hasHistory(rec));
         const n = rec && rec.history ? rec.history.length : 0;
+        /* ★ 내 팀 구간만 쓸 수 있습니다. 다른 팀 칸은 읽기 전용입니다 —
+             값은 그대로 보이고(그래서 같은 시료를 한눈에 볼 수 있고),
+             고칠 수는 없습니다. 적은 사람과 시각은 마우스를 올리면 뜹니다. */
+        const ro = !row.mine;
 
-        if (Object.prototype.hasOwnProperty.call(pend, dk)) {
+        if (!ro && Object.prototype.hasOwnProperty.call(pend, dk)) {
           return { display: pend[dk], origin: "저장 전", draft: true,
                    missing: null, edited: edited, editCount: n };
         }
         if (rec) {
           return { display: wsDisplay(row, rec.value), origin: E.caption(rec),
-                   missing: wsMissing(row, rec.value), edited: edited, editCount: n };
+                   missing: wsMissing(row, rec.value), edited: edited, editCount: n,
+                   readonly: ro };
         }
-        return { display: "", origin: null, missing: null, edited: false, editCount: 0 };
+        /* 다른 팀이 아직 안 적었으면 **빈칸**으로 둡니다 — "미입력" 이라고
+           쓰면 열세 줄 중 아홉 줄이 그 글자로 채워져, 정작 내가 적어야 할
+           칸이 묻힙니다. */
+        return { display: "", origin: null, missing: null,
+                 edited: false, editCount: 0, readonly: ro };
       },
 
       /* 칸을 벗어나거나 Enter — 검사만 하고 **드래프트에 담습니다.**
@@ -792,7 +914,17 @@
         render();
       },
       onDropRow: function (rk) {
-        const list = customRows(studyId, team).filter(c => ("ws_" + c.k) !== rk);
+        /* 행 키에 팀이 붙어 있습니다 (upstream::ws_비고). 다른 팀이 만든
+           항목은 지우지 않습니다 — 내 화면에서 치웠는데 그 팀 기록이
+           없어지면 안 됩니다. */
+        const cut = String(rk).indexOf("::");
+        const rowTeam = cut > 0 ? String(rk).slice(0, cut) : team;
+        const bare = cut > 0 ? String(rk).slice(cut + 2) : String(rk);
+        if (rowTeam !== team) {
+          window.alert("다른 팀이 만든 항목입니다. 그 팀 화면에서 지울 수 있습니다.");
+          return;
+        }
+        const list = customRows(studyId, team).filter(c => ("ws_" + c.k) !== bare);
         saveCustomRows(studyId, team, list);
         render();
       },
@@ -805,7 +937,7 @@
         /* 표가 비어 있을 때 보이던 "시료 1" 은 아무 데도 적혀 있지 않습니다.
            여기서 먼저 실체를 만들어 둬야, 둘째 열을 더했을 때 첫 열이
            사라지지 않습니다. */
-        if (!savedCols(studyId, team).length && !list.length) {
+        if (!savedCols(studyId).length && !list.length) {
           list.push({ cid: "new-1", name: now[0] ? now[0].name : "시료 1", sub: "" });
         }
         list.push({ cid: "new-" + Date.now().toString(36), name: nextColName(now), sub: "" });
@@ -842,8 +974,9 @@
      사라지면, 다시 적는 수밖에 없습니다.
      ══════════════════════════════════════════════════════════════════════ */
   function stage(row, col, raw, cols, rows) {
-    const rk = rowKeyOf(row);
-    const dk = col.id + "::" + rk;
+    /* 드래프트 키는 **행 키 그대로**(팀 접두 포함)입니다 — 팀마다 같은 항목
+       키가 있어서, 접두를 빼면 한 팀에 적은 드래프트가 다른 팀 칸에 뜹니다. */
+    const dk = col.id + "::" + row.k;
     const txt = String(raw == null ? "" : raw).trim();
 
     /* 검사는 지금 합니다 — 저장할 때 한꺼번에 알리면, 어느 칸이 틀렸는지
@@ -882,7 +1015,7 @@
 
   /* Esc — 이 칸의 저장 전 값을 버리고 저장된 값으로 되돌립니다 */
   function unstage(row, col, cols, rows) {
-    const dk = col.id + "::" + rowKeyOf(row);
+    const dk = col.id + "::" + row.k;
     delete pend[dk];
     savePend();
     const t = cellTarget(row, col);
@@ -927,7 +1060,7 @@
     const rows = buildRows(studyId, team, groups);
     const cols = allCols(studyId, team);
     const rowByKey = {};
-    rows.forEach(function (r) { rowByKey[rowKeyOf(r)] = r; });
+    rows.forEach(function (r) { rowByKey[r.k] = r; });
 
     /* ── 1. 열 실체화 ── */
     const colById = {};
@@ -940,7 +1073,10 @@
       const cut = dk.indexOf("::");
       const cid = dk.slice(0, cut);
       const col = colById[cid];
-      if (!col || col.bid || madeFor[cid]) return;
+      /* 내 팀 그릇이 이미 있으면 만들지 않습니다. 다른 팀 그릇만 있는
+         시료라면 **내 팀 그릇을 새로 만들어** 거기에 적습니다 — 그래야
+         같은 이름 아래 세 팀 값이 나란히 쌓입니다. */
+      if (!col || slotOf(col, team) || madeFor[cid]) return;
       if (String(pend[dk] || "").trim() === "") return;   /* 빈 값만 있는 열은 만들지 않습니다 */
       const r = materialize(studyId, team, col.name, col.sub);
       if (!r.ok) { failed = col.name + ": " + r.reason; return; }
@@ -966,7 +1102,11 @@
       const row = rowByKey[rk];
       const col = colById[cid];
       if (!row || !col) return;
-      const bid = (madeFor[cid] && madeFor[cid].bid) || col.bid;
+      /* 내 팀 구간만 저장합니다 — 다른 팀 칸은 읽기 전용이라 드래프트가
+         생길 수 없지만, 혹시 남아 있어도 남의 그릇에 쓰지 않습니다. */
+      if (row.team !== team) return;
+      const slot = slotOf(col, team);
+      const bid = (madeFor[cid] && madeFor[cid].bid) || (slot && slot.bid);
       if (!bid) return;                                  /* 값이 빈 미실체 열 */
 
       const scope = "batch:" + bid;
@@ -979,8 +1119,10 @@
         val = txt === "" ? null : txt;
       }
 
-      const prev = E.getValue(scope, rk);
-      const item = { dk: dk, scope: scope, key: rk, val: val, row: row, col: col };
+      /* 저장소 키는 팀 접두를 뺀 항목 키입니다 (그릇이 이미 팀별이라) */
+      const sk = rowKeyOf(row);
+      const prev = E.getValue(scope, sk);
+      const item = { dk: dk, scope: scope, key: sk, val: val, row: row, col: col };
       if (prev && !window.VAL.same(prev.value, val)) edits.push(item);
       else plan.push(item);
     });
@@ -1111,23 +1253,36 @@
       return;
     }
 
-    if (!col.sid) {
-      /* 시료 레코드가 없는 옛 그릇 — 이름을 고치는 순간 시료로 만듭니다 */
-      if (part === "sub") { render(); return; }
-      if (!txt) { window.alert("시료 이름은 비울 수 없습니다."); render(); return; }
-      const r = E.addSample({ batchId: col.bid, studyId: studyId, team: team, name: txt });
-      if (!r.ok) { window.alert(r.reason); render(); return; }
-      window.Dataset.patch("batch", col.bid, { expNo: txt });
-      render();
-      return;
+    if (part !== "sub" && !txt) {
+      window.alert("시료 이름은 비울 수 없습니다."); render(); return;
     }
 
-    const r = part === "sub"
-      ? E.renameSample(col.sid, null, txt)
-      : E.renameSample(col.sid, txt);
-    if (!r.ok) { window.alert(r.reason); render(); return; }
-    /* 그릇의 표시 이름도 맞춰 둡니다 — 대시보드·차트가 expNo 를 적습니다 */
-    if (part !== "sub" && col.bid) window.Dataset.patch("batch", col.bid, { expNo: txt });
+    /* ★ 이름은 **모든 팀 그릇에 함께** 반영합니다.
+
+       이름은 그 시료의 공용 식별자입니다. 한 팀 그릇만 고치면 이름이
+       갈라지고, 이름으로 묶던 열이 둘로 쪼개집니다 — 화면에서 보면
+       "고쳤더니 열이 하나 더 생겼다" 로 보입니다. 데이터 조회 · 회의 모드 ·
+       챗봇도 모두 이름으로 묶고 있어서, 한 곳만 고치면 그 전부가 어긋납니다. */
+    let bad = null;
+    Object.keys(col.byTeam || {}).forEach(function (tid) {
+      const slot = col.byTeam[tid];
+      if (!slot || !slot.bid) return;
+      if (!slot.sid) {
+        /* 시료 레코드가 없는 옛 그릇 — 이름을 고치는 순간 시료로 만듭니다 */
+        if (part === "sub") return;
+        const a = E.addSample({ batchId: slot.bid, studyId: studyId, team: tid, name: txt });
+        if (!a.ok) { bad = bad || a.reason; return; }
+        window.Dataset.patch("batch", slot.bid, { expNo: txt });
+        return;
+      }
+      const r = part === "sub"
+        ? E.renameSample(slot.sid, null, txt)
+        : E.renameSample(slot.sid, txt);
+      if (!r.ok) { bad = bad || r.reason; return; }
+      /* 그릇의 표시 이름도 맞춰 둡니다 — 대시보드·차트가 expNo 를 적습니다 */
+      if (part !== "sub") window.Dataset.patch("batch", slot.bid, { expNo: txt });
+    });
+    if (bad) window.alert(bad);
     render();
   }
 
@@ -1189,15 +1344,34 @@
       return;
     }
 
+    /* ★ 내리는 것은 **내 팀 몫**뿐입니다.
+
+       한 열에 세 팀의 값이 붙어 있습니다. ×를 눌렀다고 남의 팀 기록까지
+       내려가면, 한 사람이 다른 팀 데이터를 화면에서 치울 수 있게 됩니다.
+       내 팀 그릇만 비활성으로 돌리고, 다른 팀 값이 남아 있으면 열은 그대로
+       서 있습니다 (내 구간만 빈칸이 됩니다). */
+    const mine = slotOf(col, team);
+    if (!mine || !mine.bid) {
+      window.alert("이 시료에는 " + teamKo(team) + "이(가) 적은 값이 없습니다. " +
+        "다른 팀이 적은 값은 그 팀 화면에서 내릴 수 있습니다.");
+      return;
+    }
+    const others = Object.keys(col.byTeam || {}).filter(t => t !== team);
     const used = colHasValues(rows, col);
     const why = used ? "이 시료에는 값이 적혀 있습니다." : "이 시료에는 아직 값이 없습니다.";
     if (!window.confirm("‘" + col.name + "’ — " + why + "\n\n" +
-      "지우지 않고 비활성으로 돌립니다. 값과 변경 이력은 그대로 남고, " +
-      "표 위의 [비활성 시료] 에서 되살릴 수 있습니다.\n계속할까요?")) return;
+      teamKo(team) + " 구간만 비활성으로 돌립니다" +
+      (others.length ? " (" + others.map(teamKo).join(" · ") + " 값은 그대로 남습니다)" : "") +
+      ". 값과 변경 이력은 지워지지 않고, 표 위의 [비활성 시료] 에서 되살릴 수 있습니다.\n계속할까요?")) return;
 
-    if (col.sid) E.deactivateSample(col.sid, "Data 입력에서 열 내림");
-    else window.Dataset.deactivate("batch", col.bid, "Data 입력에서 열 내림");
+    if (mine.sid) E.deactivateSample(mine.sid, "Data 입력에서 열 내림");
+    else window.Dataset.deactivate("batch", mine.bid, "Data 입력에서 열 내림");
     render();
+  }
+
+  function teamKo(id) {
+    const t = (window.DATA_TEAMS || []).find(x => x && x.id === id);
+    return t ? t.ko : (id || "팀");
   }
 
   /* 비활성 시료 띠 — 되살릴 손잡이가 화면에 있어야 합니다 */
@@ -1269,7 +1443,7 @@
     if (typing && typing.rowKey === row.k && typing.colId === col.id) {
       return num(typing.raw);
     }
-    const dk = col.id + "::" + rowKeyOf(row);
+    const dk = col.id + "::" + row.k;
     if (Object.prototype.hasOwnProperty.call(pend, dk)) return num(pend[dk]);
     const t = cellTarget(row, col);
     const rec = t ? E.getValue(t.scope, t.key) : null;

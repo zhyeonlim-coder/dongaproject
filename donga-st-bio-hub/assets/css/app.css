@@ -2716,6 +2716,20 @@ td.is-generated { background: color-mix(in srgb, var(--c-warn, #B45309) 7%, tran
 .ws-colh-name { display: block; font-size: 11px; font-weight: 700; color: var(--c-text); }
 .ws-colh-sub { display: block; font-size: 9.5px; font-weight: 400; color: var(--c-text-mute); }
 
+/* ── 다른 팀 구간 (읽기 전용) ─────────────────────────────────────────
+   값은 그대로 보여 주되, 내가 적을 칸과 **한눈에 구분**되어야 합니다.
+   흐리게만 하면 "값이 없는 칸" 과 헷갈리고, 색을 쓰면 경고로 읽힙니다.
+   그래서 배경만 아주 옅게 깔고 커서를 기본 화살표로 둡니다 — 눌러도
+   글자가 안 써지는 이유가 손끝에서 먼저 전해집니다. */
+.ws-td.is-ro { background: var(--c-paper-2); }
+.ws-td.is-ro .ws-in {
+  cursor: default; color: var(--c-text-soft, #4A5568);
+  background: transparent; border-color: transparent;
+}
+.ws-td.is-ro .ws-in:focus {
+  outline: 2px solid var(--c-border); outline-offset: -2px; background: transparent;
+}
+
 .ws-grp th {
   position: sticky; left: 0;
   background: var(--c-paper-2); color: var(--c-text);

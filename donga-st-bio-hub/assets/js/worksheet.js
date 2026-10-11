@@ -88,7 +88,9 @@ window.Worksheet = (function () {
     const edited = !!c.edited;
     const id = row.k + "::" + col.id;
 
-    return '<td class="ws-td' + (edited ? " is-edited" : "") + '" ' +
+    /* 다른 팀 구간은 읽기 전용입니다 — 보이기는 하되 고칠 수 없습니다 */
+    return '<td class="ws-td' + (edited ? " is-edited" : "") +
+        (c.readonly ? " is-ro" : "") + '" ' +
         'data-cell="' + esc(id) + '">' +
       '<div class="ws-box">' +
         '<label class="sr-only" for="ws-' + esc(id) + '">' +

@@ -548,6 +548,80 @@ window.SSOTTest = (function () {
     })();
 
     /* ══════════════════════════════════════════════════════════════════
+       ㉑ 통합 입력 시트 — 한 시료에 세 팀 값이 함께 쌓이는가
+
+       Data 입력이 팀별 시트에서 통합 시트로 바뀌었습니다. 화면 코드는
+       검사 페이지에서 띄울 수 없으므로, **저장 모양**만 확인합니다 —
+       같은 이름으로 팀마다 그릇이 하나씩 생기고, 그 셋이 한 시료로
+       묶여 읽히는가. 이게 깨지면 통합 시트가 세 줄로 갈라집니다.
+       ══════════════════════════════════════════════════════════════════ */
+    (function masterSheetShape() {
+      const D = window.Dataset, E2 = window.Entries, AT2 = window.AskTables;
+      if (!D || !E2 || !AT2) { T.add("㉑ 모듈 있음", false, "없음"); return; }
+      const study = (window.DATA_STUDIES || [])[0];
+      if (!study) { T.add("㉑ 검사할 Study 있음", false, "Study 없음"); return; }
+
+      const bStore = (function () {
+        try { return localStorage.getItem("hub.dataset.v1"); } catch (e) { return null; }
+      })();
+      const eStore = (function () {
+        try { return localStorage.getItem("hub.entries.v1"); } catch (e) { return null; }
+      })();
+      const made = [];
+      const NAME = "ZZMASTER-" + Date.now().toString(36);
+
+      try {
+        /* 팀마다 같은 이름으로 하나씩 — 통합 시트가 저장하는 모양 그대로 */
+        const plan = [["upstream", "maxVCD", 11.1],
+                      ["downstream", "downstream_totalYield", 22.2],
+                      ["analytics", "seHPLC_main", 33.3]];
+        plan.forEach(function (p, i) {
+          const id = "ZZMB-" + i + "-" + Date.now().toString(36);
+          const r = D.addBatch({ studyId: study.id, id: id, team: p[0],
+                                 expNo: NAME, hidden: true, initialDate: "2026-01-01" });
+          if (!r.ok) return;
+          made.push(id);
+          E2.addSample({ batchId: id, studyId: study.id, team: p[0], name: NAME });
+          window.Repo.setValue("batch:" + id, p[1], p[2], null, { action: "Create" });
+        });
+        T.add("㉑ 팀마다 그릇이 하나씩 생김", made.length === 3, "만든 그릇 " + made.length + "개");
+
+        AT2.invalidate();
+        const t3 = AT2.internal();
+        const mine = t3.rows.filter(r => String(r.__label) === NAME);
+        T.add("㉑ 그릇은 팀 수만큼, 이름은 하나", mine.length === 3,
+          "행 " + mine.length + "개 / 이름 " +
+          Array.from(new Set(mine.map(r => r.__label))).join(","));
+
+        /* 조회·챗봇이 이것을 한 시료로 모아 세 팀 값을 함께 보여 주는가 */
+        const ans = window.AskEngine.answer(NAME + " 어때?");
+        const txt = JSON.stringify(ans.facts || []);
+        const got = ["11.1", "22.2", "33.3"].filter(v => txt.indexOf(v) > -1);
+        T.add("㉑ 한 시료로 묶여 세 팀 값이 함께 읽힘",
+          got.length === 3 && ans.kind === "overview",
+          "kind=" + ans.kind + " 찾은 값=" + got.join(",") );
+      } finally {
+        try {
+          made.forEach(function (id) {
+            const l = D.all().batches; const i = l.findIndex(b => b.id === id);
+            if (i > -1) l.splice(i, 1);
+            const arr = window.DATA_BATCHES || []; const j = arr.findIndex(b => b.id === id);
+            if (j > -1) arr.splice(j, 1);
+          });
+        } catch (e) {}
+        if (E2.reset) E2.reset();
+        restore(eStore);
+        try {
+          if (bStore === null) localStorage.removeItem("hub.dataset.v1");
+          else localStorage.setItem("hub.dataset.v1", bStore);
+        } catch (e) {}
+        AT2.invalidate();
+        const left = AT2.internal().rows.some(r => String(r.__label) === NAME);
+        T.add("㉑ 검사가 데이터를 남기지 않음", !left, "검사용 시료가 남아 있습니다");
+      }
+    })();
+
+    /* ══════════════════════════════════════════════════════════════════
        ⑯ 화면 조작 명령 — 읽는 것과 읽지 않는 것
 
        실행은 여기서 하지 않습니다 (화면을 옮기면 검사 페이지가 사라집니다).
