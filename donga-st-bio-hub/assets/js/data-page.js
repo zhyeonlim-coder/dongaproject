@@ -51,16 +51,27 @@
        컬럼 필터(colFilters)와 달리 행 수를 바꾸지 않습니다.
      ══════════════════════════════════════════════════════════════════════ */
   const GRID_KEY = "hub.data.grid";
-  const GRID_DEFAULT = { dense: true, hidden: {}, width: {} };
+  const GRID_DEFAULT = { dense: true, hidden: {}, width: {}, chartPick: [], chartKind: "bar" };
 
   let grid = (function () {
     try {
       const r = window.Persist.getLocalJSON(GRID_KEY, null);
       if (!r || typeof r !== "object") return Object.assign({}, GRID_DEFAULT);
-      return { dense: r.dense !== false, hidden: r.hidden || {}, width: r.width || {} };
+      return { dense: r.dense !== false, hidden: r.hidden || {}, width: r.width || {},
+               chartPick: Array.isArray(r.chartPick) ? r.chartPick : [],
+               chartKind: r.chartKind === "line" ? "line" : "bar" };
     } catch (e) { return Object.assign({}, GRID_DEFAULT); }
   })();
+
+  /* 그래프 화면에서 고른 항목과 모양 — 보는 방식이라 이 브라우저에 남깁니다.
+     매번 새로 고를 때마다 같은 항목을 다시 찾는 일이 없도록. */
+  let chartPick = grid.chartPick.slice();
+  let chartKind = grid.chartKind;
+  const PALETTE = ["#0369A1", "#6D28D9", "#0F766E", "#B45309", "#B91C1C", "#1D4ED8"];
+
   function saveGrid() {
+    grid.chartPick = chartPick.slice();
+    grid.chartKind = chartKind;
     window.Persist.setLocalJSON(GRID_KEY, grid);
   }
 
@@ -104,6 +115,9 @@
      비슷한 행은 접고, 편차가 큰 행만 위로 올려 표시합니다.
      ══════════════════════════════════════════════════════════════════════ */
   let cmpPicked = [];
+  /* 사용자가 칩을 한 번이라도 눌렀는가 — 누른 뒤로는 기본값을 다시 채우지
+     않습니다. 이것이 없으면 "하나만 남기기" 와 "전부 끄기" 가 불가능합니다. */
+  let cmpTouched = false;
   const CMP_MAX = 4;
 
   /* 상대 편차 — 값의 크기가 제각각이라(ppm vs %) 절대 차이로는 비교가 안 됩니다.
@@ -128,9 +142,9 @@
   }
 
   function compareView(samples) {
-    if (samples.length < 2) {
-      return '<div class="empty"><div class="empty-title">비교할 시료가 부족합니다</div>' +
-        '<div class="empty-body">이 범위에 시료가 2건 이상이어야 비교할 수 있습니다. ' +
+    if (!samples.length) {
+      return '<div class="empty"><div class="empty-title">비교할 시료가 없습니다</div>' +
+        '<div class="empty-body">이 범위에 기록된 시료가 없습니다. ' +
         '상단에서 과제나 Study 를 넓혀 보세요.</div></div>';
     }
 
@@ -139,6 +153,15 @@
     const cols = cmpPicked.map(k => byKey[k]).filter(Boolean);
     const picked = cmpPicked;
     const sel = window.Scope.get();
+
+    /* 아무것도 고르지 않았으면 표를 비우고 **고르라고** 합니다.
+       전체를 대신 보여 주면, 끈 사람은 꺼지지 않았다고 읽습니다. */
+    if (!cols.length) {
+      return cmpChipBar(samples, picked) +
+        '<div class="empty"><div class="empty-title">비교할 시료를 고르세요</div>' +
+        '<div class="empty-body">위 칩에서 시료를 누르면 그 시료만 나란히 놓고 비교합니다 ' +
+        '(최대 ' + CMP_MAX + '개). 하나만 골라도 그 시료의 값만 표시됩니다.</div></div>';
+    }
 
     /* 비교 대상 항목 — 배치 메타 · 배양 · 정제 · 분석
 
@@ -267,7 +290,14 @@
      본 적 없는 글자라, 무엇을 고르는지 알 수 없었습니다. */
   function cmpChipBar(samples, picked) {
     return '<div class="card-body" style="border-bottom:1px solid var(--c-border)">' +
-      '<div class="eyebrow" style="margin-bottom:var(--s-2)">비교할 시료 (최대 ' + CMP_MAX + '개)</div>' +
+      '<div style="display:flex;align-items:baseline;gap:var(--s-3);margin-bottom:var(--s-2)">' +
+        '<span class="eyebrow">비교할 시료 (최대 ' + CMP_MAX + '개)</span>' +
+        '<span style="font-size:11.5px;color:var(--c-text-mute)">' +
+          picked.length + '개 선택' + (picked.length ? "" : " — 아래에서 고르세요") + '</span>' +
+        (picked.length
+          ? '<button class="btn btn-ghost btn-sm" id="cmp-clear" style="margin-left:auto">선택 해제</button>'
+          : "") +
+      '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
         samples.map(function (r) {
           const k = rowKeyOf(r);
@@ -310,64 +340,180 @@
     return out;
   }
 
+  /* 고를 수 있는 항목 — 값이 하나라도 있는 측정 컬럼 */
+  function chartPool(rows, cols) {
+    const out = [];
+    chartSeries(rows, cols).forEach(s => s.items.forEach(function (it) {
+      out.push({ key: it.col.key, label: it.col.label, unit: it.col.unit || "",
+                 dp: it.col.dp, team: s.team, data: it.data });
+    }));
+    return out;
+  }
+
+  /* ── 상단 조작 줄 — Data 입력의 실시간 그래프와 같은 모양 ─────────────
+     그 화면에서 이미 쓰고 있는 방식이라, 두 화면을 오가는 사람이 새로
+     익힐 것이 없습니다: [항목] 드롭다운 하나 + [선 / 막대] + 추가한 항목은
+     칩으로 붙습니다. */
+  function chartToolbar(pool) {
+    const first = chartPick[0] || "";
+    const extras = chartPick.slice(1);
+    const opt = r => '<option value="' + esc(r.key) + '"' +
+      (r.key === first ? " selected" : "") + '>' +
+      esc((r.team.short || r.team.ko) + " · " + r.label) + '</option>';
+
+    return '<div class="card-body" style="border-bottom:1px solid var(--c-border)">' +
+      '<div style="display:flex;gap:var(--s-3);align-items:flex-end;flex-wrap:wrap">' +
+        '<label style="font-size:12px;font-weight:600" for="chart-pick">항목</label>' +
+        '<select class="input" id="chart-pick" style="min-width:220px;max-width:320px">' +
+          (pool.length ? pool.map(opt).join("") : '<option value="">— 없음 —</option>') +
+        '</select>' +
+        '<span class="live-seg" role="group" aria-label="그래프 모양">' +
+          '<button type="button" class="live-segb' + (chartKind === "line" ? " is-on" : "") +
+            '" data-ckind="line" aria-pressed="' + (chartKind === "line") + '">선</button>' +
+          '<button type="button" class="live-segb' + (chartKind === "bar" ? " is-on" : "") +
+            '" data-ckind="bar" aria-pressed="' + (chartKind === "bar") + '">막대</button>' +
+        '</span>' +
+        (pool.length > chartPick.length
+          ? '<select class="input" id="chart-add" style="min-width:170px">' +
+              '<option value="">+ 항목 겹쳐 보기</option>' +
+              pool.filter(r => chartPick.indexOf(r.key) === -1)
+                  .map(r => '<option value="' + esc(r.key) + '">' +
+                    esc((r.team.short || r.team.ko) + " · " + r.label) + '</option>').join("") +
+            '</select>'
+          : "") +
+        '<button class="btn btn-ghost btn-sm" id="chart-all">전체 항목</button>' +
+        '<button class="btn btn-accent" id="chart-xlsx" style="margin-left:auto">' +
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+          'stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
+          '<path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg> Excel 내보내기</button>' +
+      '</div>' +
+      (extras.length
+        ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:var(--s-2)">' +
+          extras.map(function (k) {
+            const r = pool.find(x => x.key === k);
+            return '<span class="live-chip">' + esc(r ? r.label : k) +
+              '<button type="button" data-cunpick="' + esc(k) + '" aria-label="빼기">✕</button></span>';
+          }).join("") + '</div>'
+        : "") +
+      '<p style="font-size:11.5px;color:var(--c-text-mute);margin:var(--s-2) 0 0">' +
+        '가로축은 <b>시료</b>입니다 (시작일 순). 이 데이터에는 일자축이 없어 ' +
+        '일자별 추이 대신 시료별 추이로 그립니다.</p>' +
+    '</div>';
+  }
+
   function chartView(rows, cols) {
     if (!rows.length) {
       return '<div class="empty"><div class="empty-title">그릴 데이터가 없습니다</div>' +
         '<div class="empty-body">Data 입력에서 값을 적으면 이 화면에 바로 나타납니다.</div></div>';
     }
-    const sets = chartSeries(rows, cols);
-    if (!sets.length) {
+    const pool = chartPool(rows, cols);
+    if (!pool.length) {
       return '<div class="empty"><div class="empty-title">아직 그릴 수치가 없습니다</div>' +
         '<div class="empty-body">시료는 ' + rows.length + '건 있지만 측정값이 비어 있습니다.</div></div>';
     }
+
+    /* 사라진 항목은 정리하고, 처음이면 팀마다 하나씩 올려 둡니다 —
+       세 팀이 한 화면에서 보이는 것이 이 화면의 쓸모입니다. */
+    chartPick = chartPick.filter(k => pool.some(r => r.key === k));
+    if (!chartPick.length) {
+      const seen = {};
+      pool.forEach(function (r) {
+        if (seen[r.team.id] || chartPick.length >= 3) return;
+        seen[r.team.id] = true; chartPick.push(r.key);
+      });
+    }
+    const picked = chartPick.map(k => pool.find(r => r.key === k)).filter(Boolean);
     const cats = rows.map(r => r.sampleName || "(이름 없음)");
 
-    return '<div class="card-body" style="border-bottom:1px solid var(--c-border);' +
-        'display:flex;gap:var(--s-3);align-items:center;flex-wrap:wrap">' +
-        '<div style="flex:1 1 auto;min-width:0"><div class="eyebrow">그래프 확인</div>' +
-        '<p style="font-size:12px;color:var(--c-text-mute);margin:2px 0 0">' +
-          '가로축은 <b>시료</b>입니다 (시작일 순). 이 데이터에는 일자축이 없어 ' +
-          '일자별 추이 대신 시료별 추이로 그립니다 — 값이 있는 항목만 나옵니다.</p></div>' +
-        '<button class="btn btn-accent" id="chart-xlsx">' +
-          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-          'stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
-          '<path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg> Excel 내보내기</button>' +
-      '</div>' +
+    /* ★ 단위가 다른 항목은 한 축에 겹치지 않습니다.
 
-      sets.map(function (set) {
-        return '<section class="card" style="margin:var(--s-4) 0;border-top:3px solid ' +
-            (set.team.color || "var(--c-accent)") + '">' +
-          '<div class="card-head"><div><h2 class="card-title">' + esc(set.team.ko) + '</h2>' +
-          '<p class="card-sub">' + set.items.length + '개 항목 · 시료 ' + rows.length + '건</p></div></div>' +
-          '<div class="card-body">' +
-            set.items.map(function (it) {
-              const vals = it.data.filter(v => v !== null);
-              const lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-              /* 값이 좁은 구간에 몰려 있으면 0부터 그려 봐야 선이 납작합니다 */
-              const tight = vals.length > 1 && lo > 0 && (hi - lo) < lo * 0.5;
-              return '<div style="margin-bottom:var(--s-5)">' +
-                '<div class="eyebrow" style="margin-bottom:var(--s-2)">' + esc(it.col.label) +
-                  (it.col.unit ? ' <span style="color:var(--c-text-mute)">' + esc(it.col.unit) + '</span>' : "") +
-                '</div>' +
-                '<div class="chart-wrap">' +
-                  window.Charts.bars({
-                    cats: cats,
-                    series: [{ name: it.col.label, color: set.team.color || "#0369A1", data: it.data }],
-                    min: tight ? Math.floor(lo * 0.98) : null,
-                    h: 180, w: 820, aria: it.col.label + " 시료별 값" }) +
-                '</div>' +
-                (tight ? '<p style="font-size:11px;color:var(--c-text-mute);margin:var(--s-2) 0 0">' +
-                  '세로축은 ' + Math.floor(lo * 0.98) + ' 부터 시작합니다 — 값이 좁은 구간에 ' +
-                  '몰려 있어 0부터 그리면 차이가 보이지 않습니다.</p>' : "") +
-              '</div>';
-            }).join("") +
-          '</div></section>';
-      }).join("");
+       Max VCD(10⁶ cells/mL) 15 와 Total Yield(%) 98 을 한 축에 그리면
+       세포 농도가 바닥에 깔린 선으로 보입니다 — 눈으로는 "배양이 망했다"
+       로 읽힙니다. 단위가 같은 것끼리 묶어 한 장씩 그립니다. */
+    const byUnit = [];
+    picked.forEach(function (r) {
+      const u = r.unit || "";
+      let g = byUnit.find(x => x.unit === u);
+      if (!g) { g = { unit: u, items: [] }; byUnit.push(g); }
+      g.items.push(r);
+    });
+
+    const charts = byUnit.map(function (g) {
+      const all = [];
+      g.items.forEach(r => r.data.forEach(v => { if (v !== null) all.push(v); }));
+      const lo = all.length ? Math.min.apply(null, all) : 0;
+      const hi = all.length ? Math.max.apply(null, all) : 0;
+      const tight = all.length > 1 && lo > 0 && (hi - lo) < lo * 0.5;
+      const series = g.items.map((r, i) => ({
+        name: r.label + (r.unit ? " (" + r.unit + ")" : ""),
+        color: r.team.color || PALETTE[i % PALETTE.length],
+        data: r.data
+      }));
+      const body = chartKind === "line"
+        ? window.Charts.line({ x: cats, series: series, h: 230, w: 820,
+                               min: tight ? Math.floor(lo * 0.98) : null,
+                               aria: g.items.map(r => r.label).join(" · ") + " 시료별 추이" })
+        : window.Charts.bars({ cats: cats, series: series, h: 230, w: 820,
+                               min: tight ? Math.floor(lo * 0.98) : null,
+                               aria: g.items.map(r => r.label).join(" · ") + " 시료별 값" });
+
+      return '<section class="card" style="margin:var(--s-4) 0">' +
+        '<div class="card-head"><div>' +
+          '<h2 class="card-title">' + esc(g.items.map(r => r.label).join(" · ")) + '</h2>' +
+          '<p class="card-sub">' + (g.unit ? esc(g.unit) + " · " : "") +
+            '시료 ' + rows.length + '건' +
+            (byUnit.length > 1 ? ' · 단위가 같은 항목끼리 묶어 그렸습니다' : "") + '</p>' +
+        '</div></div>' +
+        '<div class="card-body">' +
+          (series.length > 1 ? window.Charts.swatches(series) : "") +
+          '<div class="chart-wrap" style="margin-top:var(--s-3)">' + body + '</div>' +
+          (tight ? '<p style="font-size:11px;color:var(--c-text-mute);margin:var(--s-2) 0 0">' +
+            '세로축은 ' + Math.floor(lo * 0.98) + ' 부터 시작합니다 — 값이 좁은 구간에 ' +
+            '몰려 있어 0부터 그리면 차이가 보이지 않습니다.</p>' : "") +
+          window.Charts.dataTable(g.items.map(r => r.label).join(" · "),
+            ["시료"].concat(series.map(s => s.name)),
+            cats.map((c, i) => [c].concat(series.map(s =>
+              s.data[i] === null || !isFinite(s.data[i]) ? L.empty : String(s.data[i]))))) +
+        '</div></section>';
+    }).join("");
+
+    return chartToolbar(pool) +
+      (byUnit.length > 1
+        ? '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' +
+          '고른 항목의 단위가 ' + byUnit.length + '가지라 ' + byUnit.length + '장으로 나눠 그렸습니다 — ' +
+          '단위가 다른 값을 한 축에 겹치면 작은 쪽이 바닥에 깔려 실제보다 나빠 보입니다.' +
+          '</div></div>'
+        : "") +
+      charts;
   }
 
   function wireChartView(rows, cols) {
-    const b = $("#chart-xlsx");
-    if (b) b.addEventListener("click", function () { exportChart(rows, cols); });
+    const pool = chartPool(rows, cols);
+    const redraw = () => { saveGrid(); render(); };
+
+    const pick = $("#chart-pick");
+    if (pick) pick.addEventListener("change", function () {
+      chartPick = [this.value].concat(chartPick.slice(1).filter(k => k !== this.value));
+      redraw();
+    });
+    const add = $("#chart-add");
+    if (add) add.addEventListener("change", function () {
+      if (this.value && chartPick.indexOf(this.value) === -1) chartPick.push(this.value);
+      redraw();
+    });
+    $$("[data-cunpick]").forEach(b => b.addEventListener("click", function () {
+      chartPick = chartPick.filter(k => k !== b.dataset.cunpick);
+      redraw();
+    }));
+    $$("[data-ckind]").forEach(b => b.addEventListener("click", function () {
+      chartKind = b.dataset.ckind; redraw();
+    }));
+    const all = $("#chart-all");
+    if (all) all.addEventListener("click", function () {
+      chartPick = pool.map(r => r.key); redraw();
+    });
+    const x = $("#chart-xlsx");
+    if (x) x.addEventListener("click", function () { exportChart(rows, cols); });
   }
 
   /* ── 컬럼 정의 ──────────────────────────────────────────────────────────
@@ -877,22 +1023,41 @@
           return;
         }
 
-        /* 선택을 여기서 확정해 둡니다. 그리는 쪽에서 임시로 채우면 그 값이
-           남지 않아, 사용자가 네 번째 시료를 눌러도 다시 기본값으로 돌아갑니다. */
+        /* ★ 고른 것을 그대로 둡니다.
+
+           예전에는 여기서 "두 개 미만이면 앞의 셋을 넣는다" 를 **그릴 때마다**
+           했습니다. 그래서 칩을 눌러 하나만 남기면 다음 그리기에서 곧바로
+           셋으로 되돌아갔고, 전부 끄면 전체가 다시 나왔습니다 — 누른 사람
+           입장에서는 선택이 먹지 않는 것으로 보입니다.
+
+           기본값은 **처음 들어왔을 때 한 번만** 채웁니다. 그 뒤로는 사용자가
+           정한 것이 정답이고, 하나만 고르든 전부 끄든 그대로 따릅니다. */
         const keys = srows.map(rowKeyOf);
         cmpPicked = cmpPicked.filter(k => keys.indexOf(k) > -1);
-        if (cmpPicked.length < 2) cmpPicked = keys.slice(0, Math.min(3, keys.length));
+        if (!cmpTouched && !cmpPicked.length) {
+          cmpPicked = keys.slice(0, Math.min(3, keys.length));
+        }
         $("#count").textContent = srows.length + "개 시료 중 " +
-          cmpPicked.length + "개 비교 (최대 " + CMP_MAX + ")";
+          cmpPicked.length + "개 선택 (최대 " + CMP_MAX + ")";
         paintGridTools(null, batches);
         $("#table-host").innerHTML = compareView(srows);
         $$("[data-cmp]").forEach(b => b.addEventListener("click", function () {
           const k = b.dataset.cmp;
           const i = cmpPicked.indexOf(k);
+          cmpTouched = true;              /* 이제부터는 사용자가 정합니다 */
           if (i > -1) cmpPicked.splice(i, 1);
-          else if (cmpPicked.length < CMP_MAX) cmpPicked.push(k);
+          else if (cmpPicked.length < CMP_MAX) {
+            cmpPicked.push(k);
+          } else {
+            toast("최대 " + CMP_MAX + "개까지 비교합니다. 하나를 빼고 다시 골라 주세요.");
+            return;
+          }
           render();
         }));
+        const clr = $("#cmp-clear");
+        if (clr) clr.addEventListener("click", function () {
+          cmpTouched = true; cmpPicked = []; render();
+        });
         return;
       }
 
