@@ -476,6 +476,10 @@ window.AskTables = (function () {
   return {
     on, internal, build, invalidate, all, uploads, get, addFile, remove,
     numericColumns, filledCount,
+    /* 엑셀 라이브러리를 쓰는 곳이 여기 하나가 아닙니다 — 읽기(업로드)와
+       쓰기(내보내기)가 같은 것을 씁니다. CDN 주소를 두 벌로 두면 한쪽만
+       올라가고, 그때 어느 쪽이 깨졌는지 알기 어렵습니다. */
+    loadXLSX: loadXLSX,
     /* 검증·테스트용 */
     _parseCSV: parseCSV, _matrixToTable: matrixToTable, _splitUnit: splitUnit
   };

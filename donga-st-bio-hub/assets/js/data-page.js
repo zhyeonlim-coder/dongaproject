@@ -6,7 +6,7 @@
    · 다중 컬럼 정렬 (Shift+클릭으로 2·3차 정렬 추가)
    · 컬럼 필터 + 조건 칩
    · Sample Name 자유 추가 (creatable) + 샘플별 모아보기
-   · CSV 내보내기
+   · Excel(.xlsx) 내보내기 — 받아오지 못하면 CSV
    ========================================================================== */
 
 (function () {
@@ -1226,7 +1226,8 @@
     return genLabels.some(g => s === g || s.endsWith(" " + g));
   }
 
-  function exportCSV() {
+  /* [Excel 내보내기] — 못 만들면 CSV 로 내려갑니다 (아래 fallbackCSV) */
+  function exportSheet() {
     Promise.all([window.Scope.batches(), window.Repo.getStudies()]).then(function (res) {
       const batches = res[0], studies = res[1];
       const titerDays = window.DATA_TITER_DAYS.filter(d => batches.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
@@ -1282,6 +1283,23 @@
         });
       }
 
+      /* ══════════════════════════════════════════════════════════════════
+         엑셀(.xlsx)로 내보냅니다
+
+         CSV 는 글자만 넘깁니다. 받는 쪽 Excel 이 "98.0" 을 숫자로 볼지
+         글자로 볼지, 한글이 깨질지는 그 PC 설정에 달려 있었습니다 —
+         보내는 사람은 알 수 없고, 받는 사람은 깨진 뒤에 압니다.
+
+         xlsx 는 숫자를 숫자 칸으로 넘기므로 받자마자 정렬·평균이 됩니다.
+         고지는 **따로 시트**에 둡니다. CSV 에서는 고지 일곱 줄이 표 위에
+         얹혀 있어서, 그대로 피벗을 걸면 머리글이 어긋났습니다.
+
+         라이브러리는 업로드 읽기에 쓰던 것을 그대로 씁니다 (AskTables).
+         못 받아오면 CSV 로 내려갑니다 — 내보내기 자체가 막히는 것이
+         가장 나쁩니다. */
+      const sheetRows = [];        /* [[셀,…], …] — 숫자는 숫자 그대로 */
+      const notice = [];           /* 고지 시트 */
+
       /* 1) 고지 블록 — 컬럼 머리 위에 놓습니다. Excel 에서도 그대로 보입니다. */
       const head = [];
       if (pv) {
@@ -1321,18 +1339,99 @@
         lines.push(cells.join(","));
       });
 
-      const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "batch_data_" + window.Entries.stamp().slice(0, 10) + ".csv";
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
-      /* 내보낸 직후에도 한 번 말해 줍니다 — 파일을 열기 전에 알아야
-         보고서에 붙이기 전에 확인합니다 */
-      toast(rows.length + "행을 CSV로 내보냈습니다." +
-        (genInFile.length ? " 생성값 " + genInFile.length + "개 항목" : "") +
-        (unvRows.length ? " · 검증 필요 " + unvRows.length + "개 시료" : "") +
-        ((genInFile.length || unvRows.length) ? " — 파일 맨 위 고지를 확인하세요." : ""));
+      /* ── 엑셀용 표 — 값은 글자가 아니라 **원래 타입 그대로** ────────── */
+      sheetRows.push(cols.map(c => label(c) + (c.unit ? " (" + c.unit + ")" : ""))
+        .concat(pv ? ["검증 필요 항목"] : []));
+      rows.forEach(function (r) {
+        const line = cols.map(function (c) {
+          const v = cellValue(r, c.key);
+          if (v === null || v === undefined) return "";
+          /* 숫자는 숫자로 넘깁니다 — 받자마자 정렬·평균이 되도록.
+             표시 자릿수는 서식으로 두고 값은 원본 그대로 둡니다. */
+          if (c.type === "n" && typeof v === "number" && isFinite(v)) return v;
+          return String(v);
+        });
+        if (pv) { const l = unvOf(r); line.push(l.length ? l.join(" · ") : ""); }
+        sheetRows.push(line);
+      });
+
+      if (pv) {
+        notice.push(["※ 이 파일을 인용하기 전에 읽어 주세요"]);
+        notice.push(["출처", pv.P.SOURCE.file + " / " + pv.P.SOURCE.sheet + " — 스캔 이미지 전사본"]);
+        notice.push(["원본 비고", "스캔 화질로 인한 판독 오차 가능성이 있어 중요한 수치는 " +
+          "원본과 대조 확인이 필요합니다"]);
+        notice.push(["생성값 (실측 아님)", genInFile.length
+          ? genInFile.join(" · ") + " — " + pv.P.GENERATED_WHY : "이 파일에 없음"]);
+        notice.push(["검증 필요", unvRows.length
+          ? unvRows.length + "개 시료(" + unvRows.map(x => x.id).join(" · ") +
+            ")가 여러 항목에서 동시에 같은 값입니다. 원본 스캔과 대조 전까지 통계에 " +
+            "넣지 마세요. 해당 항목은 데이터 시트의 \"검증 필요 항목\" 열에 적었습니다."
+          : "이 파일에 없음"]);
+        notice.push(["내보낸 범위", window.Scope.describe ? window.Scope.describe() : ""]);
+        notice.push(["내보낸 시각", window.Entries.stamp()]);
+        notice.push(["행 수", rows.length]);
+      }
+
+      const stamp = window.Entries.stamp().slice(0, 10);
+      const base = "bio_data_" + stamp;
+
+      function saveBlob(blob, name) {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      }
+      function done(kind) {
+        /* 내보낸 직후에도 한 번 말해 줍니다 — 파일을 열기 전에 알아야
+           보고서에 붙이기 전에 확인합니다 */
+        toast(rows.length + "행을 " + kind + "로 내보냈습니다." +
+          (genInFile.length ? " 생성값 " + genInFile.length + "개 항목" : "") +
+          (unvRows.length ? " · 검증 필요 " + unvRows.length + "개 시료" : "") +
+          ((genInFile.length || unvRows.length)
+            ? " — [고지] 시트를 확인하세요." : ""));
+      }
+      function fallbackCSV(why) {
+        const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+        saveBlob(blob, base + ".csv");
+        toast("엑셀 파일을 만들지 못해 CSV 로 내보냈습니다" + (why ? " (" + why + ")" : "") + ".");
+      }
+
+      if (!window.AskTables || !window.AskTables.loadXLSX) { fallbackCSV("엑셀 모듈 없음"); return; }
+
+      window.AskTables.loadXLSX().then(function (XLSX) {
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet(sheetRows);
+
+        /* 컬럼 너비 — 글자 수에 맞춥니다. 기본값이면 머리글이 전부
+           "####" 로 잘려 나와, 받는 사람이 매번 폭을 늘려야 합니다. */
+        ws["!cols"] = sheetRows[0].map(function (h, i) {
+          let w = String(h).length;
+          for (let r = 1; r < sheetRows.length; r++) {
+            const v = sheetRows[r][i];
+            const n = String(v === null || v === undefined ? "" : v).length;
+            if (n > w) w = n;
+          }
+          return { wch: Math.min(Math.max(w + 2, 8), 42) };
+        });
+        /* 머리글 고정 — 수백 행을 내려도 무엇의 값인지 보입니다 */
+        ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+        XLSX.utils.book_append_sheet(wb, ws, "데이터");
+
+        if (notice.length) {
+          const nws = XLSX.utils.aoa_to_sheet(notice);
+          nws["!cols"] = [{ wch: 18 }, { wch: 92 }];
+          XLSX.utils.book_append_sheet(wb, nws, "고지");
+        }
+
+        const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+        saveBlob(new Blob([out], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }), base + ".xlsx");
+        done("엑셀");
+      }).catch(function (e) {
+        fallbackCSV((e && e.message) ? "네트워크" : "");
+      });
     });
   }
 
@@ -1366,7 +1465,7 @@
       if (what === "remote" || what === "dataset") render();
     });
   }
-  $("#export").addEventListener("click", exportCSV);
+  $("#export").addEventListener("click", exportSheet);
   paintClassFilter();
   syncSelectHook();
   render();
