@@ -1960,7 +1960,24 @@ window.AskEngine = (function () {
       "추이       — \"일자별 Titer 추이\"",
       "비교       — \"과제별 Total Yield 비교\"",
       "결측       — \"미입력이 가장 많은 항목은?\"",
-      "목록 · 조건 — \"" + mon + " 배치 보여줘\" · \"Titer 1000 이상인 배치\" · \"Titer 상위 5개\""
+      /* ★ 값 조건 예시의 숫자를 **데이터에서 가져옵니다.**
+
+         예전에는 "Titer 1000 이상인 배치" 라고 적혀 있었습니다. 두 가지가
+         문제였습니다 —
+           · 그 1000 은 어느 데이터에서도 나온 값이 아니라, 수치 검증기가
+             근거 없는 숫자로 잡아 **사용법 답을 통째로 "근거를 확인하지
+             못했습니다" 문장으로 바꿨습니다.** 사용법을 물은 사람이 받는
+             답이 그것이었습니다.
+           · 그 범위에 값이 없으면 예시를 눌러도 0건입니다.
+         실제 중간값 근처로 적어, 눌러 보면 결과가 나오게 합니다. */
+      "목록 · 조건 — \"" + mon + " 배치 보여줘\"" + (function () {
+        const col = (byTeam[0] && byTeam[0].cols[0]) || null;
+        if (!col) return "";
+        const s = stats(values(table.rows, col.key));
+        if (!s) return "";
+        const mid = fmt(s.median, col);
+        return " · \"" + col.label + " " + mid + " 이상인 시료\"";
+      })() + " · \"" + first + " 상위 5개\""
     ];
 
     return Object.assign(base, {

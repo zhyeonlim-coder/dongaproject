@@ -379,9 +379,34 @@ window.AskVerify = (function () {
     allowedFrom: allowedFrom
   };
 
+  /* ── 측정값을 말하지 않는 답은 수치 대조에서 뺍니다 ───────────────────
+     이 검증기가 막으려는 것은 **측정값을 지어내는 것**입니다. 그런데
+     사용법·인사·출처 안내에도 숫자가 들어갑니다 — "질문 유형 6가지",
+     "조회 가능한 항목 13개", "시트 28행" 같은 것들입니다. 데이터에서 나온
+     값이 아니니 대조에 걸리고, 그러면 **사용법을 물었는데 "근거를 확인하지
+     못한 수치가 있어 문장을 쓰지 않았습니다" 가 돌아옵니다.**
+
+     실제로 그랬습니다 — "뭐 할 수 있어?" 의 답이 통째로 그 문장으로
+     바뀌어 나갔습니다. 막아야 할 것을 막지 못한 것이 아니라, 막을 필요가
+     없는 것을 막은 경우입니다.
+
+     이 종류들은 facts · rows 에 측정값을 담지 않습니다. 측정값이 들어가는
+     답(list · stat · extreme · trend · compare · overview · entity …)은
+     그대로 전부 대조합니다.
+
+     ★ meta(데이터 요약)와 source(출처)는 **빼지 않습니다.** 거기에는
+       "배치 10건" · "기간 2026-10-08 ~ " 처럼 데이터에서 나온 수치가
+       들어가고, 그건 틀리면 안 되는 숫자입니다 (ask-regression O 가 그
+       경계를 지키고 있습니다 — 빼려다 걸렸습니다). */
+  const NO_MEASURE_KINDS = ["greet", "unsupported",
+                            "action-proposal", "ui-action", "spec-none"];
+
   function checkResult(r, table) {
     const t = table || (window.AskTables && window.AskTables.internal());
     if (!t || !r) return { ok: true, violations: [], checked: 0 };
+    if (r.kind && NO_MEASURE_KINDS.indexOf(r.kind) > -1) {
+      return { ok: true, violations: [], checked: 0, skipped: r.kind };
+    }
     const allow = PARTS.allowedFrom(r, t);
     const allowSet = expandAllowed(allow.nums);
     const allowDates = new Set(allow.dates);
