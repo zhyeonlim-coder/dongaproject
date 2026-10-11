@@ -90,8 +90,9 @@
 
   window.Shell.subnav([
     { label: "보기", items: [
-      { key: "sample",  ko: "시료별", active: true },
-      { key: "compare", ko: "시료 비교", active: false }
+      { key: "sample",  ko: "데이터 전체 조회", active: true },
+      { key: "compare", ko: "데이터 비교",     active: false },
+      { key: "chart",   ko: "그래프 확인",     active: false }
     ]}
   ], k => { groupBy = k; syncSelectHook(); render(); });
 
@@ -116,13 +117,26 @@
     return Math.abs(hi - lo) / Math.abs(mid);
   }
 
-  function compareView(batches) {
-    if (batches.length < 2) {
-      return '<div class="empty"><div class="empty-title">비교할 배치가 부족합니다</div>' +
-        '<div class="empty-body">이 범위에 배치가 2건 이상이어야 비교할 수 있습니다.</div></div>';
+  /* 비교 대상을 가리키는 열쇠 — 시료 이름(과 Study)입니다.
+
+     예전에는 그릇 id 를 썼습니다. 그릇이 팀마다 하나씩 생기면서, 같은
+     TA1 이 세 개의 id 로 나뉘고 **그 중 하나만 고르면 그 팀 값만 보였습니다**
+     — 비교표의 거의 모든 줄이 미입력이 됐습니다. 화면 어디에도 "지금 배양
+     그릇만 보고 있다" 는 말이 없어서, 값이 안 들어온 것처럼 보였습니다. */
+  function rowKeyOf(r) {
+    return String(r.studyId || "") + "|" + sampleKeyOf(r.sampleName);
+  }
+
+  function compareView(samples) {
+    if (samples.length < 2) {
+      return '<div class="empty"><div class="empty-title">비교할 시료가 부족합니다</div>' +
+        '<div class="empty-body">이 범위에 시료가 2건 이상이어야 비교할 수 있습니다. ' +
+        '상단에서 과제나 Study 를 넓혀 보세요.</div></div>';
     }
 
-    const cols = cmpPicked.map(id => batches.find(b => b.id === id)).filter(Boolean);
+    const byKey = {};
+    samples.forEach(function (r) { byKey[rowKeyOf(r)] = r; });
+    const cols = cmpPicked.map(k => byKey[k]).filter(Boolean);
     const picked = cmpPicked;
     const sel = window.Scope.get();
 
@@ -138,20 +152,32 @@
          보여 주고 다른 화면에서는 감추면, 두 화면을 견주는 사람이 어느
          쪽이 맞는지 알 수 없습니다. 대표 시료 값이라는 사실은 표 아래에
          밝혀 둡니다. */
-    const rows = [];
-    rows.push({ key: "cultureDays", group: "기간", label: "배양 일수", unit: "일", dp: 0,
-                get: b => b.cultureDays });
+    /* ★ 값은 **조회 표와 같은 길**(cellValue)로 읽습니다.
+
+       예전에는 여기서만 Repo.valueOf 를 직접 불렀습니다. 그 함수는 그릇
+       하나를 보기 때문에, 팀별로 나뉜 시료에서는 그 팀 값만 나옵니다.
+       cellValue 는 묶인 시료의 그릇을 차례로 보므로, 비교표가 조회 표와
+       같은 숫자를 보여 줍니다 — 두 화면이 다르면 어느 쪽이 맞는지
+       사용자가 판단해야 합니다. */
+    const rows2 = [];
     window.DATA_ANALYTE_GROUPS.forEach(function (g) {
       if (g.empty) return;
-      const perSample = g.team === "analytics";
-      g.items.forEach(it => rows.push({
+      g.items.forEach(it => rows2.push({
         /* 키는 컬럼 표와 같은 규칙이어야 합니다 — Data 분류가 그 키로
            걸러지기 때문입니다 (repo.colInClass) */
         key: (g.team === "upstream") ? it.key : g.id + "." + it.key,
-        group: g.label, label: it.label, unit: it.unit, dp: it.dp, perSample: perSample,
-        get: b => window.Repo.valueOf(b, g.id, it.key)
+        group: (window.DATA_TEAMS.find(t => t.id === g.team) || {}).short || g.label,
+        label: (g.label === it.label) ? it.label : g.label + " " + it.label,
+        unit: it.unit, dp: it.dp,
+        get: r => cellValue(r, g.id + "." + it.key)
       }));
     });
+    /* Data 입력에서 더한 항목도 비교 대상입니다 */
+    customCols(null).forEach(function (c) {
+      rows2.push({ key: c.key, group: "추가 항목", label: c.label,
+                   unit: "", dp: c.dp, get: r => cellValue(r, c.key) });
+    });
+    const rows = rows2;   /* 이 아래에서 rows 는 "비교 항목 목록" 입니다 */
 
     /* Data 분류 선택 → 그 분류의 항목만 남깁니다. 컬럼 표와 같은 기준입니다. */
     const shown = sel.dataClass
@@ -161,7 +187,7 @@
       ? ((window.Repo.getDataClasses().find(c => c.id === sel.dataClass) || {}).label || "")
       : "";
     if (sel.dataClass && !shown.length) {
-      return cmpChipBar(batches, picked) +
+      return cmpChipBar(rows0, picked) +
         '<div class="empty"><div class="empty-title">' + esc(clsLabel) +
           ' 에 해당하는 비교 항목이 없습니다</div>' +
         '<div class="empty-body">위 [전체 항목] 을 누르면 모든 항목이 다시 나옵니다.</div></div>';
@@ -198,7 +224,7 @@
       '</tr>';
     }).join("");
 
-    return cmpChipBar(batches, picked) +
+    return cmpChipBar(samples, picked) +
 
       (sel.dataClass
         ? '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' +
@@ -210,9 +236,7 @@
       '<div class="dgrid' + (grid.dense ? " is-dense" : "") + '">' +
       '<table class="tbl cmp-tbl"><thead><tr>' +
         '<th scope="col">항목</th>' +
-        cols.map(b => '<th scope="col"><span class="mono">' + esc(b.id) + '</span>' +
-          '<br><span style="font-weight:400;text-transform:none;font-size:10px">' +
-          esc(b.initialDate || "") + '</span></th>').join("") +
+        cols.map(b => '<th scope="col">' + esc(b.sampleName || "") + '<br><span style="font-weight:400;text-transform:none;font-size:10px">' + esc([b.studyName, b.teamLabel].filter(Boolean).join(" · ")) + '</span></th>').join("") +
         '<th scope="col">편차</th>' +
       '</tr></thead><tbody>' +
         (diff.length
@@ -239,13 +263,111 @@
 
   /* 비교할 배치 고르는 줄 — 항목이 하나도 남지 않았을 때도 이 줄은 나와야
      합니다. 배치 선택까지 사라지면 되돌릴 방법이 화면에 없습니다. */
-  function cmpChipBar(batches, picked) {
+  /* 고르는 칩에 **시료 이름**을 적습니다. 그릇 id(B-2MQM679)는 사용자가
+     본 적 없는 글자라, 무엇을 고르는지 알 수 없었습니다. */
+  function cmpChipBar(samples, picked) {
     return '<div class="card-body" style="border-bottom:1px solid var(--c-border)">' +
-      '<div class="eyebrow" style="margin-bottom:var(--s-2)">비교할 배치 (최대 ' + CMP_MAX + '개)</div>' +
+      '<div class="eyebrow" style="margin-bottom:var(--s-2)">비교할 시료 (최대 ' + CMP_MAX + '개)</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-        batches.map(b => '<button class="mm-chip" data-cmp="' + esc(b.id) + '" ' +
-          'aria-pressed="' + (picked.indexOf(b.id) > -1) + '">' + esc(b.id) + '</button>').join("") +
+        samples.map(function (r) {
+          const k = rowKeyOf(r);
+          const sub = [r.studyName, r.teamLabel].filter(Boolean).join(" · ");
+          return '<button class="mm-chip" data-cmp="' + esc(k) + '" ' +
+            'title="' + esc(sub) + '" aria-pressed="' + (picked.indexOf(k) > -1) + '">' +
+            esc(r.sampleName || "(이름 없음)") + '</button>';
+        }).join("") +
       '</div></div>';
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     그래프 확인 — 시료를 가로축에 놓고 팀별로 그립니다
+
+     이 데이터에는 일자축이 없습니다 (Titer D10~D14 는 지표 재설정 때
+     내려갔습니다). 그래서 "시계열" 은 **시료를 시작일 순으로 늘어놓은
+     추이**입니다. 없는 축을 만들어 그리지 않고, 있는 축으로 그립니다.
+
+     값이 하나도 없는 항목은 그리지 않습니다 — 빈 격자만 있는 차트가
+     여덟 개 서 있으면, 값이 있는 차트를 찾는 데 스크롤을 써야 합니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function chartSeries(rows, cols) {
+    const out = [];
+    (window.DATA_TEAMS || []).forEach(function (t) {
+      const items = [];
+      cols.forEach(function (c) {
+        if (c.type !== "n") return;
+        const g = (window.DATA_ANALYTE_GROUPS || []).find(x => c.key.indexOf(x.id + ".") === 0);
+        const team = g ? g.team : null;
+        if (team !== t.id) return;
+        const data = rows.map(r => {
+          const v = cellValue(r, c.key);
+          return (typeof v === "number" && isFinite(v)) ? v : null;
+        });
+        if (!data.some(v => v !== null)) return;     /* 값 없는 항목은 그리지 않습니다 */
+        items.push({ col: c, data: data });
+      });
+      if (items.length) out.push({ team: t, items: items });
+    });
+    return out;
+  }
+
+  function chartView(rows, cols) {
+    if (!rows.length) {
+      return '<div class="empty"><div class="empty-title">그릴 데이터가 없습니다</div>' +
+        '<div class="empty-body">Data 입력에서 값을 적으면 이 화면에 바로 나타납니다.</div></div>';
+    }
+    const sets = chartSeries(rows, cols);
+    if (!sets.length) {
+      return '<div class="empty"><div class="empty-title">아직 그릴 수치가 없습니다</div>' +
+        '<div class="empty-body">시료는 ' + rows.length + '건 있지만 측정값이 비어 있습니다.</div></div>';
+    }
+    const cats = rows.map(r => r.sampleName || "(이름 없음)");
+
+    return '<div class="card-body" style="border-bottom:1px solid var(--c-border);' +
+        'display:flex;gap:var(--s-3);align-items:center;flex-wrap:wrap">' +
+        '<div style="flex:1 1 auto;min-width:0"><div class="eyebrow">그래프 확인</div>' +
+        '<p style="font-size:12px;color:var(--c-text-mute);margin:2px 0 0">' +
+          '가로축은 <b>시료</b>입니다 (시작일 순). 이 데이터에는 일자축이 없어 ' +
+          '일자별 추이 대신 시료별 추이로 그립니다 — 값이 있는 항목만 나옵니다.</p></div>' +
+        '<button class="btn btn-accent" id="chart-xlsx">' +
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+          'stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
+          '<path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg> Excel 내보내기</button>' +
+      '</div>' +
+
+      sets.map(function (set) {
+        return '<section class="card" style="margin:var(--s-4) 0;border-top:3px solid ' +
+            (set.team.color || "var(--c-accent)") + '">' +
+          '<div class="card-head"><div><h2 class="card-title">' + esc(set.team.ko) + '</h2>' +
+          '<p class="card-sub">' + set.items.length + '개 항목 · 시료 ' + rows.length + '건</p></div></div>' +
+          '<div class="card-body">' +
+            set.items.map(function (it) {
+              const vals = it.data.filter(v => v !== null);
+              const lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+              /* 값이 좁은 구간에 몰려 있으면 0부터 그려 봐야 선이 납작합니다 */
+              const tight = vals.length > 1 && lo > 0 && (hi - lo) < lo * 0.5;
+              return '<div style="margin-bottom:var(--s-5)">' +
+                '<div class="eyebrow" style="margin-bottom:var(--s-2)">' + esc(it.col.label) +
+                  (it.col.unit ? ' <span style="color:var(--c-text-mute)">' + esc(it.col.unit) + '</span>' : "") +
+                '</div>' +
+                '<div class="chart-wrap">' +
+                  window.Charts.bars({
+                    cats: cats,
+                    series: [{ name: it.col.label, color: set.team.color || "#0369A1", data: it.data }],
+                    min: tight ? Math.floor(lo * 0.98) : null,
+                    h: 180, w: 820, aria: it.col.label + " 시료별 값" }) +
+                '</div>' +
+                (tight ? '<p style="font-size:11px;color:var(--c-text-mute);margin:var(--s-2) 0 0">' +
+                  '세로축은 ' + Math.floor(lo * 0.98) + ' 부터 시작합니다 — 값이 좁은 구간에 ' +
+                  '몰려 있어 0부터 그리면 차이가 보이지 않습니다.</p>' : "") +
+              '</div>';
+            }).join("") +
+          '</div></section>';
+      }).join("");
+  }
+
+  function wireChartView(rows, cols) {
+    const b = $("#chart-xlsx");
+    if (b) b.addEventListener("click", function () { exportChart(rows, cols); });
   }
 
   /* ── 컬럼 정의 ──────────────────────────────────────────────────────────
@@ -291,6 +413,9 @@
         /* 그룹 이름과 항목 이름이 같으면 한 번만 적습니다 ("Potency Potency") */
         label: (g.team === "upstream" || g.label === it.label)
           ? it.label : g.label + " " + it.label,
+        /* 단위를 함께 들고 다닙니다 — 엑셀 머리글과 그래프 축이 이걸 씁니다.
+           없으면 "98" 이 %인지 mg/L인지 파일만 보고는 알 수 없습니다. */
+        unit: it.unit || "",
         type: "n", dp: it.dp, w: g.team === "upstream" ? 92 : 108
       }));
       if (g.team === "upstream") {
@@ -730,24 +855,42 @@
       const batches = res[0], studies = res[1];
 
       /* 배치 비교는 표 구조가 완전히 달라(항목이 행, 배치가 열) 따로 그립니다 */
-      if (groupBy === "compare") {
-        /* 선택을 여기서 확정해 둡니다. 그리는 쪽에서 임시로 채우면 그 값이
-           남지 않아, 사용자가 네 번째 배치를 눌러도 다시 기본값으로 돌아갑니다. */
-        cmpPicked = cmpPicked.filter(id => batches.some(b => b.id === id));
-        if (cmpPicked.length < 2) {
-          cmpPicked = batches.slice(0, Math.min(3, batches.length)).map(b => b.id);
-        }
-        $("#count").textContent = batches.length + "개 시료 중 " +
-          cmpPicked.length + "개 비교 (최대 " + CMP_MAX + ")";
+      if (groupBy === "compare" || groupBy === "chart") {
+        /* 두 화면 모두 **묶인 시료**를 봅니다 — 조회 표와 같은 줄입니다.
+           그릇(팀별)을 그대로 보면 같은 시료가 세 개로 나뉘어, 하나를 골라도
+           그 팀 값만 보입니다. 비교표가 거의 전부 미입력이던 이유입니다. */
+        const sdays = window.DATA_TITER_DAYS.filter(d =>
+          batches.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
+        const scols = columns(sdays, { all: true, batches: batches });
+        const srows = buildRows(batches, studies);
+
         $("#sample-bar").innerHTML = "";
         $("#sort-chips").innerHTML = "";
+        paintBlankNote(0);
+
+        if (groupBy === "chart") {
+          $("#count").textContent = srows.length + "개 시료" +
+            (window.Scope.periodLabel() ? " · " + window.Scope.periodLabel() : "");
+          paintGridTools(null, batches);
+          $("#table-host").innerHTML = chartView(srows, scols);
+          wireChartView(srows, scols);
+          return;
+        }
+
+        /* 선택을 여기서 확정해 둡니다. 그리는 쪽에서 임시로 채우면 그 값이
+           남지 않아, 사용자가 네 번째 시료를 눌러도 다시 기본값으로 돌아갑니다. */
+        const keys = srows.map(rowKeyOf);
+        cmpPicked = cmpPicked.filter(k => keys.indexOf(k) > -1);
+        if (cmpPicked.length < 2) cmpPicked = keys.slice(0, Math.min(3, keys.length));
+        $("#count").textContent = srows.length + "개 시료 중 " +
+          cmpPicked.length + "개 비교 (최대 " + CMP_MAX + ")";
         paintGridTools(null, batches);
-        $("#table-host").innerHTML = compareView(batches);
+        $("#table-host").innerHTML = compareView(srows);
         $$("[data-cmp]").forEach(b => b.addEventListener("click", function () {
-          const id = b.dataset.cmp;
-          const i = cmpPicked.indexOf(id);
+          const k = b.dataset.cmp;
+          const i = cmpPicked.indexOf(k);
           if (i > -1) cmpPicked.splice(i, 1);
-          else if (cmpPicked.length < CMP_MAX) cmpPicked.push(id);
+          else if (cmpPicked.length < CMP_MAX) cmpPicked.push(k);
           render();
         }));
         return;
@@ -864,8 +1007,9 @@
   function paintGridTools(titerDays, batches) {
     const host = $("#grid-tools");
     if (!host) return;
-    if (groupBy === "compare") {
-      /* 비교 표는 항목이 행, 배치가 열이라 컬럼 설정이 의미가 없습니다 */
+    if (groupBy === "compare" || groupBy === "chart") {
+      /* 비교표는 항목이 행·시료가 열이고, 그래프 화면에는 표 자체가 없습니다 —
+         둘 다 컬럼 표시/너비 설정이 걸릴 대상이 없습니다 */
       host.innerHTML = densityToggle();
       wireDensity(host);
       return;
@@ -1224,6 +1368,117 @@
   function isGeneratedLabel(label, genLabels) {
     const s = String(label);
     return genLabels.some(g => s === g || s.endsWith(" " + g));
+  }
+
+  /* ── 파일 저장 · 엑셀 쓰기 — 두 내보내기가 같이 씁니다 ────────────────
+     조회 표와 그래프가 각자 파일을 만들면, 숫자 타입이나 고지 시트가
+     한쪽에만 붙는 날이 옵니다. 만드는 곳을 하나로 둡니다. */
+  function saveBlob(blob, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+
+  /* sheets: [{ name, aoa }] · 첫 시트에 머리글 고정과 너비를 겁니다.
+     실패하면 첫 시트를 CSV 로 내려보냅니다 — 내보내기 자체가 막히는 것이
+     가장 나쁩니다. */
+  function writeWorkbook(sheets, base, onDone) {
+    function csvFallback(why) {
+      const aoa = sheets[0].aoa;
+      const q = v => {
+        if (v === null || v === undefined) return "";
+        const s = String(v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      const text = aoa.map(r => r.map(q).join(",")).join("\r\n");
+      saveBlob(new Blob(["﻿" + text], { type: "text/csv;charset=utf-8;" }), base + ".csv");
+      toast("엑셀 파일을 만들지 못해 CSV 로 내보냈습니다" + (why ? " (" + why + ")" : "") + ".");
+    }
+    if (!window.AskTables || !window.AskTables.loadXLSX) { csvFallback("엑셀 모듈 없음"); return; }
+
+    window.AskTables.loadXLSX().then(function (XLSX) {
+      const wb = XLSX.utils.book_new();
+      sheets.forEach(function (s, i) {
+        const ws = XLSX.utils.aoa_to_sheet(s.aoa);
+        const head = s.aoa[0] || [];
+        ws["!cols"] = head.map(function (h, ci) {
+          let w = String(h === null || h === undefined ? "" : h).length;
+          for (let r = 1; r < s.aoa.length; r++) {
+            const v = s.aoa[r][ci];
+            const n = String(v === null || v === undefined ? "" : v).length;
+            if (n > w) w = n;
+          }
+          return { wch: Math.min(Math.max(w + 2, 8), 46) };
+        });
+        if (i === 0) ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+        XLSX.utils.book_append_sheet(wb, ws, s.name);
+      });
+      const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      saveBlob(new Blob([out], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      }), base + ".xlsx");
+      if (onDone) onDone();
+    }).catch(function (e) { csvFallback((e && e.message) ? "네트워크" : ""); });
+  }
+
+  /* ── 그래프 화면 내보내기 ─────────────────────────────────────────────
+     화면에 그린 것과 **같은 숫자**를 넘깁니다. 시트를 둘로 둡니다 —
+     그래프 그대로의 표(시료 × 항목)와, 항목별 요약(n · 평균 · 최소 · 최대).
+     요약은 받는 쪽이 다시 계산하지 않게 하려는 것이고, 계산식은 화면과
+     같은 값에서 나옵니다. */
+  function exportChart(rows, cols) {
+    const sets = chartSeries(rows, cols);
+    if (!sets.length) { toast("내보낼 수치가 없습니다."); return; }
+
+    const items = [];
+    sets.forEach(s => s.items.forEach(it => items.push({ team: s.team, it: it })));
+
+    const data = [["시료", "Study", "팀"].concat(items.map(x =>
+      x.it.col.label + (x.it.col.unit ? " (" + x.it.col.unit + ")" : "")))];
+    rows.forEach(function (r, i) {
+      data.push([r.sampleName || "", r.studyName || "", r.teamLabel || ""]
+        .concat(items.map(x => x.it.data[i] === null ? "" : x.it.data[i])));
+    });
+
+    const sum = [["팀", "항목", "단위", "기록 건수", "평균", "최소", "최대"]];
+    items.forEach(function (x) {
+      const v = x.it.data.filter(n => n !== null);
+      if (!v.length) return;
+      const mean = v.reduce((a, b) => a + b, 0) / v.length;
+      const dp = x.it.col.dp === undefined ? 2 : x.it.col.dp;
+      sum.push([x.team.ko, x.it.col.label, x.it.col.unit || "", v.length,
+                Number(mean.toFixed(dp)),
+                Math.min.apply(null, v), Math.max.apply(null, v)]);
+    });
+
+    const scope = window.Scope.describe ? window.Scope.describe() : "";
+    const notice = [
+      ["※ 그래프 화면에서 내보낸 파일입니다"],
+      ["내보낸 범위", scope],
+      ["가로축", "시료 (시작일 순) — 이 데이터에는 일자축이 없어 일자별 추이가 아닙니다"],
+      ["내보낸 시각", window.Entries.stamp()],
+      ["시료 수", rows.length],
+      ["항목 수", items.length]
+    ];
+    const pv = provenanceOf();
+    if (pv) {
+      const gen = items.filter(x => isGeneratedLabel(x.it.col.label, pv.genLabels))
+        .map(x => x.it.col.label);
+      notice.push(["생성값 (실측 아님)", gen.length
+        ? gen.join(" · ") + " — " + pv.P.GENERATED_WHY : "이 파일에 없음"]);
+      notice.push(["출처", pv.P.SOURCE.file + " / " + pv.P.SOURCE.sheet + " — 스캔 이미지 전사본"]);
+    }
+
+    writeWorkbook([{ name: "그래프 데이터", aoa: data },
+                   { name: "요약", aoa: sum },
+                   { name: "고지", aoa: notice }],
+      "bio_chart_" + window.Entries.stamp().slice(0, 10),
+      function () {
+        toast("시료 " + rows.length + "건 · 항목 " + items.length + "개를 엑셀로 내보냈습니다 " +
+          "([그래프 데이터] [요약] [고지] 시트).");
+      });
   }
 
   /* [Excel 내보내기] — 못 만들면 CSV 로 내려갑니다 (아래 fallbackCSV) */
