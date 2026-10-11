@@ -492,6 +492,29 @@ window.AskEngine = (function () {
     const s = scope.spec;
     scope.filters = [];
     scope.label = [];
+
+    /* ── 시료 이름 안에 들어 있는 Study 이름은 범위로 세지 않습니다 ──────
+       production 에 "Test" 라는 Study 가 있고 "Test-New" 라는 시료가
+       있었습니다. "Test-New 데이터 보여줘" 를 물으면 Study "Test" 와 시료
+       "Test-New" 가 **둘 다** 걸리고, 둘을 함께 적용하니(AND) 0건이
+       됐습니다 — 방금 입력한 값을 두고 "찾지 못했습니다" 라고 답합니다.
+
+       이름이 겹친 것뿐이라, 지목된 시료의 이름 안에 들어 있고 그 시료의
+       Study 와도 맞지 않는 Study 는 내려놓습니다. 사용자가 적은 가장
+       구체적인 것(시료 이름)을 믿습니다.
+
+       반대로, 정말 그 Study 를 함께 말한 경우는 그대로 둡니다 — 그때는
+       0건이 사실이고, 사실을 숨기지 않습니다. */
+    if (s.batchIds.length && s.studies.length) {
+      const hitRows = (table.rows || []).filter(r => s.batchIds.indexOf(r.__id) > -1);
+      const sampleNames = hitRows.map(r => squash(r.__label));
+      s.studies = s.studies.filter(function (st) {
+        const q = squash(st);
+        const insideSample = sampleNames.some(n => n !== q && n.indexOf(q) > -1);
+        if (!insideSample) return true;
+        return hitRows.some(r => r.study === st);
+      });
+    }
     if (s.projects.length) {
       scope.filters.push(r => s.projects.indexOf(r.project) > -1);
       scope.label.push(s.projects.join(", "));

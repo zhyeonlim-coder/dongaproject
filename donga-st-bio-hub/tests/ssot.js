@@ -652,6 +652,63 @@ window.SSOTTest = (function () {
       T.add("⑰ 없는 이름은 없다고 머리말에서 말함 (영문 · 숫자 · 앞부분 겹침)",
         !ghostBad.length, ghostBad.join(" / "));
 
+      /* ⑱ Study 이름이 시료 이름 안에 들어 있을 때.
+
+         production 에 Study "Test" 와 시료 "Test-New" 가 있었습니다.
+         "Test-New 데이터 보여줘" 가 Study "Test" 와 시료 "Test-New" 를
+         둘 다 범위로 잡고 둘을 함께 적용해(AND) 0건이 됐습니다 — 방금
+         입력한 값을 두고 "찾지 못했습니다" 라고 답했습니다. */
+      (function nestedNameCheck() {
+        const D = window.Dataset, E = window.Entries;
+        if (!D || !E) return;
+        const prj = (window.DATA_PROJECTS || [])[0];
+        if (!prj) return;
+        const bStore = (function () {
+          try { return localStorage.getItem("hub.dataset.v1"); } catch (e) { return null; }
+        })();
+        const eStore = (function () {
+          try { return localStorage.getItem("hub.entries.v1"); } catch (e) { return null; }
+        })();
+        const sid = "ZZS-" + Date.now().toString(36);
+        const bid = "ZZB-" + Date.now().toString(36);
+        try {
+          const outer = D.addStudy({ projectId: prj.id, name: "ZZOUTER" });
+          const inner = D.addStudy({ projectId: prj.id, name: "ZZOTHER", id: sid });
+          if (!outer.ok || !inner.ok) { T.add("⑱ 검사용 Study 생성", false, "생성 실패"); return; }
+          D.addBatch({ studyId: inner.study.id, id: bid, team: "upstream",
+                       expNo: "ZZOUTER-SUB", hidden: true, initialDate: "2026-01-01" });
+          E.addSample({ batchId: bid, studyId: inner.study.id, team: "upstream",
+                        name: "ZZOUTER-SUB" });
+          window.Repo.setValue("batch:" + bid, "maxVCD", 42.5, null, { action: "Create" });
+          AT.invalidate();
+          const a = AE.answer("ZZOUTER-SUB 어때?");
+          T.add("⑱ 시료 이름에 든 Study 이름이 범위를 비우지 않음",
+            a.kind !== "no-rows" && /ZZOUTER-SUB/.test(String(a.scopeLabel || "")) &&
+            !/ZZOUTER\b(?!-)/.test(String(a.scopeLabel || "").replace("ZZOUTER-SUB", "")),
+            "scope=" + a.scopeLabel + " kind=" + a.kind);
+        } finally {
+          try {
+            [bid].forEach(function (id) {
+              const l = D.all().batches; const i = l.findIndex(b => b.id === id);
+              if (i > -1) l.splice(i, 1);
+              const arr = window.DATA_BATCHES || []; const j = arr.findIndex(b => b.id === id);
+              if (j > -1) arr.splice(j, 1);
+            });
+            const st = window.DATA_STUDIES || [];
+            for (let i = st.length - 1; i >= 0; i--) {
+              if (st[i] && /^ZZO/.test(String(st[i].name))) st.splice(i, 1);
+            }
+          } catch (e) {}
+          if (E.reset) E.reset();
+          restore(eStore);
+          try {
+            if (bStore === null) localStorage.removeItem("hub.dataset.v1");
+            else localStorage.setItem("hub.dataset.v1", bStore);
+          } catch (e) {}
+          AT.invalidate();
+        }
+      })();
+
       /* 원본에 컬럼이 없는 항목 — 값을 만들지도, 조용히 넘어가지도 않습니다 */
       const ph = AE.answer("pH 평균 알려줘");
       T.add("⑰ 기록 없는 항목은 없다고 먼저 말함",
