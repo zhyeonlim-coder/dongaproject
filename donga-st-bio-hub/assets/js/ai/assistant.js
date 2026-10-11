@@ -64,10 +64,22 @@ window.GlobalAI = (function () {
      그래서 엔진이 **무엇을 묻는 것으로 읽었는지**를 함께 봅니다.
        stat · max · min · compare …  값을 콕 집어 물은 것 → 사내 데이터
        list (기본값)                 값을 물은 게 아님   → 지식 질문일 수 있음 */
+  /* ★ 엔진이 **제 몫의 답을 낸** 종류는 지식 질문이 아닙니다.
+
+     "IVCD가 뭐야?" 가 문헌 검색으로 가고 있었습니다. 용어집을 붙인 뒤에도
+     그랬습니다 — 엔진은 설명을 만들어 놓았는데, 이 판정이 intent 만 보고
+     (설명 답의 intent 는 기본값 "list" 입니다) 지식 질문으로 분류해
+     버렸습니다. 우리 용어를 우리가 설명할 수 있는데 밖에서 찾아온 셈입니다.
+
+     아래 종류는 엔진의 답이 더 맞습니다. 문헌으로 보내지 않습니다. */
+  const ENGINE_OWNED = ["define", "define-none", "greet", "help", "meta", "source",
+                        "entity", "spec", "spec-none", "clarify-unit"];
+
   function looksKnowledgeAsk(question) {
     if (!looksKnowledge(question)) return false;
     try {
       const r = window.AskEngine.answer(question, { table: window.AskTables.internal() });
+      if (ENGINE_OWNED.indexOf(r.kind) > -1) return false;
       return r.intent === "list" || r.kind === "overview";
     } catch (e) { return false; }
   }
