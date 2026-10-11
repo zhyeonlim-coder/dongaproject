@@ -612,11 +612,19 @@ window.SSOTTest = (function () {
         !!wide.followUp && /지표|이름/.test(String(wide.followUp)),
         "followUp=" + String(wide.followUp || "").slice(0, 60));
 
-      /* 없는 이름 — 조용히 전체 요약만 내놓으면 안 됩니다 */
-      const ghost = AE.answer("ZZNOPE9 어때?");
-      T.add("⑰ 없는 이름은 없다고 머리말에서 말함",
-        /없는 이름|기록에 없/.test(String(ghost.headline || "")),
-        "headline=" + String(ghost.headline || "").slice(0, 80));
+      /* 없는 이름 — 조용히 전체 요약만 내놓으면 안 됩니다.
+         ★ 숫자가 섞인 이름(ZZNOPE9)만 잡고 순 영문(ZZNOPE)은 놓치던
+           구멍이 있었습니다. 그리고 "TA1" 이 있을 때 "TA10" 을 물으면
+           앞부분이 걸려 아는 이름 취급을 했습니다 — 둘 다 "없는 시료를
+           물었는데 다른 시료의 표가 답처럼 나오는" 같은 사고입니다. */
+      const ghosts = ["ZZNOPE9 어때?", "ZZNOPE 어때?",
+                      anyName + "ZZ 어때?", anyName + "99 어때?"];
+      const ghostBad = ghosts.filter(function (q) {
+        const g = AE.answer(q);
+        return !/없는 이름|기록에 없/.test(String(g.headline || ""));
+      });
+      T.add("⑰ 없는 이름은 없다고 머리말에서 말함 (영문 · 숫자 · 앞부분 겹침)",
+        !ghostBad.length, ghostBad.join(" / "));
 
       /* 원본에 컬럼이 없는 항목 — 값을 만들지도, 조용히 넘어가지도 않습니다 */
       const ph = AE.answer("pH 평균 알려줘");

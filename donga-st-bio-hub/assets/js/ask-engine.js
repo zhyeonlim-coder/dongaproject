@@ -379,6 +379,46 @@ window.AskEngine = (function () {
     });
   }
 
+  /* ── 모르는 이름을 불렀는가 ────────────────────────────────────────────
+     "ZZNOPE 어때?" 처럼 **없는 이름**을 물었을 때 조용히 전체 요약만
+     내놓으면, 사용자는 그 표를 물어본 시료의 데이터로 읽습니다. 0건
+     경고보다 나쁩니다.
+
+     처음에는 "숫자가 섞인 토큰"(ignoredTokens)만 봤습니다. 그래서
+     "ZZNOPE9" 는 잡고 "ZZNOPE" 는 놓쳤습니다 — 이름에 숫자가 있어야 할
+     이유가 없는데 그렇게 되어 있었습니다.
+
+     지금은 영문·숫자로 된 낱말을 보고, 아는 것(이름 · 항목 · 별칭 · 팀 ·
+     일자 · 흔한 약어)을 모두 걸러낸 뒤 남는 것만 "모르는 이름" 으로
+     봅니다. 한글만으로 된 질문은 건드리지 않습니다 — 한국어 문장에서
+     이름과 보통 낱말을 글자만으로 가를 수 없고, 잘못 가르면 "데이터 는
+     없는 이름입니다" 같은 답이 나갑니다. */
+  const LATIN_STOP = ["data", "study", "batch", "sample", "lot", "run", "test",
+    "and", "or", "the", "vs", "top", "min", "max", "avg", "mean", "sum", "cv", "sd",
+    "ok", "all", "none", "null", "hplc", "sec", "nr", "ddd", "doe", "ai", "qc",
+    "info", "value", "values", "team", "unit", "date", "day", "days"];
+
+  function unknownNameTokens(text, table) {
+    const out = [];
+    String(text || "").split(/[^A-Za-z0-9\-_]+/).forEach(function (tok) {
+      const t = tok.toLowerCase();
+      if (t.length < 3) return;
+      if (/^\d/.test(t)) return;              /* 숫자로 시작하면 값·연도 조건 */
+      if (/^d\d{1,2}$/.test(t)) return;       /* 일자 토큰(D14) */
+      if (LATIN_STOP.indexOf(t) > -1) return;
+      if (out.indexOf(tok) > -1) return;
+      /* 이미 아는 이름 · 항목 · 별칭 · 팀 이름이면 모르는 이름이 아닙니다 */
+      if (entityToken(tok, table)) return;
+      const s = squash(t);
+      if ((table.columns || []).some(c => squash(c.label).indexOf(s) > -1)) return;
+      if (Object.keys(ALIAS).some(k => ALIAS[k].some(a => squash(a).indexOf(s) > -1))) return;
+      if (Object.keys(TEAM_ALIAS).some(k =>
+            TEAM_ALIAS[k].some(a => squash(a).indexOf(s) > -1))) return;
+      out.push(tok);
+    });
+    return out;
+  }
+
   /* 이 낱말이 "이미 범위로 읽은 이름" 인가 — 조사가 붙어도 같게 봅니다.
      이것이 없으면 제대로 찾아 놓고도 "\"ta1에\" 를 조건으로 읽지 못했습니다"
      라는 경고를 함께 띄웁니다. 사용자는 답이 반쪽이라고 읽습니다. */
@@ -390,7 +430,12 @@ window.AskEngine = (function () {
       .concat((window.DATA_PROJECTS || []).map(p => p && p.code));
     return names.some(function (n) {
       const s = squash(n);
-      return s.length >= 2 && x.indexOf(s) === 0;
+      if (s.length < 2 || x.indexOf(s) !== 0) return false;
+      /* 뒤에 남은 것이 한글(조사)이면 같은 이름, 영문·숫자면 다른 이름입니다.
+         이 경계가 없으면 "TA10" 을 "TA1 + 0" 으로 보고 아는 이름 취급해,
+         없는 시료를 물었는데 아무 말 없이 전체 요약이 나갑니다. */
+      const rest = x.slice(s.length);
+      return rest === "" || !/^[a-z0-9]/.test(rest);
     });
   }
 
@@ -1728,7 +1773,13 @@ window.AskEngine = (function () {
         return decorate(briefAnswer(base, table, rows, scope, [], lead, false), cond, table);
       }
 
-      const unknown = (!scope.label.length && cond.ignoredTokens) ? cond.ignoredTokens : [];
+      /* 숫자가 섞인 토큰(ignoredTokens)과 영문 이름 토큰을 함께 봅니다 —
+         "ZZNOPE9" 만 잡고 "ZZNOPE" 를 놓치던 구멍을 막습니다. */
+      let unknown = [];
+      if (!scope.label.length) {
+        unknown = (cond.ignoredTokens || []).concat(unknownNameTokens(text, table))
+          .filter(function (x, i, a) { return a.indexOf(x) === i; });
+      }
       if (unknown.length) {
         lead = "\"" + unknown.join(" ") + "\" 는 아직 기록에 없는 이름입니다 —";
         /* 머리말에서 말했으니 끝에 또 적지 않습니다 */
