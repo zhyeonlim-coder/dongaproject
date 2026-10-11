@@ -2367,7 +2367,10 @@ window.AskEngine = (function () {
           ? missingAsked.join(" · ") + "은(는) 원본에 컬럼이 없어 값을 보여 드릴 수 없습니다."
           : "",
         suggestions: names.map(l => name + " " + l + " 알려줘")
-          .concat(names.length ? [name + " 와 비슷한 시료 비교해줘"] : avail.slice(0, 2))
+          /* 이름 뒤에 조사를 붙이지 않습니다 — 시료 이름은 사용자가 적는
+             값이라 "와/과" 를 코드가 맞출 수 없습니다 ("TA1 와" 처럼
+             틀린 문장이 버튼에 그대로 박힙니다). */
+          .concat(names.length ? [name + " 다른 시료와 비교해줘"] : avail.slice(0, 2))
       });
     }
 
