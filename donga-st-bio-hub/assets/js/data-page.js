@@ -92,11 +92,6 @@
     { label: "보기", items: [
       { key: "sample",  ko: "시료별", active: true },
       { key: "compare", ko: "시료 비교", active: false }
-    ]},
-    { label: "바로가기", items: [
-      { ko: "대시보드", href: "dashboard.html" },
-      { ko: "Data 입력", href: "ebr.html" },
-      { ko: "Troubleshooting", href: "hub.html#wiki" }
     ]}
   ], k => { groupBy = k; syncSelectHook(); render(); });
 

@@ -42,10 +42,6 @@
         { key: "culture",  ko: L.DEPTS.culture.ko,  active: dept === "culture",  color: L.DEPTS.culture.color,  count: counts.culture },
         { key: "purif",    ko: L.DEPTS.purif.ko,    active: dept === "purif",    color: L.DEPTS.purif.color,    count: counts.purif },
         { key: "analysis", ko: L.DEPTS.analysis.ko, active: dept === "analysis", color: L.DEPTS.analysis.color, count: counts.analysis }
-      ]},
-      { label: "바로가기", items: [
-        { ko: "대시보드", href: "dashboard.html" },
-        { ko: "Data 입력", href: "ebr.html" }
       ]}
     ], k => { dept = k; pending = null; paint(); });
   }

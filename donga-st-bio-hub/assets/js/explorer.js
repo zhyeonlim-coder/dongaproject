@@ -19,11 +19,6 @@
     { label: "탐색", items: [
       { ko: "2-Track 트리", href: "explorer.html", active: true },
       { ko: "전체 일정", href: "schedule.html" }
-    ]},
-    { label: "바로가기", items: [
-      { ko: "대시보드", href: "dashboard.html" },
-      { ko: "Data 입력", href: "ebr.html" },
-      { ko: "DoE & Intelligence", href: "hub.html" }
     ]}
   ]);
 

@@ -34,11 +34,6 @@
       { label: "보기", items: [
         { key: "project", ko: "과제별 분리", active: mode === "project" },
         { key: "all",     ko: "전체 보기",   active: mode === "all" }
-      ]},
-      { label: "바로가기", items: [
-        { ko: "대시보드", href: "dashboard.html" },
-        { ko: "Data 입력", href: "ebr.html" },
-        { ko: "데이터 탐색", href: "explorer.html" }
       ]}
     ], k => { mode = k; render(); });
   }

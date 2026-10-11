@@ -49,11 +49,80 @@ window.MeetingView = (function () {
   };
 
   let batches = [], samples = [], outMap = {}, briefing = null;
+  /* 묶기 전의 그릇 목록 — 그릇 단위로 세는 계산(이탈 통계 · 미입력 현황)은
+     이쪽을 씁니다. 묶음으로 세면 한 팀의 항목이 다른 팀 줄에서도 "미입력"
+     으로 잡히고, 이탈 표시는 묶음 대표 그릇에만 붙어 실제 값이 적힌
+     그릇과 키가 어긋납니다. */
+  let rawBatches = [];
 
   function isSampleGrain() { return view.tab === "analytics"; }
   function rows() { return isSampleGrain() ? samples : batches; }
-  function rowLabel(r) { return r.name || r.id; }
+  /* 이름은 시료 이름입니다. 그릇(hidden batch) id 를 띄우면 화면에 B-2MQM679
+     같은 내부 식별자가 나오고, 회의에서 그 줄을 부를 말이 없어집니다. */
+  function rowLabel(r) { return r.name || r.expNo || r.id; }
   function batchIdOf(r) { return r.batchId || r.id; }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     같은 시료를 한 줄로 — 데이터 조회 · 챗봇과 같은 규칙
+
+     Data 입력에서 팀마다 따로 적으면 그릇이 팀 수만큼 생깁니다. 회의 모드는
+     그 그릇을 그대로 한 줄씩 폈고, 그래서 **같은 시료가 세 줄로 나뉘어 각
+     줄마다 자기 팀 값만 있고 나머지는 전부 "미입력"** 이었습니다. 세 팀이
+     함께 보는 화면인데 셋을 나란히 볼 수 없었던 것입니다.
+
+     같은 Study · 같은 이름이면 한 줄로 모으고, 그 줄이 그릇들을 parts 로
+     들고 있습니다. 값·핀·이탈 표시는 그 항목을 실제로 적은 그릇을 찾아
+     그쪽으로 보냅니다 — 핀이 엉뚱한 그릇에 붙으면 다음 회의에서 그 핀을
+     찾을 수 없습니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function squash(s) {
+    return String(s === null || s === undefined ? "" : s)
+      .toLowerCase().replace(/[\s\-_.·]/g, "");
+  }
+
+  function mergeBySample(list) {
+    const order = [], at = {};
+    (list || []).forEach(function (b) {
+      const nm = squash(rowLabel(b));
+      if (!nm) { order.push([b]); return; }
+      const k = String(b.studyId || "") + "\u0000" + nm;
+      if (at[k] === undefined) { at[k] = order.length; order.push([]); }
+      order[at[k]].push(b);
+    });
+    return order.map(function (parts) {
+      if (parts.length === 1) return Object.assign({}, parts[0], { parts: parts });
+      /* 팀 정의 순서(배양 → 정제 → 분석)로 고정합니다 — 나온 순서를 쓰면
+         정렬을 바꿀 때 대표 그릇이 달라집니다 */
+      const teams = (window.DATA_TEAMS || []).map(t => t.id);
+      const ordered = parts.slice().sort(function (a, b) {
+        const ia = teams.indexOf(a.team), ib = teams.indexOf(b.team);
+        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+      });
+      return Object.assign({}, ordered[0], {
+        parts: ordered,
+        teams: ordered.map(p => p.team).filter(Boolean)
+      });
+    });
+  }
+
+  /* 이 항목을 실제로 적은 그릇 — 없으면 대표 그릇 */
+  function ownerOf(row, groupId, itemKey) {
+    const list = (row && row.parts) || [row];
+    for (let i = 0; i < list.length; i++) {
+      const v = window.Repo.valueOf(list[i], groupId, itemKey);
+      if (v !== null && v !== undefined) return list[i];
+    }
+    return list[0] || row;
+  }
+  /* 묶인 줄에서 값 하나 — 팀마다 자기 항목만 적으므로 처음 나오는 값이 그 값입니다 */
+  function valueOfRow(row, groupId, itemKey) {
+    const list = (row && row.parts) || [row];
+    for (let i = 0; i < list.length; i++) {
+      const v = window.Repo.valueOf(list[i], groupId, itemKey);
+      if (v !== null && v !== undefined) return v;
+    }
+    return null;
+  }
 
   /* ══════════════════════════════════════════════════════════════════════
      측정 항목
@@ -69,19 +138,32 @@ window.MeetingView = (function () {
       label: it.label, group: g.label, unit: it.unit, dp: it.dp, team: g.team,
       get: r => (isSampleGrain() && g.team === "analytics")
         ? window.Repo.valueOfSample(r, g.id, it.key)
-        : window.Repo.valueOf(r, g.id, it.key)
+        : valueOfRow(r, g.id, it.key)
     });
     if (tab === "all") {
-      const pick = [
-        ["titer", "titerHCCF"], ["upstream", "maxVCD"], ["upstream", "finalViability"],
-        ["downstream", "totalYield"], ["downstream", "monomerPurity"], ["downstream", "hcp"],
-        ["seHPLC", "main"], ["ieHPLC", "main"], ["ceSdsNR", "monomer"], ["nGlycan", "sialicAcid"]
-      ];
-      pick.forEach(function (p) {
-        const g = window.DATA_ANALYTE_GROUPS.find(x => x.id === p[0]);
-        if (!g || g.empty) return;
-        const it = g.items.find(x => x.key === p[1]);
-        if (it) push(g, it);
+      /* ★ 통합 뷰의 항목도 서식에서 읽습니다.
+
+         예전에는 열 개를 손으로 적어 두었는데, 그 중 여섯(Titer 일자축 ·
+         Monomer purity · HCP · IE-HPLC · CE-SDS · N-glycan)이 스키마에서
+         사라졌습니다. 남은 넷만 표에 서고, 세 팀이 함께 보는 화면인데
+         배양 둘 · 정제 하나 · 분석 하나가 되었습니다.
+
+         팀마다 **값이 들어 있는** 항목을 앞에서 둘씩 올립니다 — 한 팀이
+         표를 독차지하지 않으면서 세 팀이 모두 보이게 합니다. */
+      (window.DATA_TEAMS || []).forEach(function (t) {
+        let n = 0;
+        groupsOf(t.id).forEach(g => g.items.forEach(function (it) {
+          if (n >= 2) return;
+          const any = batches.some(b => num(valueOfRow(b, g.id, it.key)));
+          if (!any) return;
+          push(g, it); n++;
+        }));
+        /* 그 팀에 값이 하나도 없으면 서식의 첫 항목이라도 세웁니다 —
+           열이 아예 없으면 "이 팀은 무엇을 적는 팀인가" 가 안 보입니다 */
+        if (!n) {
+          const g = groupsOf(t.id)[0];
+          if (g && g.items[0]) push(g, g.items[0]);
+        }
       });
     } else {
       groupsOf(tab).forEach(g => g.items.forEach(it => push(g, it)));
@@ -101,7 +183,7 @@ window.MeetingView = (function () {
     return {
       key: key, groupId: g.id, itemKey: it.key, label: it.label, group: g.label,
       unit: it.unit, dp: it.dp, team: g.team,
-      get: r => window.Repo.valueOf(r.batchId ? batchOf(r) : r, g.id, it.key)
+      get: r => valueOfRow(r.batchId ? batchOf(r) : r, g.id, it.key)
     };
   }
   function batchOf(sampleRow) { return batches.find(b => b.id === sampleRow.batchId) || sampleRow; }
@@ -202,7 +284,7 @@ window.MeetingView = (function () {
     for (let i = 0; i < act.length; i++) {
       const m = metricByKey(act[i].key);
       if (!m) continue;
-      const v = window.Repo.valueOf(b, m.groupId, m.itemKey);
+      const v = valueOfRow(b, m.groupId, m.itemKey);
       if (!num(v)) { sawNoData = true; continue; }
       if (v < act[i].min || v > act[i].max) return "miss";
     }
@@ -435,8 +517,20 @@ window.MeetingView = (function () {
     }
     return null;
   }
+  /* 일자축이 있는 항목이 실제로 있는가 — 지금 서식에는 없습니다.
+     없는데도 "일자별 Titer 추이" 카드를 띄우면 회의 화면 맨 위가 늘
+     "일자별 값이 기록된 배치가 없습니다" 가 됩니다. 데이터가 빠진 것처럼
+     보이지만, 그 축 자체가 이 서식에 없는 것입니다. 축이 생기면 다시
+     나옵니다 — 숨기는 조건을 데이터에 두었기 때문입니다. */
+  function hasDayAxis() {
+    return (window.DATA_TITER_DAYS || []).some(d =>
+      batches.some(b => b.upstream && b.upstream.titer && num(b.upstream.titer[d])));
+  }
+
   function syncView() {
-    return '<section class="card" style="margin-bottom:var(--s-4)"><div id="mm-day"></div></section>' +
+    return (hasDayAxis()
+             ? '<section class="card" style="margin-bottom:var(--s-4)"><div id="mm-day"></div></section>'
+             : "") +
            '<div id="mm-sync" style="margin-bottom:var(--s-4)"></div>' +
            '<section class="card" style="margin-bottom:var(--s-4)"><div id="mm-table"></div></section>' +
            '<section class="card"><div id="mm-chart"></div></section>';
@@ -481,18 +575,19 @@ window.MeetingView = (function () {
     if (un) un.addEventListener("click", function () { view.focus = null; view.focusDay = null; syncAll(); });
   }
 
-  const SYNC_SETS = [
-    { team: "upstream", items: [
-      ["upstream", "maxVCD"], ["upstream", "finalVCD"], ["upstream", "finalViability"],
-      ["upstream", "ivcd"], ["titer", "titerHCCF"], ["titer", "qP"]] },
-    { team: "downstream", items: [
-      ["downstream", "proteinAYield"], ["downstream", "cexYield"], ["downstream", "aexYield"],
-      ["downstream", "totalYield"], ["downstream", "monomerPurity"],
-      ["downstream", "hcp"], ["downstream", "residualDNA"]] },
-    { team: "analytics", items: [
-      ["seHPLC", "main"], ["seHPLC", "hmw"], ["ieHPLC", "acidic"], ["ieHPLC", "main"],
-      ["ceSdsNR", "monomer"], ["nGlycan", "highMannose"], ["nGlycan", "sialicAcid"]] }
-  ];
+  /* 3개 팀 동기화 칸에 세울 항목 — **서식 그대로**입니다.
+
+     여기도 손으로 적혀 있었고, 적힌 스무 개 중 아홉이 스키마에 없는
+     항목이었습니다 (qP · monomerPurity · HCP · residual DNA · IE-HPLC ·
+     CE-SDS · N-glycan). 그 칸들이 영영 "미입력" 으로 서 있었습니다.
+     서식에서 읽으면 지표를 바꿔도 이 화면이 따라옵니다. */
+  function syncSets() {
+    return (window.DATA_TEAMS || []).map(function (t) {
+      const items = [];
+      groupsOf(t.id).forEach(g => g.items.forEach(it => items.push([g.id, it.key])));
+      return { team: t.id, items: items };
+    }).filter(s => s.items.length);
+  }
 
   function paintSync() {
     const host = $("#mm-sync");
@@ -500,25 +595,29 @@ window.MeetingView = (function () {
     const b = focusBatch();
     if (!b) {
       host.innerHTML = '<section class="card"><div class="empty">' +
-        '<div class="empty-title">배치를 하나 선택하면 3개 팀 데이터가 동기화됩니다</div>' +
-        '<div class="empty-body">위 그래프의 점이나 아래 표의 행을 누르세요.</div></div></section>';
+        '<div class="empty-title">시료를 하나 고르면 3개 팀 데이터가 함께 열립니다</div>' +
+        '<div class="empty-body">아래 표에서 시료 행을 누르세요. ' +
+        '같은 이름으로 팀마다 적은 값이 한 줄로 모여 나란히 보입니다.</div></div></section>';
       return;
     }
     const study = window.Repo.studyOf(b);
     const st = stateOf(b);
+    const teamsIn = (b.teams || [b.team]).filter(Boolean)
+      .map(function (id) { const t = (window.DATA_TEAMS || []).find(x => x.id === id); return t ? t.short || t.ko : id; });
 
     host.innerHTML =
       '<section class="card"><div class="card-head"><div>' +
-        '<h2 class="card-title">' + esc(b.expNo || b.id) + ' — 3개 팀 동기화</h2>' +
+        '<h2 class="card-title">' + esc(rowLabel(b)) + ' — 3개 팀 동기화</h2>' +
         '<p class="card-sub">' + esc(study ? study.name : "") +
           (b.initialDate ? " · " + esc(b.initialDate) : "") +
+          (teamsIn.length ? " · 입력한 팀 " + esc(teamsIn.join(" · ")) : "") +
           (view.focusDay ? " · 선택한 시점 " + esc(view.focusDay) : "") +
-          " · 정제 · 분석 값은 배치 단위로 1건씩 기록됩니다 (일자별 아님)</p></div>" +
+          " · 값은 시료 단위로 1건씩 기록됩니다</p></div>" +
         '<span class="mm-state is-' + st + '">' +
           (st === "hit" ? "● 조건 만족" : st === "miss" ? "○ 조건 벗어남" :
            st === "nodata" ? "— 조건 항목 미입력" : "조건 없음") + '</span>' +
       '</div><div class="card-body"><div class="mm-sync-grid">' +
-      SYNC_SETS.map(function (set) {
+      syncSets().map(function (set) {
         const t = window.DATA_TEAMS.find(x => x.id === set.team) || {};
         return '<div class="mm-sync-col" style="--team:' + (t.color || "var(--c-border)") + '">' +
           '<div class="mm-sync-head">' + esc(t.ko || set.team) + '</div>' +
@@ -527,9 +626,14 @@ window.MeetingView = (function () {
             if (!g) return "";
             const it = g.items.find(x => x.key === p[1]);
             if (!it) return "";
-            const v = window.Repo.valueOf(b, g.id, it.key);
-            const pins = pinsOfCell(b.id, g.id, it.key);
-            const o = outlierOf(b.id, g.id, it.key);
+            const v = valueOfRow(b, g.id, it.key);
+            /* 핀과 이탈 표시는 **그 값을 실제로 적은 그릇**에 붙입니다.
+               묶음의 대표 그릇에 붙이면, 정제 값에 남긴 핀이 배양 그릇에
+               달려 다음 회의에서 그 핀을 찾을 수 없습니다. */
+            const owner = ownerOf(b, g.id, it.key);
+            const oid = owner.id;
+            const pins = pinsOfCell(oid, g.id, it.key);
+            const o = outlierOf(oid, g.id, it.key);
             return '<div class="mm-sync-row' + (num(v) ? "" : " is-na") + '">' +
               '<span class="mm-sync-k">' + esc(it.label) + '</span>' +
               '<span class="mm-sync-v mono">' + (num(v) ? fmt(v, it.dp) : L.empty) +
@@ -537,7 +641,7 @@ window.MeetingView = (function () {
               outlierMarkup(o) +
               (pins.length ? '<span class="mm-pinmark" title="' + esc(pins.map(x => x.text).join(" / ")) +
                 '">◆' + (pins.length > 1 ? pins.length : "") + '</span>' : "") +
-              '<button class="mm-pinb" data-pin="' + esc(b.id + "|" + g.id + "|" + it.key) +
+              '<button class="mm-pinb" data-pin="' + esc(oid + "|" + g.id + "|" + it.key) +
                 '" aria-label="' + esc(it.label) + ' 값에 핀 남기기" title="이 값에 핀 남기기">＋핀</button>' +
             '</div>';
           }).join("") + '</div>';
@@ -589,7 +693,7 @@ window.MeetingView = (function () {
           ? '<span class="badge badge-accent">' + view.picked.length + '건 선택</span>' : "") +
       '</div>' +
       '<div class="tbl-scroll"><table class="tbl mm-tbl"><thead><tr>' +
-        '<th scope="col">' + (isSampleGrain() ? "시료" : "Exp. No.") + '</th>' +
+        '<th scope="col">시료</th>' +
         '<th scope="col" style="width:64px">조건</th>' +
         mv.map(m => '<th scope="col" style="border-top:2px solid ' + teamColor(m.team) + '">' +
           esc(m.label) + '<br><span style="font-weight:400;text-transform:none">' +
@@ -757,8 +861,11 @@ window.MeetingView = (function () {
      ══════════════════════════════════════════════════════════════════════ */
   function issues() {
     const out = [];
-    batches.forEach(b => window.DATA_ANALYTE_GROUPS.forEach(g => {
+    rawBatches.forEach(b => window.DATA_ANALYTE_GROUPS.forEach(g => {
       if (g.empty) return;
+      /* 그 팀이 적는 항목만 봅니다 — 배양 그릇에 정제 항목이 비어 있는 것은
+         미입력이 아니라 그 팀 서식에 없는 칸입니다 */
+      if (b.team && g.team && g.team !== b.team) return;
       g.items.forEach(function (it) {
         if (window.Repo.cellState(b, g.id, it.key) === "empty")
           out.push({ batch: b.id, group: g.label, item: it.label, team: g.team });
@@ -766,27 +873,31 @@ window.MeetingView = (function () {
     }));
     return out;
   }
+  /* ★ 팀 요약 지표를 **서식에서 읽습니다.**
+
+     예전에는 팀마다 보여 줄 항목을 여기 손으로 적어 두었습니다 (HCP ·
+     Monomer purity · CE-SDS · IE-HPLC). 지표를 재설정한 뒤 그 항목들이
+     스키마에서 사라졌는데 이 목록만 남아, 회의 화면의 팀 카드가 늘
+     "미입력" 이었습니다 — 대시보드 · 조회 · 분류 칩에서 고쳤던 것과 같은
+     어긋남입니다. 한 곳만 더 남아 있었습니다.
+
+     값이 실제로 들어 있는 항목을 앞에서부터 셋 고릅니다. 없으면 그 팀
+     서식의 앞 항목을 그대로 보여 주고 미입력이라고 적습니다 — 항목 자체를
+     감추면 무엇을 적어야 하는지 알 수 없게 됩니다. */
   function headlineMetrics(team) {
-    const n = f => batches.map(f).filter(num);
     const avg = a => a.length ? fmt(a.reduce((x, y) => x + y, 0) / a.length, 1) : L.empty;
-    if (team === "upstream") {
-      const t = n(b => b.upstream.titerHCCF);
-      return [
-        { k: "최고 Titer", v: t.length ? fmt(Math.max.apply(null, t), 0) : L.empty, u: "mg/L" },
-        { k: "평균 Titer", v: avg(t), u: "mg/L" },
-        { k: "평균 Viability", v: avg(n(b => b.upstream.finalViability)), u: "%" }];
-    }
-    if (team === "downstream") {
-      const d = k => n(b => (b.downstream ? b.downstream[k] : null));
-      return [
-        { k: "평균 Total Yield", v: avg(d("totalYield")), u: "%" },
-        { k: "평균 HCP", v: avg(d("hcp")), u: "ppm" },
-        { k: "평균 Monomer", v: avg(d("monomerPurity")), u: "%" }];
-    }
-    return [
-      { k: "CE-SDS Monomer", v: avg(n(b => window.Repo.valueOf(b, "ceSdsNR", "monomer"))), u: "%" },
-      { k: "IE-HPLC Main", v: avg(n(b => window.Repo.valueOf(b, "ieHPLC", "main"))), u: "%" },
-      { k: "SE-HPLC Main", v: avg(n(b => window.Repo.valueOf(b, "seHPLC", "main"))), u: "%" }];
+    const list = [];
+    groupsOf(team).forEach(g => g.items.forEach(function (it) {
+      const vals = batches.map(b => valueOfRow(b, g.id, it.key)).filter(num);
+      list.push({ k: it.label, vals: vals, unit: it.unit, dp: it.dp });
+    }));
+    const filled = list.filter(x => x.vals.length);
+    const show = (filled.length ? filled : list).slice(0, 3);
+    return show.map(x => ({
+      k: "평균 " + x.k,
+      v: avg(x.vals),
+      u: x.unit || ""
+    }));
   }
   function teamSummary(teamSets) {
     const iss = issues();
@@ -826,7 +937,7 @@ window.MeetingView = (function () {
       batchId: b.id, batchLabel: b.expNo || b.id,
       groupId: g.id, itemKey: it.key, metricLabel: it.label,
       unit: it.unit, dp: it.dp, team: g.team,
-      value: window.Repo.valueOf(b, g.id, it.key),
+      value: valueOfRow(b, g.id, it.key),
       day: (g.id === "titer" || g.id === "upstream") ? view.focusDay : null
     };
     view.panel = true;
@@ -1278,7 +1389,10 @@ window.MeetingView = (function () {
       window.Scope.samples()
     ]).then(function (r) {
       if (!on) return;
-      batches = r[0];
+      /* 팀마다 따로 적은 같은 이름의 시료를 한 줄로 모읍니다 — 회의 화면은
+         세 팀이 함께 보는 자리라, 셋이 나란히 있지 않으면 쓸 수 없습니다 */
+      rawBatches = r[0];
+      batches = mergeBySample(rawBatches);
       const teamSets = r[1];
       samples = r[2];
 
@@ -1290,13 +1404,22 @@ window.MeetingView = (function () {
       }
 
       initRanges();
-      outMap = window.MeetingStats ? window.MeetingStats.outlierMap(batches) : {};
+      outMap = window.MeetingStats ? window.MeetingStats.outlierMap(rawBatches) : {};
 
       const ids = rows().map(x => x.id);
       view.picked = view.picked.filter(id => ids.indexOf(id) > -1);
       if (view.focus && !batches.some(b => b.id === view.focus)) { view.focus = null; view.focusDay = null; }
+      /* ★ 처음 열었을 때 한 건을 바로 펼쳐 둡니다.
+
+         예전에는 **일자별 Titer(D14)가 있는 배치**만 골랐습니다. 지금
+         서식에는 일자축이 없어 그런 배치가 하나도 없고, 그래서 회의 모드를
+         열면 늘 "배치를 하나 선택하면…" 만 떠 있었습니다. 값이 하나라도
+         있는 시료를 고릅니다. */
       if (!view.focus && view.tab === "all") {
-        const first = batches.find(b => b.upstream && b.upstream.titer && num(b.upstream.titer.D14));
+        const first = batches.find(function (b) {
+          return (window.DATA_ANALYTE_GROUPS || []).some(g => !g.empty &&
+            g.items.some(it => num(valueOfRow(b, g.id, it.key))));
+        }) || batches[0];
         if (first) view.focus = first.id;
       }
 

@@ -1829,11 +1829,6 @@
       { label: "인계", items: [
         { key: "__requests", ko: "분석 및 시료 관리",
           active: mode === "requests", count: openReq || null, color: "#0F766E" }
-      ]},
-      { label: "바로가기", items: [
-        { ko: "대시보드", href: "dashboard.html" },
-        { ko: "데이터 조회", href: "data.html" },
-        { ko: "DoE & Intelligence", href: "hub.html" }
       ]}
     ], function (k) {
       if (k === "__requests") { mode = "requests"; location.hash = "requests"; render(); return; }

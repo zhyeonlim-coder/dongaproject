@@ -569,11 +569,7 @@
           ? [{ key: "spec", ko: "규격(Spec) 관리", active: tab === "spec", color: "#0F766E" }] : [])
         .concat(devMode()
           ? [{ key: "qlog", ko: "미응답 · 저신뢰 질의", active: tab === "qlog", color: "#0F766E" }]
-          : [])},
-      { label: "바로가기", items: [
-        { ko: "대시보드", href: "dashboard.html" },
-        { ko: "Data 입력", href: "ebr.html" }
-      ]}
+          : [])}
     ], k => { tab = k; location.hash = k; paint(); });
   }
 

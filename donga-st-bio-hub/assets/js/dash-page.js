@@ -75,12 +75,7 @@
         { key: ALL_KEY, ko: "전체 요약", active: !view }
       ]},
       { label: "팀별 보기", items: window.DATA_TEAMS.map(t => ({
-        key: t.id, ko: t.ko, active: view === t.id, color: t.color })) },
-      { label: "바로가기", items: [
-        { ko: "Data 입력", href: "ebr.html" },
-        { ko: "데이터 조회", href: "data.html" },
-        { ko: "일정 관리", href: "schedule.html" }
-      ]}
+        key: t.id, ko: t.ko, active: view === t.id, color: t.color })) }
     ], function (k) {
       view = (k === ALL_KEY) ? null : k;
       render();
