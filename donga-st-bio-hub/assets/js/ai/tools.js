@@ -76,17 +76,56 @@ window.AITools = (function () {
     const q = String((args && args.question) || "").trim();
     if (!q) return no("무엇을 찾을지 알려 주세요.");
     const t = table();
+
+    /* ── 화면이 좁혀 놓은 범위를 실제로 씁니다 ──────────────────────────
+       패널은 "지금 보고 계신 화면을 기준으로 답합니다" 라고 적어 두고
+       있었는데, 이 함수는 **늘 전체 데이터로 답하고 있었습니다.** 상단에서
+       과제 · Study · 팀을 골라 놓고 "Total Yield 평균" 을 물으면 7개 Study
+       전체의 평균이 나오는데, 화면은 한 Study 를 보고 있습니다. 둘 다
+       그럴듯해서 화면만 봐서는 틀렸다는 걸 알 수 없습니다 — 글로 쓴 약속을
+       코드가 지키게 합니다.
+
+       단, **질문이 스스로 범위를 말했으면 질문이 이깁니다.** "TA1 어때?" 는
+       지금 팀 필터가 정제여도 TA1 전체(배양·정제·분석)를 묻는 말입니다.
+       명시적으로 말한 것을 화면 상태로 덮으면, 물어본 것과 다른 답이 됩니다. */
+    let use = t, narrowed = null;
+    const vis = scopedRows(t, ctx);
+    if (vis && vis.length !== t.rows.length) {
+      let asksOwnScope = false;
+      try {
+        const sc = window.AskEngine._detectScope(window.AskEngine._norm(q), t);
+        asksOwnScope = !!(sc && sc.filters && sc.filters.length);
+      } catch (e) { /* 판단이 안 되면 화면 범위를 쓰지 않습니다 (지금까지의 동작) */ }
+      if (!asksOwnScope) {
+        use = Object.assign({}, t, { rows: vis });
+        narrowed = window.AIContext.describe() || "화면 범위";
+      }
+    }
+
     const r = window.AskEngine.answer(q, {
-      table: t,
+      table: use,
       prev: (args && args.prev) || null
     });
+
+    /* 화면 범위로 좁혀 답했다는 사실을 답에 적습니다. 적지 않으면 전체
+       기준으로 읽히고, 그게 바로 피하려는 오독입니다. */
+    if (narrowed) {
+      /* 엔진은 자기 기준으로 "전체 범위" 라고 적습니다 — 행을 미리 좁혀
+         넘겼으니 그 말이 맞지 않습니다. "전체 범위에 1건 중" 같은 문장은
+         읽는 사람을 혼란스럽게 하고, 전체가 1건이라는 뜻으로도 읽힙니다. */
+      if (r.headline) r.headline = String(r.headline).replace(/전체 범위/g, "화면 범위");
+      r.note = (r.note ? r.note + " " : "") +
+        "지금 화면에서 고른 범위(" + narrowed + ") 안에서만 계산했습니다 — " +
+        "전체로 보시려면 상단 선택을 지우거나 \"전체\" 라고 말씀해 주세요.";
+    }
+
     /* 서술 문장의 수치를 데이터와 다시 대조합니다 — 통과하지 못한 문장은
        엔진이 스스로 표만 남깁니다 */
-    window.AskVerify.enforce(r, t);
+    window.AskVerify.enforce(r, use);
     return ok(r, {
-      source: "사내 실험 데이터",
+      source: "사내 실험 데이터" + (narrowed ? " · 화면 범위" : ""),
       rows: r.scopeRows,
-      scope: r.scopeLabel,
+      scope: narrowed || r.scopeLabel,
       verified: r.verified ? r.verified.ok : null,
       checked: r.verified ? r.verified.checked : 0
     });

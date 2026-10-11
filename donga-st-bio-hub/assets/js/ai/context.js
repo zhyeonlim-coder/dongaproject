@@ -72,13 +72,31 @@ window.AIContext = (function () {
 
   /* ── 공통 상태 — 어느 화면에서나 같은 방식으로 읽습니다 ─────────────── */
 
+  /* ── 사람이 읽는 이름으로 적습니다 ───────────────────────────────────
+     이 값들은 답변 문장과 패널 머리말에 그대로 나갑니다. 내부 식별자를
+     그대로 쓰면 "범위 project PRJ-1234 · 팀 downstream" 같은 문장이
+     사용자에게 보입니다 — 화면 어디에도 없는 말이라 자기가 무엇을 골랐는지
+     확인할 수가 없습니다. 선택한 것과 같은 이름으로 적습니다. */
+  function projectKo(id) {
+    const p = (window.DATA_PROJECTS || []).find(x => x && x.id === id);
+    return p ? (p.code || p.label || p.id) : id;
+  }
+  function studyKo(id) {
+    const s = (window.DATA_STUDIES || []).find(x => x && x.id === id);
+    return s ? (s.name || s.id) : id;
+  }
+  function teamKo(id) {
+    const t = (window.DATA_TEAMS || []).find(x => x && x.id === id);
+    return t ? t.ko : id;
+  }
+
   function scopeState() {
     if (!window.Scope || !window.Scope.get) return null;
     const s = window.Scope.get();
     const active = [];
-    if (s.scopeId) active.push({ k: "범위", v: s.scopeKind + " " + s.scopeId });
-    if (s.studyId) active.push({ k: "Study", v: s.studyId });
-    if (s.team) active.push({ k: "팀", v: s.team });
+    if (s.scopeId) active.push({ k: "과제", v: projectKo(s.scopeId) });
+    if (s.studyId) active.push({ k: "Study", v: studyKo(s.studyId) });
+    if (s.team) active.push({ k: "팀", v: teamKo(s.team) });
     if (s.dataClass) active.push({ k: "Data 분류", v: s.dataClass });
     if (s.q) active.push({ k: "검색어", v: s.q });
     if (s.from || s.to) active.push({ k: "기간", v: (s.from || "") + "~" + (s.to || "") });
