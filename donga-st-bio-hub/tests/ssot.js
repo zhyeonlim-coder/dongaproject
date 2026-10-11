@@ -730,6 +730,57 @@ window.SSOTTest = (function () {
         !toneBad.length,
         toneBad.map(c => "\"" + c[0] + "\" → " + AE.answer(c[0]).kind).join(" / "));
 
+      /* ⑳ 용어 설명 — 뜻을 물으면 뜻을, 값을 물으면 값을.
+
+         "IVCD가 뭐야?" 가 문헌 검색으로 가고 있었습니다. 우리 표에 있는
+         컬럼인데도요. 고치면서 반대쪽이 위험해집니다 — 설명이 값을
+         가로채면 "IVCD 평균" 처럼 매일 쓰는 질문이 망가집니다. */
+      if (window.HubTerms) {
+        const defCases = [
+          ["IVCD가 뭐야?", "define"], ["IVCD 무슨 뜻이야", "define"],
+          ["Total Yield이란?", "define"], ["CQA 설명해줘", "define"],
+          ["시료가 뭐야?", "define"],
+          /* 값을 묻는 질문은 그대로 값으로 — "뭐야" 가 섞여도 계산이
+             먼저입니다 ("제일 최근에 한 실험이 뭐야" 가 용어 설명으로
+             끌려가 28건을 답한 적이 있습니다) */
+          ["IVCD 평균", "stat"], ["IVCD 가장 높은 시료는?", "extreme"],
+          ["IVCD 제일 높은 게 뭐야", "extreme"]
+        ];
+        const defBad = defCases.filter(c => AE.answer(c[0]).kind !== c[1]);
+        T.add("⑳ 뜻을 물으면 뜻을, 값을 물으면 값을",
+          !defBad.length,
+          defBad.map(c => "\"" + c[0] + "\" → " + AE.answer(c[0]).kind +
+            " (기대 " + c[1] + ")").join(" / "));
+
+        /* 용어집에 없는 말은 지어내지 않습니다.
+           ★ "무슨 뜻" 처럼 뜻을 분명히 물을 때입니다 — "뭐야" 는 값을
+             묻는 말로도 쓰여 그쪽은 기록 조회로 갑니다 (의도된 경계). */
+        const none = AE.answer("ZZTERM이 무슨 뜻이야?");
+        T.add("⑳ 모르는 용어는 없다고 말함",
+          none.kind === "define-none" || /용어집에 없/.test(String(none.headline || "")),
+          "kind=" + none.kind + " head=" + String(none.headline || "").slice(0, 60));
+
+        /* 설명 안에는 기준값이 없어야 합니다 — 설명의 숫자가 규격처럼
+           읽히면, 등록된 규격과 어긋나는 순간 어느 쪽이 맞는지 알 수
+           없게 됩니다. 숫자는 데이터에서 읽은 범위만 붙습니다. */
+        const numInText = window.HubTerms.all().filter(function (x) {
+          return /\d/.test(String(x.what || "")) || /\d/.test(String(x.why || ""));
+        }).map(x => x.ko);
+        T.add("⑳ 용어 설명 본문에 숫자를 적지 않음",
+          !numInText.length, numInText.join(" · "));
+
+        /* 스키마 항목과 연결된 용어는 실제 컬럼을 가리켜야 합니다 —
+           스키마가 바뀌면 끊긴 연결이 조용히 남습니다. */
+        const t2 = AT.internal();
+        const broken = window.HubTerms.all().filter(function (x) {
+          if (!x.group || !x.key) return false;
+          const k = window.Repo.fieldKey(x.group, x.key);
+          return !t2.columns.some(c => c.key === k);
+        }).map(x => x.ko);
+        T.add("⑳ 용어가 가리키는 항목이 스키마에 있음",
+          !broken.length, broken.join(" · "));
+      }
+
       /* 원본에 컬럼이 없는 항목 — 값을 만들지도, 조용히 넘어가지도 않습니다 */
       const ph = AE.answer("pH 평균 알려줘");
       T.add("⑰ 기록 없는 항목은 없다고 먼저 말함",

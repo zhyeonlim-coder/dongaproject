@@ -398,7 +398,7 @@ window.AskVerify = (function () {
        "배치 10건" · "기간 2026-10-08 ~ " 처럼 데이터에서 나온 수치가
        들어가고, 그건 틀리면 안 되는 숫자입니다 (ask-regression O 가 그
        경계를 지키고 있습니다 — 빼려다 걸렸습니다). */
-  const NO_MEASURE_KINDS = ["greet", "unsupported",
+  const NO_MEASURE_KINDS = ["greet", "unsupported", "define-none",
                             "action-proposal", "ui-action", "spec-none"];
 
   function checkResult(r, table) {

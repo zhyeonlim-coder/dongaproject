@@ -615,6 +615,98 @@ window.AskEngine = (function () {
     return META_DATA.some(h => has(text, h)) ? "data" : false;
   }
 
+  /* ── 용어 설명 ────────────────────────────────────────────────────────
+     "IVCD 가 뭐야?" · "Total Yield 란?" · "CQA 설명해줘"
+
+     묻는 말투가 분명할 때만 설명으로 갑니다. "IVCD 평균" 은 값을 묻는
+     질문이고, 그쪽이 훨씬 자주 쓰입니다 — 설명이 값을 가로채면 매일
+     쓰는 질문이 망가집니다. */
+  /* ★ 두 단계로 나눕니다.
+
+     "뭐야" 는 뜻을 묻는 말이기도 하고 **값을 묻는 말**이기도 합니다 —
+     "제일 최근에 한 실험이 뭐야" 는 설명을 원하는 질문이 아닙니다. 실제로
+     그 질문이 용어 설명으로 끌려가 28건을 답했습니다.
+
+       강한 말  뜻 · 의미 · 설명해 · 정의 · 약자 · what is …
+                → 용어집에 없으면 "없습니다" 까지 말합니다.
+       약한 말  뭐야 · 뭔데 · 무엇 · 뭐지
+                → **용어집에 있는 말이 함께 있을 때만** 설명으로 갑니다.
+
+     그리고 둘 다, 계산을 요청한 질문(평균 · 최고 · 추이 …)에서는 설명으로
+     가지 않습니다. 설명이 값을 가로채면 매일 쓰는 질문이 망가집니다. */
+  const DEFINE_STRONG = ["뜻", "의미가", "의미는", "설명해", "설명 좀", "정의가", "정의는",
+    "란 무엇", "이란", "라는 게", "what is", "define", "약자", "줄임말",
+    "왜 보는", "왜 재는", "왜 중요"];
+  const DEFINE_WEAK = ["뭐야", "뭔데", "무엇", "뭐지", "뭡니까", "무언지"];
+
+  function looksDefineAsk(text) {
+    const t = String(text || "").toLowerCase();
+    return DEFINE_STRONG.some(w => t.indexOf(w) > -1) ||
+           DEFINE_WEAK.some(w => t.indexOf(w) > -1);
+  }
+  function definedStrongly(text) {
+    const t = String(text || "").toLowerCase();
+    return DEFINE_STRONG.some(w => t.indexOf(w) > -1);
+  }
+
+  /* 컬럼 키를 group/key 로 되돌립니다 — 용어집이 스키마 키로 연결됩니다 */
+  function colGroupOf(col) {
+    if (!col || !col.key) return null;
+    if (col.group && col.group !== "base") return col.group;
+    const i = String(col.key).indexOf("_");
+    return i > 0 ? String(col.key).slice(0, i) : "upstream";
+  }
+  function colKeyOf(col) {
+    if (!col || !col.key) return null;
+    const i = String(col.key).indexOf("_");
+    return i > 0 ? String(col.key).slice(i + 1) : String(col.key);
+  }
+
+  function defineAnswer(base, table, term, col) {
+    const facts = [];
+    if (term.full && term.full !== term.ko) facts.push({ k: "원어 · 전체 이름", v: term.full });
+    facts.push({ k: "무엇인가", v: term.what });
+    if (term.why) facts.push({ k: "왜 보는가", v: term.why });
+
+    /* 스키마에 있는 항목이면 단위와 **이 데이터의 실제 범위**를 붙입니다.
+       설명에는 숫자를 적지 않고, 숫자는 늘 데이터에서 읽습니다 — 설명에
+       적어 두면 그것이 기준처럼 읽히고, 등록된 규격과 어긋나는 순간
+       어느 쪽이 맞는지 알 수 없게 됩니다. */
+    /* 컬럼 키 규칙은 Repo 가 정본입니다 — 여기서 다시 만들면 규칙이 두 벌이 됩니다 */
+    const wantKey = (term.group && term.key && window.Repo)
+      ? window.Repo.fieldKey(term.group, term.key) : null;
+    const c = col || (wantKey ? table.columns.find(x => x.key === wantKey) : null) || null;
+    let tail = "";
+    if (c) {
+      if (c.unit) facts.push({ k: "단위", v: c.unit });
+      const s = stats(values(table.rows, c.key));
+      if (s) {
+        facts.push({ k: "이 데이터에 기록된 범위",
+                     v: fmt(s.min, c) + " ~ " + fmt(s.max, c) + " (" + s.n + "건)" });
+        tail = " 이 데이터에는 " + s.n + "건이 기록되어 있습니다.";
+      } else {
+        facts.push({ k: "이 데이터에 기록된 범위", v: "아직 기록된 값이 없습니다" });
+      }
+    }
+
+    return Object.assign(base, {
+      kind: "define",
+      headline: term.ko + (term.full && term.full !== term.ko ? " — " + term.full : "") +
+        " 에 대해 설명해 드립니다." + tail,
+      facts: facts,
+      /* 설명은 측정값이 아니라는 것을 분명히 둡니다 */
+      note: "위 설명은 공정·분석 분야에서 통용되는 용어 설명이며 측정값이 아닙니다. " +
+        "합격 기준(규격)은 제품마다 달라 여기 적지 않습니다 — 판정은 등록된 규격으로만 합니다.",
+      followUp: c
+        ? "이 항목의 값을 보시려면 \"" + c.label + " 평균\" · \"" + c.label +
+          " 가장 높은 시료는?\" 처럼 물어보시면 계산해 드립니다."
+        : "다른 용어도 물어보실 수 있습니다 — 항목 이름이나 약자를 그대로 적어 주세요.",
+      suggestions: c
+        ? [c.label + " 평균", c.label + " 가장 높은 시료는?"]
+        : (window.HubTerms ? window.HubTerms.all().slice(0, 3).map(t => t.ko + "가 뭐야?") : [])
+    });
+  }
+
   /* ── 출처 · 데이터 품질 ────────────────────────────────────────────── */
   function sourceAnswer(base, table) {
     const P = window.Provenance;
@@ -1633,6 +1725,42 @@ window.AskEngine = (function () {
        "무슨 데이터 있어"(요약) 와 "뭘 물어볼 수 있어"(사용법)는 다른 질문입니다. */
     if (isMeta === "source") return decorate(sourceAnswer(base, table), cond, table);
     if (isMeta === "help") return decorate(helpAnswer(base, table), cond, table);
+
+    /* ── "그게 뭐야?" — 뜻을 묻는 질문 ────────────────────────────────
+       예전에는 이 질문이 **문헌 검색**으로 갔습니다. 우리 표에 IVCD 라는
+       컬럼이 있는데도, 뜻을 묻는 말은 "값을 묻는 질문" 이 아니라 밖으로
+       나갔습니다 — 새로 온 사람이 가장 먼저 묻는 종류가 가장 엉뚱하게
+       처리되고 있었습니다.
+
+       설명은 용어집(HubTerms)에서 가져오고, 숫자는 붙이지 않습니다.
+       대신 **이 데이터에 실제로 기록된 범위**를 읽어 함께 보여 줍니다 —
+       그 숫자는 데이터에서 나온 것이라 수치 검증도 그대로 지납니다. */
+    /* 계산을 요청한 질문은 설명으로 가지 않습니다 (intent 가 기본값일 때만) */
+    if (intent === "list" && looksDefineAsk(text)) {
+      const term = (window.HubTerms && window.HubTerms.find(text)) ||
+        (metrics.length && window.HubTerms
+          ? window.HubTerms.byColumn(colGroupOf(metrics[0]), colKeyOf(metrics[0])) : null);
+      if (term) return decorate(defineAnswer(base, table, term, metrics[0] || null), cond, table);
+
+      /* 뜻을 물었는데 용어집에 없으면 — 표를 던지지 않고 없다고 말합니다.
+         무엇이 들어 있는지도 함께 보여 줘야 다음 질문을 할 수 있습니다.
+
+         ★ "뭐야" 처럼 약한 말에서는 이 길로 가지 않습니다. 그 말은 값을
+           묻는 질문에도 쓰이고, 모르는 낱말은 이미 "기록에 없는 이름입니다"
+           로 안내됩니다 (아래 unknownNameTokens). */
+      if (window.HubTerms && definedStrongly(text) &&
+          !metrics.length && !scope.label.length) {
+        const list = window.HubTerms.all();
+        return decorate(Object.assign(base, {
+          kind: "define-none",
+          headline: "그 용어는 용어집에 없어 설명해 드릴 수 없습니다 — 지어내지 않습니다.",
+          facts: [{ k: "설명할 수 있는 용어", v: list.map(x => x.ko).join(" · ") }],
+          followUp: "위 용어 중 하나를 물으시면 뜻과 이 데이터의 기록 범위를 함께 보여 드립니다. " +
+            "값을 찾으시는 것이면 항목 이름으로 물어봐 주세요.",
+          suggestions: list.slice(0, 3).map(x => x.ko + "가 뭐야?")
+        }), cond, table);
+      }
+    }
 
     /* 인사는 인사로 받습니다 — 표를 던지지 않습니다 */
     if (looksGreeting(text) && !metrics.length && !scope.label.length) {

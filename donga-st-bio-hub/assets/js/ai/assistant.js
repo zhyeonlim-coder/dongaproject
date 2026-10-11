@@ -713,8 +713,10 @@ window.GlobalAI = (function () {
               "Data 입력으로 이동"];
     }
     if (page === "ebr") {
+      /* 입력 화면에서는 "이 칸이 무슨 값인가" 를 가장 자주 묻습니다 —
+         용어 설명을 추천에 올려 둡니다 */
       return [(batch ? batch + " 알려줘" : "입력된 시료 알려줘"),
-              m1 + " 아직 안 들어온 시료", "새 Study 창 열어줘",
+              m1 + "가 뭐야?", "새 Study 창 열어줘",
               "데이터 조회로 이동"];
     }
     if (page === "schedule" || page === "booking") {
