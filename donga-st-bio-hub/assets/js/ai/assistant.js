@@ -769,8 +769,29 @@ window.GlobalAI = (function () {
     });
   }
 
+  /* ── 앞 화면의 대화를 이어받습니다 ───────────────────────────────────
+     이 앱은 화면마다 페이지가 따로라, 옮기면 이 모듈도 새로 만들어집니다.
+     패널이 sessionStorage 에서 되살린 기록을 여기에 꽂아 주면 "그 중 가장
+     높은 건?" 같은 이어 묻기가 화면을 넘어서도 성립합니다.
+
+     맥락으로 쓰는 것은 마지막 MAX_TURNS 개뿐이므로 그만큼만 받습니다.
+     답 자체를 다시 믿지는 않습니다 — 수치는 질문할 때마다 Repo ·
+     AskTables 에서 다시 읽습니다. 여기 들어오는 것은 "무엇을 묻고 있었나"
+     라는 맥락일 뿐입니다. */
+  function restore(list) {
+    if (!Array.isArray(list)) return 0;
+    history.length = 0;
+    list.slice(-MAX_TURNS).forEach(function (x) {
+      if (!x || !x.q) return;
+      history.push({ q: x.q, answer: x.answer || null,
+                     carry: x.carry || null, at: x.at || null });
+    });
+    return history.length;
+  }
+
   return { ask: ask, reset: reset, suggestions: suggestions, narrate: narrate,
            applyAction: applyAction, history: () => history.slice(),
+           restore: restore,
            llmState: () => llmAvailable,
            narrateEnabled: narrateEnabled, setNarrate: setNarrate,
            /* 검사용 — 503(키 없음)을 한 번 받으면 더 부르지 않는 것이

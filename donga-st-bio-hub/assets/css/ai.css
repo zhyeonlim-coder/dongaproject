@@ -130,6 +130,16 @@
    경고(gai-warn)와 분명히 달라 보여야 합니다. 주의를 끄는 색을 쓰지 않고,
    본문과 같은 글자색에 왼쪽 선만 둡니다 — 답의 일부이지 문제 표시가
    아니기 때문입니다. */
+/* 앞선 대화를 되살렸을 때 맨 위에 두는 줄.
+   되살린 수치는 "그때의 값" 이라, 지금 값으로 읽히지 않게 적어 둡니다. */
+.gai-resumed {
+  font-size: 11.5px; line-height: 1.7; color: var(--c-text-mute);
+  background: var(--c-paper-2); border: 1px dashed var(--c-border);
+  border-radius: var(--r-md); padding: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-3);
+}
+.gai-resumed b { color: var(--c-text); font-weight: 600; }
+
 /* 다음 수 안내 — 왜 그렇게 나왔는지, 무엇을 바꿔 물으면 되는지 */
 .gai-hints {
   font-size: 12px; line-height: 1.75; color: var(--c-text-soft, #4A5568);

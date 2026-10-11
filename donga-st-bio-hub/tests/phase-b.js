@@ -162,7 +162,10 @@ window.PhaseBTest = (function () {
       .then(r => r.text()).then(function (src) {
         const T = mk();
         const answerAt = src.indexOf("slot.innerHTML = answerHTML(out)");
-        const narrAt = src.indexOf("streamNarration(slot, question, out)");
+        /* 인자가 늘어도 순서 검사는 계속 되어야 합니다 — 닫는 괄호까지
+           글자로 맞추면, 인자 하나를 더한 날 "검사 실패" 가 나고 실제
+           보호(수치가 해설보다 먼저)는 멀쩡한 상태가 됩니다. */
+        const narrAt = src.indexOf("streamNarration(slot, question, out");
         T.add("수치 확정 표시가 해설보다 먼저",
           answerAt > -1 && narrAt > -1 && answerAt < narrAt,
           "answerHTML=" + answerAt + " streamNarration=" + narrAt);

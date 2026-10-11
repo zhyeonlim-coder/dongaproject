@@ -24,6 +24,53 @@ window.GlobalAIUI = (function () {
   /* 챗봇이 방금 화면을 옮겼을 때 새 화면에서 보여 줄 한 줄 */
   let carried = null;
 
+  /* ══════════════════════════════════════════════════════════════════════
+     대화 내역 — 화면을 옮겨도 이어집니다
+
+     이 앱은 화면마다 페이지가 따로입니다. 그래서 대시보드에서 세 번 묻고
+     데이터 조회로 넘어가면 대화가 통째로 사라졌습니다. 방금 받은 답을 다시
+     보려고 같은 질문을 또 쓰게 되고, 무엇보다 "그 중 가장 높은 건?" 같은
+     이어 묻기가 끊겼습니다.
+
+     ★ sessionStorage 를 씁니다 — localStorage 가 아닙니다.
+       이 탭에만 있고, **탭을 닫으면 브라우저가 알아서 비웁니다.** 그게
+       sessionStorage 의 정의된 동작이라 unload 에서 지울 필요가 없습니다.
+       오히려 unload 에서 지우면 안 됩니다 — 화면 이동도 unload 이기 때문에,
+       지우는 순간 이 기능이 하려던 일(이동해도 유지)이 깨집니다.
+
+     ★ 되살린 답은 "그때의 값" 입니다.
+       그 사이에 누가 값을 고쳤으면 지금 값과 다릅니다. 되살린 묶음 위에
+       언제 받은 답인지 적어 둡니다 — 지금 값으로 읽히면 그게 조용한
+       오답입니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  const LOG_KEY = "hub.ai.log";
+  const LOG_MAX = 20;            /* 묶음(질문+답) 수 */
+  let log = [];
+
+  function loadLog() {
+    try {
+      const raw = sessionStorage.getItem(LOG_KEY);
+      if (!raw) return [];
+      const a = JSON.parse(raw);
+      return Array.isArray(a) ? a.slice(-LOG_MAX) : [];
+    } catch (e) { return []; }
+  }
+  function saveLog() {
+    /* 저장이 실패해도 대화는 그대로 돌아갑니다 — 용량이 넘치면 앞쪽을
+       버리고 다시 시도하고, 그래도 안 되면 조용히 포기합니다. */
+    let keep = log.slice(-LOG_MAX);
+    for (let n = keep.length; n >= 0; n--) {
+      try {
+        sessionStorage.setItem(LOG_KEY, JSON.stringify(keep.slice(keep.length - n)));
+        return;
+      } catch (e) { /* 다음 바퀴에서 더 줄입니다 */ }
+    }
+  }
+  function clearLog() {
+    log = [];
+    try { sessionStorage.removeItem(LOG_KEY); } catch (e) {}
+  }
+
   /* ── 마운트 ──────────────────────────────────────────────────────────── */
   function mount() {
     if (root) return;
@@ -75,7 +122,13 @@ window.GlobalAIUI = (function () {
     fab.addEventListener("click", toggle);
     root.querySelector("#gai-close").addEventListener("click", close);
     root.querySelector("#gai-clear").addEventListener("click", function () {
-      window.GlobalAI.reset(); body.innerHTML = ""; welcome();
+      /* 화면 · 메모리 · sessionStorage 를 함께 비웁니다. 하나라도 남으면
+         비웠는데 다음 화면에서 되살아나, 지워진 줄 알았던 내용이 다시
+         보입니다. */
+      window.GlobalAI.reset();
+      clearLog();
+      body.innerHTML = "";
+      welcome();
     });
     root.querySelector("#gai-full").addEventListener("click", function () {
       full = !full; panel.classList.toggle("is-full", full);
@@ -112,9 +165,63 @@ window.GlobalAIUI = (function () {
     carried = (window.AICommands && window.AICommands.takeCarried)
       ? window.AICommands.takeCarried() : null;
     const had = !!carried;
-    welcome();
+
+    log = loadLog();
+    if (log.length) {
+      /* 이동 안내 문장은 이미 앞 화면의 답으로 기록에 들어 있습니다 —
+         또 적으면 같은 말이 두 번 보입니다. */
+      carried = null;
+      restoreLog();
+      /* 앞선 대화에 이어서 묻도록 엔진의 맥락도 함께 되살립니다.
+         이것이 없으면 "그 중 가장 높은 건?" 이 화면을 옮긴 순간 끊깁니다. */
+      if (window.GlobalAI.restore) {
+        window.GlobalAI.restore(log.filter(x => x.q && x.out)
+          .map(x => ({ q: x.q, answer: x.out.answer || x.out, carry: x.carry || null, at: x.at })));
+      }
+    } else {
+      welcome();
+    }
     carried = null;              /* 한 번만 보여 줍니다 ([비우기] 뒤에 되살아나지 않게) */
     if (had) show();
+  }
+
+  /* 저장된 묶음을 그대로 다시 그립니다 — 답을 만드는 함수를 그때와 같은
+     것으로 지나므로, 되살린 답과 새 답의 모양이 갈리지 않습니다. */
+  function restoreLog() {
+    const first = log[0];
+    const when = first && first.at ? String(first.at).slice(11, 16) : null;
+    body.innerHTML =
+      '<div class="gai-resumed">앞선 대화를 이어서 보여 드립니다' +
+      (when ? " (" + esc(when) + " 부터)" : "") + " · " +
+      "아래 수치는 <b>그때 조회한 값</b>입니다 — 그 사이 값이 바뀌었을 수 있으니 " +
+      "중요하면 다시 물어봐 주세요.</div>";
+
+    log.forEach(function (e) {
+      const msg = document.createElement("div");
+      msg.className = "gai-msg";
+      let inner = "";
+      try {
+        inner = answerHTML(e.out) + pathHTML(e.out) +
+          (e.narr
+            ? '<div class="gai-narr"><div class="gai-narr-text">' + esc(e.narr) + "</div>" +
+              '<div class="gai-narr-tag">AI 해설 — 위 표와 수치는 엔진이 데이터에서 ' +
+              '계산하고 대조한 값이고, 이 문단은 그것을 설명한 것입니다.</div></div>'
+            : "");
+      } catch (err) {
+        /* 저장된 모양이 지금 코드와 맞지 않을 수 있습니다 (배포 뒤 첫 복원).
+           그때는 그 한 줄만 접고 대화는 살립니다 — 복원이 실패해서 패널이
+           빈 채로 열리는 것이 가장 나쁩니다. */
+        inner = '<div class="gai-note">이 답변은 다시 표시하지 못했습니다 ' +
+          "(그 사이 화면이 업데이트되었습니다). 다시 물어봐 주세요.</div>";
+      }
+      msg.innerHTML =
+        '<div class="gai-row is-me"><div class="gai-bub is-me">' + esc(e.q) + "</div></div>" +
+        aiRowHTML(inner);
+      body.appendChild(msg);
+      const slot = msg.querySelector("[data-slot]");
+      try { wireAnswer(slot, e.out); } catch (err) { /* 되살린 버튼이 안 걸려도 본문은 남습니다 */ }
+    });
+    scroll(true);
   }
 
   function paintCtx() {
@@ -272,7 +379,16 @@ window.GlobalAIUI = (function () {
       slot.innerHTML = answerHTML(out) + pathHTML(out);
       wireAnswer(slot, out);
       busy = false; scroll();
-      streamNarration(slot, question, out);
+
+      /* 이 묶음을 이 탭의 기록에 남깁니다 — 화면을 옮겨도 이어 보려면
+         답을 그린 뒤에 저장해야 합니다 (그려지지 않은 답을 저장하면
+         되살릴 때 무엇이 보일지 알 수 없습니다). */
+      const entry = { q: question, out: out, at: new Date().toISOString(),
+                      carry: (out && out.answer && out.answer.carry) || null };
+      log.push(entry);
+      saveLog();
+
+      streamNarration(slot, question, out, entry);
     }).catch(function (e) {
       slot.innerHTML = '<div class="gai-err">답변을 만들지 못했습니다 — ' +
         esc((e && e.message) || "알 수 없는 오류") +
@@ -312,7 +428,7 @@ window.GlobalAIUI = (function () {
 
      키가 없으면(Phase A 상태) 조용히 아무 일도 하지 않습니다. 엔진이
      만든 결정론적 문장이 이미 위에 있으므로 답변은 온전합니다. */
-  function streamNarration(slot, question, out) {
+  function streamNarration(slot, question, out, entry) {
     if (!window.GlobalAI.narrate) return;
     if (out.kind === "error" || out.kind === "empty" ||
         out.kind === "action-proposal" || out.kind === "no-data" ||
@@ -344,6 +460,9 @@ window.GlobalAIUI = (function () {
         return;
       }
       if (!r.text || !r.text.trim()) { box.remove(); return; }
+      /* 해설도 기록에 남깁니다 — 되살린 대화에서 해설만 사라지면,
+         같은 질문의 답이 화면을 옮길 때마다 달라 보입니다. */
+      if (entry) { entry.narr = r.text; saveLog(); }
       box.innerHTML = '<div class="gai-narr-text">' + esc(r.text) + "</div>" +
         '<div class="gai-narr-tag">AI 해설 — 위 표와 수치는 엔진이 데이터에서 계산하고 ' +
         '대조한 값이고, 이 문단은 그것을 설명한 것입니다.</div>';
