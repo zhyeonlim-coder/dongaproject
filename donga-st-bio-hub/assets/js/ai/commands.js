@@ -65,7 +65,7 @@ window.AICommands = (function () {
       { key: "spec", ko: "규격(Spec) 관리",      words: ["규격", "spec 관리"] }
     ],
     data: [
-      { key: "sample",  ko: "시료별",    words: ["시료별", "샘플별", "시료 별"] },
+      { key: "sample",  ko: "시료별",    words: ["시료별", "샘플별", "시료 별", "시료 목록"] },
       { key: "compare", ko: "시료 비교", words: ["시료 비교", "샘플 비교", "비교 보기", "나란히"] }
     ]
   };
@@ -96,6 +96,7 @@ window.AICommands = (function () {
                     "보여 주", "켜줘", "켜 줘", "화면으로", "페이지로", "탭으로", "불러와",
                     "하려 해", "하려고", "하려면", "할래", "하고 싶", "하자",
                     "쓰려고", "적으려고", "적을래", "입력하려", "확인하려", "보려고",
+                    "돌아가", "되돌아", "돌아갈", "복귀",
                     "좀", "주세요", "줄래", "어디", "어떻게 가"];
   const PICK_WORDS = ["선택", "골라", "고르", "바꿔", "바꾸", "변경", "설정", "지정",
                       "맞춰", "로 해", "으로 해", "필터"];
@@ -208,10 +209,17 @@ window.AICommands = (function () {
                sectionKo: sec ? sec.ko : null };
     }
 
-    /* 탭만 말한 경우 — 지금 화면의 탭이면 그 탭을 엽니다 */
+    /* 탭만 말한 경우 — 지금 화면의 탭이면 그 탭을 엽니다.
+
+       ★ 여기서는 looksDataAsk 로 막지 않습니다. 탭 이름이 집계어와 겹치기
+         때문입니다 — "시료 비교" 탭을 열라는 말에 "비교" 가 들어 있어서,
+         값을 묻는 말로 보고 탭을 열지 않았습니다. 탭 이름은 화면에 적힌
+         그 문구이고("시료 비교" · "AI 검색"), 값을 묻는 질문이 우연히
+         그 문구 전체를 담을 일은 거의 없습니다.
+         ("TA1 과 TA2 비교해줘" 는 "시료 비교" 와 겹치지 않아 조회로 갑니다.) */
     const here = currentPage();
     const hereSec = here ? sectionOf(here, t) : null;
-    if (hereSec && (go || pick)) {
+    if (hereSec && (hit(t, GO_WORDS) || hit(t, PICK_WORDS))) {
       return { kind: "section", page: here, key: hereSec.key, ko: hereSec.ko };
     }
 

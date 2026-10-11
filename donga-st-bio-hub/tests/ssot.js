@@ -560,6 +560,8 @@ window.SSOTTest = (function () {
       if (!C) { T.add("⑯ AICommands 있음", false, "window.AICommands 없음"); return; }
       const cases = [
         ["대시보드 보여줘", "navigate"],
+        /* 탭 이름이 집계어와 겹쳐도 조회로 새지 않아야 합니다 (반대쪽) */
+        ["TA1 과 TA2 비교해줘", null],
         ["데이터 조회로 이동", "navigate"],
         ["배양공정팀 선택해줘", "team"],
         ["새 스터디 창 열어줘", "newStudy"],
@@ -580,6 +582,30 @@ window.SSOTTest = (function () {
           const p = C.detect(c[0]);
           return "\"" + c[0] + "\" → " + (p ? p.kind : "null") + " (기대 " + (c[1] || "null") + ")";
         }).join(" / "));
+
+      /* ★ 탭 전환은 **그 화면에 있을 때만** 뜻이 있습니다. 검사 페이지는
+         데이터 조회가 아니므로 화면을 그렇다고 알려 주고 봅니다.
+
+         이 자리에서 한 번 깨졌습니다 — "시료 비교" 탭 이름의 "비교" 를
+         값을 묻는 말로 보고 탭을 열지 않았습니다. 탭 이름과 집계어가
+         겹치는 유일한 곳이라 고정해 둡니다. */
+      if (window.AIContext && window.AIContext.setPage) {
+        const keep = (window.AIContext.get() || {}).page || null;
+        window.AIContext.setPage("data");
+        const secCases = [["시료 비교 보여줘", "section"],
+                          ["시료별로 돌아가", "section"],
+                          ["TA1 과 TA2 비교해줘", null]];
+        const secBad = secCases.filter(function (c) {
+          const p = C.detect(c[0]);
+          return (p ? p.kind : null) !== c[1];
+        });
+        window.AIContext.setPage(keep);
+        T.add("⑯ 탭 이름이 집계어와 겹쳐도 탭을 엶", !secBad.length,
+          secBad.map(function (c) {
+            const p = C.detect(c[0]);
+            return "\"" + c[0] + "\" → " + (p ? p.kind : "null");
+          }).join(" / "));
+      }
     })();
 
     /* ══════════════════════════════════════════════════════════════════
