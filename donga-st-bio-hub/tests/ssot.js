@@ -709,6 +709,27 @@ window.SSOTTest = (function () {
         }
       })();
 
+      /* ⑲ 인사 · 사용법은 표가 아니라 말로 받습니다.
+
+         "안녕?" 에 시료 표가 나오면 사람은 이 창을 대화창으로 보지 않게
+         됩니다. 반대로 짧은 질문이 인사로 삼켜지면 답을 못 받습니다 —
+         두 방향을 한 쌍으로 봅니다. */
+      const toneCases = [
+        ["안녕?", "greet"], ["하이", "greet"],
+        /* "뭐 할 수 있어?" 는 인사보다 사용법이 맞는 답입니다 — 질문 유형과
+           조회 가능한 항목을 실제로 세어 알려 줍니다 */
+        ["뭐 할 수 있어?", "help"], ["어떤 기능이 있어?", "help"], ["사용법", "help"],
+        /* 아래는 인사로 삼켜지면 안 되는 짧은 질문들 */
+        ["데이터 있어?", null], ["시작일?", null], [anyName + " 있어?", null]
+      ];
+      const toneBad = toneCases.filter(function (c) {
+        const k = AE.answer(c[0]).kind;
+        return c[1] ? k !== c[1] : (k === "greet");
+      });
+      T.add("⑲ 인사·사용법은 말로, 짧은 질문은 질문으로",
+        !toneBad.length,
+        toneBad.map(c => "\"" + c[0] + "\" → " + AE.answer(c[0]).kind).join(" / "));
+
       /* 원본에 컬럼이 없는 항목 — 값을 만들지도, 조용히 넘어가지도 않습니다 */
       const ph = AE.answer("pH 평균 알려줘");
       T.add("⑰ 기록 없는 항목은 없다고 먼저 말함",

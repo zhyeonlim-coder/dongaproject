@@ -577,7 +577,28 @@ window.AskEngine = (function () {
   const META_SOURCE = ["출처", "어디서 온", "어디서 가져", "원본이 뭐", "원본 파일",
     "데이터 출처", "언제 적재", "어떻게 만들", "전사", "스캔"];
   const META_HELP = ["뭘 물어", "뭐 물어", "무엇을 물어", "물어볼 수 있", "어떻게 물어",
-    "조회 가능", "무슨 항목", "어떤 항목", "항목 목록", "도움말", "가능한 질문", "사용법", "help"];
+    "조회 가능", "무슨 항목", "어떤 항목", "항목 목록", "도움말", "가능한 질문", "사용법", "help",
+    /* ★ "뭐 할 수 있어?" 가 사용법이 아니라 **전체 목록**으로 떨어지고
+       있었습니다. 무엇을 할 수 있냐고 물었는데 시료 표를 받습니다.
+       묻는 말투를 넓게 받습니다. */
+    "뭐 할 수 있", "뭘 할 수 있", "무엇을 할 수 있", "할 수 있는 거", "할 수 있는 일",
+    "기능이 뭐", "어떤 기능", "무슨 기능", "어떻게 쓰", "사용 방법", "쓰는 법",
+    "뭐 해줄", "뭘 해줄", "도와줄 수", "안내", "가이드"];
+
+  /* 인사 — 답할 데이터가 아니라 인사로 받습니다.
+     "안녕?" 에 시료 8건 표가 나오면, 사람은 이 창을 대화창으로 보지
+     않게 됩니다. 짧게 받고 무엇을 할 수 있는지로 이어 줍니다. */
+  /* 인사로만 쓰이는 말만 넣습니다. "있어?" · "시작" 같은 말을 넣으면
+     "데이터 있어?" · "시작일?" 이 인사가 됩니다 — 짧은 질문이 통째로
+     인사로 삼켜지는 쪽이, 인사에 표가 나오는 것보다 나쁩니다. */
+  const GREETING = ["안녕", "하이", "헬로", "hello", "ㅎㅇ", "반가", "반갑"];
+  function looksGreeting(text) {
+    const t = String(text || "").trim();
+    /* 짧은 한마디일 때만 인사로 봅니다 — "안녕" 이 긴 질문에 섞여 있으면
+       그 질문이 본론입니다. */
+    if (t.replace(/[?!.~\s]/g, "").length > 12) return false;
+    return GREETING.some(g => t.toLowerCase().indexOf(g.trim()) > -1);
+  }
 
   const DATE_ALIAS = {
     date:    ["시작일", "시작 날짜", "배양 시작", "언제 배양", "언제 시작", "접종일", "initial date", "inoculation"],
@@ -1612,6 +1633,21 @@ window.AskEngine = (function () {
        "무슨 데이터 있어"(요약) 와 "뭘 물어볼 수 있어"(사용법)는 다른 질문입니다. */
     if (isMeta === "source") return decorate(sourceAnswer(base, table), cond, table);
     if (isMeta === "help") return decorate(helpAnswer(base, table), cond, table);
+
+    /* 인사는 인사로 받습니다 — 표를 던지지 않습니다 */
+    if (looksGreeting(text) && !metrics.length && !scope.label.length) {
+      const names = suggestList(table);
+      const one = (table.rows[0] || {}).__label || null;
+      return decorate(Object.assign(base, {
+        kind: "greet",
+        headline: "안녕하세요. 이 화면의 데이터와 기능을 말로 다루실 수 있습니다.",
+        followUp: "시료 이름만 말씀하셔도 그 시료에 들어 있는 값을 모아 보여 드리고, " +
+          "화면 이동 · 팀/Study 선택도 말로 해 드립니다. 저장 · 삭제는 대신 하지 않습니다.",
+        suggestions: (one ? [one + " 어때?"] : [])
+          .concat(names.slice(0, 2).map(n => n + " 평균"))
+          .concat(["데이터 조회로 이동"])
+      }), cond, table);
+    }
     if (isMeta) return decorate(metaAnswer(base, table), cond, table);
 
     /* ── 0건 — 왜 0건인지와 다음 수를 함께 줍니다 ─────────────────────── */
