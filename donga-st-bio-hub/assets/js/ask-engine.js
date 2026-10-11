@@ -1787,6 +1787,31 @@ window.AskEngine = (function () {
           return unknown.every(tok => String(u).indexOf(tok) === -1);
         });
       }
+      /* ★ "가장 높은 값은?" 처럼 **계산을 요청했는데 지표가 없는** 경우.
+
+         요약만 내놓으면 요청한 계산은 어디에도 없습니다. 되묻되, 묻기만
+         하고 빈 화면을 주지는 않습니다 — 요약을 그대로 보여 주면서 어느
+         지표인지 고르게 합니다. 고를 버튼은 이 범위에 **실제로 값이 있는**
+         지표로만 만듭니다. 없는 지표를 눌러 0건을 받는 길을 두지 않습니다. */
+      const WANTS_CALC = { max: "가장 높은 값", min: "가장 낮은 값",
+                           stat: "평균", trend: "추이", compare: "비교" };
+      if (!lead && WANTS_CALC[intent]) {
+        const have = table.columns.filter(c => c.type === "num" &&
+          rows.some(r => r[c.key] !== null && r[c.key] !== undefined));
+        if (have.length) {
+          const out = briefAnswer(base, table, rows, scope, missingAsked,
+            "어느 지표의 " + WANTS_CALC[intent] + "을 보고 싶으신지 알려 주시면 " +
+            "그것만 계산해 드립니다 — 아래 버튼으로 고르셔도 됩니다. 우선", false);
+          out.suggestions = have.slice(0, 4).map(function (c) {
+            return c.label + (intent === "max" ? " 가장 높은 시료는?"
+                 : intent === "min" ? " 가장 낮은 시료는?"
+                 : intent === "trend" ? " 추이 보여줘"
+                 : intent === "compare" ? " 비교해줘" : " 평균");
+          });
+          return decorate(out, cond, table);
+        }
+      }
+
       return decorate(briefAnswer(base, table, rows, scope, missingAsked, lead, !!lead),
         cond, table);
     }
@@ -2741,10 +2766,21 @@ window.AskEngine = (function () {
   /* ── 개수 ────────────────────────────────────────────────────────────── */
   function countAnswer(base, table, rows, metric) {
     if (!metric) {
+      /* ★ 세는 단위를 요약과 맞춥니다.
+
+         팀별로 따로 적은 같은 이름의 시료는 요약에서 한 줄로 모읍니다.
+         그런데 건수만 그릇 수를 세어, 같은 화면에서 "시료 7건을 모아
+         봤습니다" 와 "데이터는 9건입니다" 가 같이 나왔습니다. 둘 다
+         그럴듯해서 어느 쪽이 시료 수인지 알 수 없습니다. */
+      const groups = groupBySample(rows);
+      const merged = groups.length !== rows.length;
       return Object.assign(base, {
         kind: "count",
-        headline: base.scopeLabel + " 범위의 데이터는 " + rows.length + "건입니다.",
-        facts: [{ k: "건수", v: rows.length + "건" }],
+        headline: base.scopeLabel + " 범위의 시료는 " + groups.length + "건입니다." +
+          (merged ? " (팀별로 나눠 적은 같은 이름의 시료를 한 건으로 셌습니다 — " +
+            "입력 열로는 " + rows.length + "개입니다.)" : ""),
+        facts: [{ k: "시료", v: groups.length + "건" }]
+          .concat(merged ? [{ k: "입력 열", v: rows.length + "개" }] : []),
         rows: rows.slice(0, 12).map(r => evidence(r, table, null)),
         evidenceCols: evidenceCols(table, null)
       });
