@@ -185,6 +185,44 @@ async function apply(patch) {
     }
   }
 
+  /* ── meta ──────────────────────────────────────────────────────────
+     ★ 이 블록이 **없었습니다.**
+
+     클라이언트는 meta 를 올리고 있었고(Persist.setJSON → HubServer.push),
+     서버는 그것을 받아 200 ok 를 돌려주면서 **버리고 있었습니다.** GET 은
+     meta 를 읽어 주는데 POST 가 쓰지 않으니, 올린 쪽은 성공으로 알고
+     다음 조회에서는 사라집니다.
+
+     여기 들어가는 것이 **시료(Sample) 레코드와 사용자가 만든 묶음**입니다
+     (entries.js 의 AUX_KEY). 그래서 production 은 배치 9건에 시료 0건인
+     상태였습니다 — 시료를 만들면 메모리에만 살고, 서버에서 한 벌 다시
+     받아오는 순간 없어졌습니다. 값은 entry_values 에 따로 저장되니 숫자만
+     남고 "그 숫자가 어느 시료의 것인가" 가 사라지는, 가장 나쁜 모양의
+     반쪽 저장이었습니다.
+
+     null 은 지우기로 씁니다 — 올리는 쪽(HubServer.push)이 그렇게 약속하고
+     있습니다. */
+  const metas = (p.meta && typeof p.meta === "object") ? p.meta : {};
+  const mIns = [], mDel = [];
+  for (const k of Object.keys(metas)) {
+    if (!k) continue;
+    if (metas[k] === null) mDel.push(String(k));
+    else mIns.push([String(k), JSON.stringify(metas[k])]);
+  }
+  for (const part of chunks(mIns, CHUNK)) {
+    await q`INSERT INTO meta (k, data, updated_at)
+            SELECT kk, d::jsonb, now()
+            FROM unnest(${part.map(x => x[0])}::text[],
+                        ${part.map(x => x[1])}::text[]) AS t(kk, d)
+            ON CONFLICT (k)
+            DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
+    n += part.length;
+  }
+  for (const part of chunks(mDel, CHUNK)) {
+    await q`DELETE FROM meta WHERE k = ANY(${part}::text[])`;
+    n += part.length;
+  }
+
   /* 레코드 **진짜 지우기**.
 
      ★ 화면에서 쓰는 길이 아닙니다. 화면에서 지운 것은 deleted 를 세워 기록으로
