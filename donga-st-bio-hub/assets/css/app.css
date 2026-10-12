@@ -3179,3 +3179,37 @@ body.is-colresize { cursor: col-resize; user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   .ebr-input.is-flash { animation: none; }
 }
+
+/* --------------------------------------------------------------------------
+   데이터 비교 표 — 엑셀 시트처럼 격자와 가운데 정렬
+
+   항목이 수십 줄 늘어선 표에서 경계선이 없으면, 가로로 눈을 옮기는 동안
+   줄이 바뀌어 다른 시료의 값을 읽습니다. 모든 칸에 실선을 둘러 한 칸씩
+   짚어 읽게 합니다. 값도 가운데로 모아 시료끼리 세로로 줄을 맞춥니다.
+   -------------------------------------------------------------------------- */
+.cmp-tbl { border: 1px solid var(--c-border); }
+.cmp-tbl th,
+.cmp-tbl td {
+  border: 1px solid var(--c-border);
+  text-align: center;
+  vertical-align: middle;
+}
+/* 항목 이름 칸 — 대문자 변환을 풀었습니다. "배양 FINAL VCD 10⁶ CELLS/ML" 처럼
+   전부 대문자로 서면 단위까지 소리쳐 읽히고, 긴 이름이 더 길어 보입니다. */
+.cmp-tbl th[scope="row"] {
+  text-align: center; font-weight: 600;
+  text-transform: none; letter-spacing: 0;
+  font-size: 12.5px; white-space: normal;
+  /* 항목 이름이 네댓 줄로 접히지 않을 만큼은 줍니다 — 이름이 세로로 서면
+     표가 아니라 목록처럼 읽힙니다 */
+  min-width: 200px;
+}
+/* 숫자도 가운데로 — 조회 표(.tbl .mono)는 오른쪽 정렬이지만, 비교표는
+   시료가 열이라 가운데로 모아야 같은 항목끼리 세로로 맞습니다. */
+.cmp-tbl td.mono,
+.cmp-tbl th.mono { text-align: center; }
+/* 마지막 줄도 선을 남깁니다 (.tbl 은 지웁니다 — 표가 허공에서 끝납니다) */
+.cmp-tbl tbody tr:last-child td,
+.cmp-tbl tbody tr:last-child th { border-bottom: 1px solid var(--c-border); }
+.cmp-tbl thead th { background: var(--c-paper); }
+.cmp-tbl .cmp-sep > th { text-align: center; }

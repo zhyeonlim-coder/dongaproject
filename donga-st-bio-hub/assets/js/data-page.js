@@ -233,9 +233,15 @@
       const nums = x.vals.filter(v => v !== null && isFinite(v));
       const hi = nums.length ? Math.max.apply(null, nums) : null;
       const lo = nums.length ? Math.min.apply(null, nums) : null;
+      /* 공정 이름이 항목 이름에 이미 들어 있으면 위에 또 적지 않습니다 —
+         "정제 / 정제 Protein A Step Yield" 처럼 같은 말이 두 줄로 섭니다. */
+      const label = String(x.r.label || "");
+      const group = String(x.r.group || "");
+      const dup = group && label.indexOf(group) === 0;
       return '<tr' + (mark ? ' class="cmp-diff"' : "") + '>' +
-        '<th scope="row"><span style="font-size:10px;color:var(--c-text-mute);display:block">' +
-          esc(x.r.group) + '</span>' + esc(x.r.label) +
+        '<th scope="row">' +
+          (dup ? "" : '<span style="font-size:10px;color:var(--c-text-mute);display:block">' +
+            esc(group) + '</span>') + esc(label) +
           '<span style="font-weight:400;color:var(--c-text-soft)"> ' + esc(x.r.unit) + '</span></th>' +
         x.vals.map(function (v) {
           if (v === null || v === undefined || !isFinite(v)) return cell(v, x.r.dp);

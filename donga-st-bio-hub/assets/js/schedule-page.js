@@ -207,7 +207,11 @@
     return '<section class="card" style="margin-bottom:var(--s-4)">' +
       '<div class="card-head"><div><h2 class="card-title">일정 추가</h2>' +
       '<p class="card-sub">' + esc(scope.label) + ' 에만 등록됩니다 · ' +
-        '등록 즉시 아래 달력과 대시보드에도 반영됩니다</p></div></div>' +
+        '등록 즉시 아래 달력과 대시보드에도 반영됩니다' +
+        /* 달력에서 고른 날을 글자로도 적습니다 — 작은 날짜 칸만 바뀌면
+           눌렀는데 아무 일도 안 일어난 것처럼 보입니다. */
+        '<span id="ev-pick-note" style="color:var(--c-accent);font-weight:600"></span>' +
+      '</p></div></div>' +
       '<div class="card-body"><form id="ev-form">' +
         '<div style="display:grid;grid-template-columns:1fr 140px 120px auto;gap:var(--s-2);align-items:end">' +
           '<label class="ebr-cell"><span>일정 내용</span>' +
@@ -367,8 +371,14 @@
                     ((KIND[e.kind] || {}).color || "var(--c-text-soft)") + '"></span>' +
                   '<span style="min-width:0;flex:1">' +
                     '<span style="display:block;font-size:12.5px;font-weight:500">' + esc(e.ko) + '</span>' +
-                    '<span class="badge" style="margin-top:4px;font-size:10px">' +
-                      esc(SRC_LABEL[e.src] || e.src || "") + '</span>' +
+                    /* ★ 'Excel 파생' 딱지는 떼었습니다. 일정의 거의 전부가
+                       Excel 에서 나온 것이라, 모든 카드에 같은 딱지가 붙어
+                       아무것도 구별해 주지 못했습니다. 남는 것은 보통과
+                       다른 것들뿐입니다 — 직접 등록 · 생성 일정 · 장비 예약. */
+                    (e.src && e.src !== "excel"
+                      ? '<span class="badge" style="margin-top:4px;font-size:10px">' +
+                        esc(SRC_LABEL[e.src] || e.src) + '</span>'
+                      : "") +
                   '</span>' +
                   /* 직접 등록한 일정만 지울 수 있습니다. Excel 파생 · 생성
                      일정은 원본에서 나온 것이라 여기서 지우면 다음에 다시
@@ -413,8 +423,16 @@
     const d = $("#ev-date");
     if (!d) return;                       /* 과제 미선택 · 전체 보기에는 폼이 없습니다 */
     d.value = date;
+    /* input 이벤트를 함께 쏩니다 — 값을 코드로 바꾸면 브라우저가 이벤트를
+       내지 않아, 이 칸을 보고 있는 다른 코드가 옛 날짜를 들고 있게 됩니다. */
+    d.dispatchEvent(new Event("input", { bubbles: true }));
+    d.dispatchEvent(new Event("change", { bubbles: true }));
     d.classList.add("is-flash");
     setTimeout(() => d.classList.remove("is-flash"), 900);
+
+    const note = $("#ev-pick-note");
+    if (note) note.textContent = " · 달력에서 " + date + " 를 골랐습니다";
+
     /* 폼이 화면 밖이면 끌어올립니다 — 눌렀는데 아무 일도 안 일어난 것처럼
        보이지 않도록. 보이는 자리에 있으면 스크롤을 건드리지 않습니다. */
     const form = $("#ev-form");
@@ -424,41 +442,55 @@
         form.scrollIntoView({ block: "center", behavior: "smooth" });
       }
     }
-    /* 이어서 바로 적을 수 있게 커서를 내용 칸에 둡니다 (날짜는 이미 찼습니다) */
-    const t = $("#ev-title");
-    if (t) t.focus({ preventScroll: true });
+    /* 커서는 **날짜 칸**에 둡니다 — 방금 바뀐 자리가 어디인지 커서가
+       가리켜 줍니다. 내용은 그다음에 Tab 한 번이면 닿습니다. */
+    d.focus({ preventScroll: true });
+  }
+
+  /* ── 달력 조작 — 본문에 한 번만 걸어 둡니다 ──────────────────────────
+     달력은 제자리에서 다시 그려집니다(outerHTML). 버튼마다 직접 걸어 두면
+     다시 그릴 때마다 걸어 주어야 하고, 한 번이라도 빠뜨리면 그날부터
+     **날짜를 눌러도 아무 일이 없습니다.** 그래서 본문에 한 번 걸고 눌린
+     것이 무엇인지 그때 봅니다 — 다시 그려도 끊기지 않습니다. */
+  let curScope = null, wired = false;
+
+  function redrawCalendar() {
+    const host = $("#cal-h") && $("#cal-h").closest("section");
+    if (!host) { render(); return; }
+    host.outerHTML = monthCalendar(curScope);
   }
 
   function wireCalendar(scope) {
-    const prev = $("#cal-prev"), next = $("#cal-next"), todayBtn = $("#cal-today");
-    if (!prev) return;
-    const sect = () => $("#cal-h") && $("#cal-h").closest("section");
-    const redraw = () => {
-      const host = sect();
-      if (!host) { render(); return; }
-      host.outerHTML = monthCalendar(scope);
-      wireCalendar(scope);
-    };
-    prev.addEventListener("click", () => { calMonth = shiftMonth(calMonth, -1); redraw(); });
-    next.addEventListener("click", () => { calMonth = shiftMonth(calMonth, 1); redraw(); });
-    if (todayBtn) todayBtn.addEventListener("click", function () {
-      calPick = H.today(); calMonth = calPick.slice(0, 7); redraw();
-      bindFormDate(calPick);
-    });
-    $$("[data-date]", sect()).forEach(b =>
-      b.addEventListener("click", function () {
-        calPick = b.dataset.date;
-        /* 다가오는 일정에서 다른 달을 눌렀으면 달력도 그달로 넘깁니다 */
+    curScope = scope || null;
+    if (wired) return;
+    const body = $("#body");
+    if (!body) return;
+    wired = true;
+
+    body.addEventListener("click", function (ev) {
+      const t = ev.target;
+      if (!t || !t.closest) return;
+
+      if (t.closest("#cal-prev")) { calMonth = shiftMonth(calMonth, -1); redrawCalendar(); return; }
+      if (t.closest("#cal-next")) { calMonth = shiftMonth(calMonth, 1); redrawCalendar(); return; }
+      if (t.closest("#cal-today")) {
+        calPick = H.today(); calMonth = calPick.slice(0, 7);
+        redrawCalendar(); bindFormDate(calPick); return;
+      }
+
+      const del = t.closest("[data-del]");
+      if (del) { H.removeUserEvent(del.dataset.del); redrawCalendar(); return; }
+
+      /* 날짜 — 달력 칸과 '다가오는 일정' 둘 다 이 길로 옵니다 */
+      const day = t.closest("[data-date]");
+      if (day && day.dataset.date) {
+        calPick = day.dataset.date;
+        /* 다른 달을 눌렀으면 달력도 그달로 넘깁니다 */
         if (calPick.slice(0, 7) !== calMonth) calMonth = calPick.slice(0, 7);
-        redraw();
+        redrawCalendar();
         bindFormDate(calPick);
-      }));
-    /* 그날 일정 칸의 삭제 — 달력만 다시 그려도 다시 걸립니다 */
-    $$("[data-del]", sect()).forEach(b =>
-      b.addEventListener("click", function () {
-        H.removeUserEvent(b.dataset.del);
-        redraw();
-      }));
+      }
+    });
   }
 
   function wire(scope) {
