@@ -2011,23 +2011,6 @@ tr.is-picked:hover > td { background: var(--c-accent-bg-2); }
 .req-cell-k { display: block; font-size: 10.5px; color: var(--c-text-mute); margin-top: 3px; }
 
 /* --------------------------------------------------------------------------
-   Troubleshooting Wiki — 카드 격자
-   -------------------------------------------------------------------------- */
-.wiki-grid {
-  display: grid; gap: var(--s-3);
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
-  align-items: start;
-}
-.wiki-card { scroll-margin-top: 80px; }
-.wiki-mini {
-  display: flex; align-items: flex-start; gap: var(--s-2);
-  padding: 7px 8px; margin-bottom: 4px;
-  border: 1px solid var(--c-border); border-radius: var(--r-sm);
-  background: var(--c-surface); text-decoration: none; color: inherit;
-}
-.wiki-mini:hover { border-color: #B45309; }
-
-/* --------------------------------------------------------------------------
    모달 — EBR 안의 [분석 의뢰하기]
    -------------------------------------------------------------------------- */
 body.modal-open { overflow: hidden; }
