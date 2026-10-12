@@ -50,9 +50,16 @@ window.Charts = (function () {
         '" font-family="var(--font-data)" fill="var(--c-text-mute)">' + esc(v) + '</text>';
     });
 
+    /* 점마다 투명한 손잡이를 하나씩 둡니다 — 마우스를 올리면 그 점의 값이
+       뜹니다. ★ s.raw 를 주면 **그 값**을 보여 줍니다: 축을 눕혀 그린
+       그래프(상대값)에서는 그려진 숫자가 실제 값이 아니기 때문입니다. */
     const paths = cfg.series.map(s => {
       const pts = s.data.map((v, i) => ({ v, i })).filter(p => isFinite(p.v));
       if (!pts.length) return "";
+      const shown = p => (s.raw && s.raw[p.i] !== null && s.raw[p.i] !== undefined)
+        ? s.raw[p.i] : p.v;
+      const tip = p => '<title>' + esc((xs[p.i] === undefined ? "" : xs[p.i] + " · ") +
+        s.name + " " + shown(p)) + '</title>';
       const d = pts.map((p, k) => (k ? "L" : "M") + xAt(p.i).toFixed(1) + " " + yAt(p.v, s.right).toFixed(1)).join(" ");
       const last = pts[pts.length - 1];
       return '<path d="' + d + '" fill="none" stroke="' + s.color + '" stroke-width="' + (big ? 3.2 : 2.2) +
@@ -60,7 +67,9 @@ window.Charts = (function () {
         (s.dots ? pts.map(p => '<circle cx="' + xAt(p.i).toFixed(1) + '" cy="' + yAt(p.v, s.right).toFixed(1) +
           '" r="' + (big ? 3.6 : 2.6) + '" fill="' + s.color + '"/>').join("") : "") +
         '<circle cx="' + xAt(last.i).toFixed(1) + '" cy="' + yAt(last.v, s.right).toFixed(1) +
-        '" r="' + (big ? 5.4 : 3.8) + '" fill="' + s.color + '" stroke="#fff" stroke-width="' + (big ? 2.2 : 1.6) + '"/>';
+        '" r="' + (big ? 5.4 : 3.8) + '" fill="' + s.color + '" stroke="#fff" stroke-width="' + (big ? 2.2 : 1.6) + '"/>' +
+        pts.map(p => '<circle cx="' + xAt(p.i).toFixed(1) + '" cy="' + yAt(p.v, s.right).toFixed(1) +
+          '" r="' + (big ? 9 : 7) + '" fill="transparent">' + tip(p) + '</circle>').join("");
     }).join("");
 
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" role="img" aria-label="' +
@@ -259,9 +268,12 @@ window.Charts = (function () {
         const base = (s.right && R) ? R.lo : lo;
         const y = yAt(Math.max(base, v), s.right);
         const h = Math.max(0, pad.t + ih - y);
+        /* ★ s.raw 를 주면 마우스를 올렸을 때 **그 값**을 보여 줍니다 —
+           상대값으로 눕혀 그린 막대에서는 그려진 숫자가 실제 값이 아닙니다. */
+        const shown = (s.raw && s.raw[i] !== null && s.raw[i] !== undefined) ? s.raw[i] : v;
         rects += '<rect x="' + (x0 + k * (groupW / series.length)).toFixed(1) + '" y="' + y.toFixed(1) +
           '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="1.5" fill="' + s.color +
-          '"><title>' + esc(cat + " · " + s.name + " " + v) + '</title></rect>';
+          '"><title>' + esc(cat + " · " + s.name + " " + shown) + '</title></rect>';
       });
       if (i % every === 0 || i === cats.length - 1) {
         xlab += '<text x="' + (pad.l + bw * i + bw / 2).toFixed(1) + '" y="' + (pad.t + ih + fs + 8) +

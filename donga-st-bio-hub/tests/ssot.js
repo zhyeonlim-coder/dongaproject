@@ -717,6 +717,22 @@ window.SSOTTest = (function () {
           rightTicks(svgBar).length >= 3, "오른쪽 눈금 " + rightTicks(svgBar).join(","));
         T.add("㉒ 선도 단위가 둘이면 오른쪽 축을 그림",
           rightTicks(svgLine).length >= 3, "오른쪽 눈금 " + rightTicks(svgLine).join(","));
+        /* 눕혀 그린(상대값) 그래프에서 손에 닿는 숫자는 **실제 값**이어야
+           합니다. 그림의 0~100 만 보이면, 화면에서 본 모양이 어느 값이었는지
+           알 길이 표밖에 없습니다. */
+        const rel = { name: "눕힌 값", color: "#000", data: [0, 100], raw: [1.2, 9.9] };
+        function tips(svg) {
+          const d = new DOMParser().parseFromString(svg, "image/svg+xml");
+          return Array.prototype.slice.call(d.querySelectorAll("title")).map(t => t.textContent);
+        }
+        const relBar = tips(G.bars({ cats: ["a", "b"], series: [rel], w: 400, h: 200 }));
+        const relLine = tips(G.line({ x: ["a", "b"], series: [rel], w: 400, h: 200 }));
+        T.add("㉒ 눕혀 그린 막대도 올리면 실제 값을 보여 줌",
+          relBar.some(s => s.indexOf("9.9") > -1) && !relBar.some(s => /\b100\b/.test(s)),
+          relBar.join(" / "));
+        T.add("㉒ 눕혀 그린 선도 올리면 실제 값을 보여 줌",
+          relLine.some(s => s.indexOf("9.9") > -1), relLine.join(" / "));
+
         /* 막대 두 개가 모두 제 키로 서는가 — 한쪽이 바닥에 깔리면 실패 */
         const hs = (svgBar.match(/height="([\d.]+)"/g) || [])
           .map(s => parseFloat(s.replace(/\D*([\d.]+).*/, "$1")))

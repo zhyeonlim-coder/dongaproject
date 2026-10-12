@@ -508,8 +508,17 @@
         const lo = v.length ? Math.min.apply(null, v) : 0;
         const hi = v.length ? Math.max.apply(null, v) : 0;
         const span = hi - lo;
-        series.push({ name: r.label + (r.unit ? " (" + r.unit + ")" : ""),
+        const dp = r.dp === undefined ? 2 : r.dp;
+        /* 눈금은 0~100 이지만 **실제 값을 함께 들고 다닙니다**:
+             · 범례에 그 항목의 실제 범위(최솟값~최댓값 + 단위)를 적고,
+             · raw 로 넘겨 마우스를 올리면 그 시료의 실제 값이 뜹니다.
+           눕혀 그린 그림에서 실제 값에 닿는 길이 표밖에 없으면, 화면에서
+           본 모양이 어느 숫자였는지 매번 아래로 내려가 찾아야 합니다. */
+        series.push({ name: r.label +
+                        (v.length ? " (" + lo.toFixed(dp) + "~" + hi.toFixed(dp) +
+                          (r.unit ? " " + r.unit : "") + ")" : ""),
                       color: colorOf(r, i),
+                      raw: r.data,
                       data: r.data.map(x => (x === null || !isFinite(x)) ? null
                         : (span > 0 ? ((x - lo) / span) * 100 : 50)) });
       });
@@ -538,6 +547,9 @@
                              aria: title + " 시료별 추이" })
       : window.Charts.bars({ cats: cats, series: series, h: 270, w: 820,
                              min: tight ? Math.floor(lo * 0.98) : null,
+                             /* 상대값은 0~100 이 전부입니다. 축을 125 까지
+                                올리면 100 이 꼭대기가 아닌 것처럼 보입니다. */
+                             max: mode === "rel" ? 100 : null,
                              aria: title + " 시료별 값" });
 
     const note = mode === "two"
@@ -549,7 +561,8 @@
       ? '단위가 ' + byUnit.length + '가지라 축을 둘로도 나눌 수 없어, 각 항목을 ' +
         '<b>자기 최솟값 0 · 최댓값 100</b> 으로 눕혀 한 장에 겹쳤습니다 — ' +
         '세로축 숫자는 <b>실제 값이 아니라 그 항목 안에서의 상대 위치</b>입니다. ' +
-        '실제 값은 아래 표와 [Excel 내보내기] 에 그대로 있습니다.'
+        '실제 값은 <b>범례의 범위</b>와 <b>그래프에 마우스를 올렸을 때</b> 보이고, ' +
+        '아래 표와 [Excel 내보내기] 에도 원값 그대로 있습니다.'
       : "";
 
     return chartToolbar(pool) +
@@ -558,7 +571,7 @@
       card(title,
         '항목 ' + picked.length + '개 · 시료 ' + rows.length + '건 · ' +
         (mode === "two" ? '좌 · 우 축 (실제 값)'
-          : mode === "rel" ? '상대값 0~100 (실제 값은 아래 표)'
+          : mode === "rel" ? '상대값 0~100 · 실제 값은 범례 범위 · 마우스 올림 · 아래 표'
           : esc(byUnit[0] ? (byUnit[0].unit || "단위 없음") : "")),
         (series.length > 1 ? window.Charts.swatches(series) : "") +
         '<div class="chart-wrap" style="margin-top:var(--s-3)">' + body + '</div>' +
