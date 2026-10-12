@@ -337,7 +337,8 @@
       '<div class="card-head"><div>' +
         '<h2 class="card-title" id="cal-h">월간 일정</h2>' +
         '<p class="card-sub">날짜를 누르면 그날 일정이 옆에 열립니다' +
-          (scope ? ' · ' + esc(scope.label) + ' 범위' : " · 전사 일정") + '</p></div>' +
+          (scope ? ' · 위 [일정 추가] 의 날짜도 그날로 바뀝니다 · ' + esc(scope.label) + ' 범위'
+                 : " · 전사 일정") + '</p></div>' +
         '<button class="btn btn-ghost btn-sm" id="cal-today">오늘</button>' +
       '</div>' +
       '<div class="card-body"><div class="cal-lg">' +
