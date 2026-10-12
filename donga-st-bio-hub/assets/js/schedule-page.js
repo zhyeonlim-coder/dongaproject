@@ -207,7 +207,7 @@
     return '<section class="card" style="margin-bottom:var(--s-4)">' +
       '<div class="card-head"><div><h2 class="card-title">일정 추가</h2>' +
       '<p class="card-sub">' + esc(scope.label) + ' 에만 등록됩니다 · ' +
-        '등록 즉시 우측 캘린더와 대시보드에도 반영됩니다</p></div></div>' +
+        '등록 즉시 아래 달력과 대시보드에도 반영됩니다</p></div></div>' +
       '<div class="card-body"><form id="ev-form">' +
         '<div style="display:grid;grid-template-columns:1fr 140px 120px auto;gap:var(--s-2);align-items:end">' +
           '<label class="ebr-cell"><span>일정 내용</span>' +
