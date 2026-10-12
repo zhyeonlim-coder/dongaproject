@@ -19,7 +19,6 @@ window.Shell = (function () {
     /* 오늘 할 일 · 분석 의뢰 · 연구 지식은 독립 메뉴에서 내렸습니다.
          오늘 할 일  → 대시보드의 Smart To-Do Card
          분석 의뢰   → Data 입력 > 분석 및 시료 관리 (+ 대시보드 요약 카드)
-         연구 지식   → DoE & Intelligence > Troubleshooting & Wiki
        입력은 EBR 하나로 모으고, 조회·요약은 대시보드로 모으는 방향입니다. */
     { id: "dashboard", href: "dashboard.html", ko: "대시보드",
       icon: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>' },

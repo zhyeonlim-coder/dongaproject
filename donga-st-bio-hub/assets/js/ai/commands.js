@@ -41,7 +41,7 @@ window.AICommands = (function () {
                 "데이터 표", "데이터 목록"],
     schedule:  ["일정 관리", "일정관리", "일정", "스케줄", "schedule", "달력", "캘린더"],
     hub:       ["doe", "intelligence", "인텔리전스", "ai 검색", "자연어 검색",
-                "troubleshooting", "wiki", "위키", "지식"],
+                "지식"],
     booking:   ["장비 예약", "장비예약", "예약", "booking"],
     explorer:  ["데이터 탐색", "탐색 화면", "explorer"]
   };
@@ -61,12 +61,15 @@ window.AICommands = (function () {
     hub: [
       { key: "doe",  ko: "DoE 조건 설계 & 분석", words: ["doe 설계", "doe 조건", "조건 설계", "설계"] },
       { key: "ai",   ko: "AI 검색",             words: ["ai 검색", "자연어 검색", "문헌 검색"] },
-      { key: "wiki", ko: "Troubleshooting & Wiki", words: ["wiki", "위키", "트러블", "troubleshooting", "lesson"] },
       { key: "spec", ko: "규격(Spec) 관리",      words: ["규격", "spec 관리"] }
     ],
     data: [
-      { key: "sample",  ko: "시료별",    words: ["시료별", "샘플별", "시료 별", "시료 목록"] },
-      { key: "compare", ko: "시료 비교", words: ["시료 비교", "샘플 비교", "비교 보기", "나란히"] }
+      { key: "sample",  ko: "데이터 전체 조회",
+        words: ["전체 조회", "데이터 전체", "시료별", "샘플별", "시료 별", "시료 목록", "표"] },
+      { key: "compare", ko: "데이터 비교",
+        words: ["데이터 비교", "시료 비교", "샘플 비교", "비교 보기", "나란히"] },
+      { key: "chart",   ko: "그래프 확인",
+        words: ["그래프", "차트", "추이 그림", "그래프 확인"] }
     ]
   };
 

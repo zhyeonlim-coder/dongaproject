@@ -622,6 +622,93 @@ window.SSOTTest = (function () {
     })();
 
     /* ══════════════════════════════════════════════════════════════════
+       ㉒ 그래프 화면 — 팀을 가로질러 겹쳐 볼 수 있는가 · 파일로 내보내는가
+
+       그래프 확인은 세 팀 지표를 한 화면에 겹쳐 보려고 만든 자리입니다.
+       그런데 위쪽 [팀] 선택이 그대로 걸리면 그 팀 시료만 내려와, 겹칠
+       상대가 화면에 없게 됩니다 — 겹쳐 보려고 들어온 화면이 겹치기를
+       막습니다. 화면 코드는 검사 페이지에서 띄울 수 없으므로 그 화면이
+       기대는 **두 가지**를 봅니다: 팀 없이 부르면 세 팀이 다 오는가,
+       그리고 엑셀 내보내기가 막혀도 CSV 로 내려가는가.
+       ══════════════════════════════════════════════════════════════════ */
+    (function chartAcrossTeams() {
+      const R = window.Repo;
+      if (!R || !R.resolveBatches) { T.add("㉒ Repo.resolveBatches 있음", false, "없음"); return; }
+      const prj = (window.DATA_PROJECTS || [])[0];
+      if (!prj) { T.add("㉒ 검사할 과제 있음", false, "과제 없음"); return; }
+      const sel = { scopeKind: "project", scopeId: prj.id };
+
+      const teamIds = (window.DATA_TEAMS || []).map(t => t.id);
+      pending.push(Promise.all(
+        [R.resolveBatches(sel)].concat(
+          teamIds.map(id => R.resolveBatches(Object.assign({}, sel, { team: id }))))
+      ).then(function (res) {
+        const all = res[0] || [];
+        const allIds = all.map(b => b.id);
+        const missed = [];
+        teamIds.forEach(function (id, i) {
+          const one = res[i + 1] || [];
+          /* 팀을 주면 그 팀만 — 다른 화면의 규칙은 그대로여야 합니다 */
+          if (one.some(b => b.team !== id)) missed.push(id + ": 다른 팀 섞임");
+          /* 팀 없이 부르면 **어느 팀 것도 빠지지 않습니다** — 그래야
+             배양 지표와 정제 지표를 한 화면에서 겹칠 수 있습니다 */
+          one.forEach(function (b) {
+            if (allIds.indexOf(b.id) === -1) missed.push(id + ": " + b.id + " 누락");
+          });
+        });
+        T.add("㉒ 팀 없이 부르면 어느 팀 시료도 빠지지 않음",
+          !missed.length, missed.slice(0, 4).join(" · ") + " (전체 " + all.length + "건)");
+      }));
+
+      const X = window.XlsxOut;
+      if (!X) { T.add("㉒ XlsxOut 있음", false, "없음"); return; }
+      T.add("㉒ CSV 는 쉼표·따옴표를 감쌈",
+        X.csvOf([["a,b", 'c"d'], [1, null]]) === '"a,b","c""d"\r\n1,',
+        JSON.stringify(X.csvOf([["a,b", 'c"d'], [1, null]])));
+
+      /* 엑셀 라이브러리를 못 받아 오는 상황 — 내보내기가 **실패로 끝나지
+         않고** CSV 로 내려가야 합니다. 사내망에서 CDN 이 막히면 이 길만
+         남습니다. 실제 다운로드 대신 save 자리를 바꿔 끼워 확인합니다. */
+      const keep = window.AskTables ? window.AskTables.loadXLSX : null;
+      const got = [];
+      let why = null;
+      try {
+        if (window.AskTables) window.AskTables.loadXLSX = null;
+        X.write([{ name: "데이터", aoa: [["a"], [1]] }], "zz_test", {
+          save: function (blob, name) { got.push({ name: name, size: blob.size }); },
+          onFallback: function (w) { why = w; }
+        });
+      } finally {
+        if (window.AskTables) window.AskTables.loadXLSX = keep;
+      }
+      T.add("㉒ 엑셀을 못 만들면 CSV 로 내려감",
+        got.length === 1 && /\.csv$/.test(got[0].name) && why,
+        "저장=" + JSON.stringify(got) + " 사유=" + why);
+
+      /* 빈 내보내기는 빈 파일을 만들지 않습니다 — 받는 사람이 0행짜리
+         파일을 보고 "데이터가 없다" 가 아니라 "내가 잘못 눌렀나" 로 읽습니다 */
+      let none = null;
+      X.write([], "zz_test", { save: function () { none = "saved"; },
+                               onFallback: function (w) { none = w; } });
+      T.add("㉒ 내보낼 것이 없으면 파일을 만들지 않음",
+        none && none !== "saved", String(none));
+
+      /* 챗봇의 화면 이름이 메뉴와 같은가 — 메뉴를 바꾸면 여기도 바뀌어야
+         "그래프 확인으로 가줘" 가 길을 찾습니다 */
+      const C = window.AICommands;
+      if (C && C._sections) {
+        const S2 = C._sections;
+        const dataKeys = (S2.data || []).map(x => x.key);
+        const hubKeys = (S2.hub || []).map(x => x.key);
+        T.add("㉒ 챗봇이 아는 조회 화면 = 전체 조회 · 비교 · 그래프",
+          dataKeys.indexOf("chart") > -1 && dataKeys.indexOf("compare") > -1,
+          dataKeys.join(","));
+        T.add("㉒ 내린 메뉴(Wiki)는 챗봇도 더 이상 안내하지 않음",
+          hubKeys.indexOf("wiki") === -1, hubKeys.join(","));
+      }
+    })();
+
+    /* ══════════════════════════════════════════════════════════════════
        ⑯ 화면 조작 명령 — 읽는 것과 읽지 않는 것
 
        실행은 여기서 하지 않습니다 (화면을 옮기면 검사 페이지가 사라집니다).

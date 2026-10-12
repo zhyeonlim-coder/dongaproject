@@ -51,7 +51,8 @@
        컬럼 필터(colFilters)와 달리 행 수를 바꾸지 않습니다.
      ══════════════════════════════════════════════════════════════════════ */
   const GRID_KEY = "hub.data.grid";
-  const GRID_DEFAULT = { dense: true, hidden: {}, width: {}, chartPick: [], chartKind: "bar" };
+  const GRID_DEFAULT = { dense: true, hidden: {}, width: {}, chartPick: [], chartKind: "bar",
+                         chartAxis: "split" };
 
   let grid = (function () {
     try {
@@ -59,7 +60,8 @@
       if (!r || typeof r !== "object") return Object.assign({}, GRID_DEFAULT);
       return { dense: r.dense !== false, hidden: r.hidden || {}, width: r.width || {},
                chartPick: Array.isArray(r.chartPick) ? r.chartPick : [],
-               chartKind: r.chartKind === "line" ? "line" : "bar" };
+               chartKind: r.chartKind === "line" ? "line" : "bar",
+               chartAxis: r.chartAxis === "one" ? "one" : "split" };
     } catch (e) { return Object.assign({}, GRID_DEFAULT); }
   })();
 
@@ -67,11 +69,15 @@
      매번 새로 고를 때마다 같은 항목을 다시 찾는 일이 없도록. */
   let chartPick = grid.chartPick.slice();
   let chartKind = grid.chartKind;
+  /* 단위가 다른 항목을 어떻게 놓을지 — "split" 단위별로 나눠 그리기,
+     "one" 한 장에 겹쳐 그리기 (좌·우 축 또는 상대값) */
+  let chartAxis = grid.chartAxis;
   const PALETTE = ["#0369A1", "#6D28D9", "#0F766E", "#B45309", "#B91C1C", "#1D4ED8"];
 
   function saveGrid() {
     grid.chartPick = chartPick.slice();
     grid.chartKind = chartKind;
+    grid.chartAxis = chartAxis;
     window.Persist.setLocalJSON(GRID_KEY, grid);
   }
 
@@ -357,15 +363,28 @@
   function chartToolbar(pool) {
     const first = chartPick[0] || "";
     const extras = chartPick.slice(1);
+    /* 드롭다운은 팀별로 묶어 보여 줍니다 — 열 가지가 넘는 항목이 한 줄로
+       늘어서 있으면 어느 공정 것인지 눈으로 가려야 합니다. */
     const opt = r => '<option value="' + esc(r.key) + '"' +
-      (r.key === first ? " selected" : "") + '>' +
-      esc((r.team.short || r.team.ko) + " · " + r.label) + '</option>';
+      (r.key === first ? " selected" : "") + '>' + esc(r.label) + '</option>';
+    const byTeam = [];
+    pool.forEach(function (r) {
+      let g = byTeam.find(x => x.team.id === r.team.id);
+      if (!g) { g = { team: r.team, items: [] }; byTeam.push(g); }
+      g.items.push(r);
+    });
+    const groups = sub => byTeam.map(g =>
+      '<optgroup label="' + esc(g.team.ko) + '">' + g.items.map(sub).join("") + '</optgroup>').join("");
+
+    const sel = window.Scope.get();
+    const teamName = sel.team
+      ? ((window.DATA_TEAMS || []).find(t => t.id === sel.team) || {}).ko : null;
 
     return '<div class="card-body" style="border-bottom:1px solid var(--c-border)">' +
       '<div style="display:flex;gap:var(--s-3);align-items:flex-end;flex-wrap:wrap">' +
         '<label style="font-size:12px;font-weight:600" for="chart-pick">항목</label>' +
         '<select class="input" id="chart-pick" style="min-width:220px;max-width:320px">' +
-          (pool.length ? pool.map(opt).join("") : '<option value="">— 없음 —</option>') +
+          (pool.length ? groups(opt) : '<option value="">— 없음 —</option>') +
         '</select>' +
         '<span class="live-seg" role="group" aria-label="그래프 모양">' +
           '<button type="button" class="live-segb' + (chartKind === "line" ? " is-on" : "") +
@@ -373,12 +392,21 @@
           '<button type="button" class="live-segb' + (chartKind === "bar" ? " is-on" : "") +
             '" data-ckind="bar" aria-pressed="' + (chartKind === "bar") + '">막대</button>' +
         '</span>' +
+        '<span class="live-seg" role="group" aria-label="단위가 다를 때">' +
+          '<button type="button" class="live-segb' + (chartAxis === "split" ? " is-on" : "") +
+            '" data-caxis="split" aria-pressed="' + (chartAxis === "split") +
+            '" title="단위가 같은 항목끼리 묶어 여러 장으로">단위별</button>' +
+          '<button type="button" class="live-segb' + (chartAxis === "one" ? " is-on" : "") +
+            '" data-caxis="one" aria-pressed="' + (chartAxis === "one") +
+            '" title="단위가 달라도 한 장에 겹쳐서">한 장에 겹쳐</button>' +
+        '</span>' +
         (pool.length > chartPick.length
           ? '<select class="input" id="chart-add" style="min-width:170px">' +
               '<option value="">+ 항목 겹쳐 보기</option>' +
-              pool.filter(r => chartPick.indexOf(r.key) === -1)
+              byTeam.map(g => '<optgroup label="' + esc(g.team.ko) + '">' +
+                g.items.filter(r => chartPick.indexOf(r.key) === -1)
                   .map(r => '<option value="' + esc(r.key) + '">' +
-                    esc((r.team.short || r.team.ko) + " · " + r.label) + '</option>').join("") +
+                    esc(r.label) + '</option>').join("") + '</optgroup>').join("") +
             '</select>'
           : "") +
         '<button class="btn btn-ghost btn-sm" id="chart-all">전체 항목</button>' +
@@ -397,7 +425,17 @@
         : "") +
       '<p style="font-size:11.5px;color:var(--c-text-mute);margin:var(--s-2) 0 0">' +
         '가로축은 <b>시료</b>입니다 (시작일 순). 이 데이터에는 일자축이 없어 ' +
-        '일자별 추이 대신 시료별 추이로 그립니다.</p>' +
+        '일자별 추이 대신 시료별 추이로 그립니다. ' +
+        '항목은 <b>세 팀 전부</b>에서 고를 수 있습니다 — 배양·정제·분석을 섞어 겹쳐 보셔도 됩니다.' +
+        (teamName
+          ? '<br>위에서 <b>' + esc(teamName) + '</b>을 고르셨지만, 이 화면만은 팀을 넘어 ' +
+            '그립니다 (겹쳐 보려고 들어온 화면에서 한쪽 항목만 고르게 되면 쓸모가 없어집니다). ' +
+            '과제 · Study · 기간은 그대로 지킵니다.'
+          : "") +
+        (sel.dataClass
+          ? '<br>Data 분류 선택도 이 화면에서는 적용하지 않습니다 — 고를 항목을 직접 정하는 화면입니다.'
+          : "") +
+      '</p>' +
     '</div>';
   }
 
@@ -425,11 +463,9 @@
     const picked = chartPick.map(k => pool.find(r => r.key === k)).filter(Boolean);
     const cats = rows.map(r => r.sampleName || "(이름 없음)");
 
-    /* ★ 단위가 다른 항목은 한 축에 겹치지 않습니다.
-
-       Max VCD(10⁶ cells/mL) 15 와 Total Yield(%) 98 을 한 축에 그리면
-       세포 농도가 바닥에 깔린 선으로 보입니다 — 눈으로는 "배양이 망했다"
-       로 읽힙니다. 단위가 같은 것끼리 묶어 한 장씩 그립니다. */
+    /* 단위별로 묶습니다. 단위가 다른 값을 한 축에 그대로 겹치면
+       Max VCD(10⁶ cells/mL) 15 가 Total Yield(%) 98 옆에서 바닥에 깔린
+       선이 되어, 눈으로는 "배양이 망했다" 로 읽힙니다. */
     const byUnit = [];
     picked.forEach(function (r) {
       const u = r.unit || "";
@@ -438,50 +474,118 @@
       g.items.push(r);
     });
 
+    /* 실제 값 표 — 어느 모양으로 그리든 **원래 숫자**를 함께 둡니다.
+       축을 바꿔 그린 그림 옆에 원값이 없으면 확인할 길이 없습니다. */
+    function realTable(items, caption) {
+      return window.Charts.dataTable(caption,
+        ["시료"].concat(items.map(r => r.label + (r.unit ? " (" + r.unit + ")" : ""))),
+        cats.map((c, i) => [c].concat(items.map(r =>
+          r.data[i] === null || !isFinite(r.data[i]) ? L.empty : String(r.data[i])))));
+    }
+    function colorOf(r, i) { return r.team.color || PALETTE[i % PALETTE.length]; }
+    function card(title, sub, inner) {
+      return '<section class="card" style="margin:var(--s-4) 0">' +
+        '<div class="card-head"><div>' +
+          '<h2 class="card-title">' + esc(title) + '</h2>' +
+          '<p class="card-sub">' + sub + '</p>' +
+        '</div></div><div class="card-body">' + inner + '</div></section>';
+    }
+
+    /* ── ① 한 장에 겹쳐 그리기 ────────────────────────────────────────
+       단위가 두 가지면 좌·우 축에 하나씩 둡니다 (실제 값 그대로).
+       세 가지 이상이면 축이 모자라므로 각 항목을 **자기 최솟값~최댓값**
+       기준 0~100 으로 눕혀 모양만 겹칩니다. 그림은 모양 비교용이고,
+       숫자는 아래 표와 엑셀에 원값으로 남습니다. */
+    if (chartAxis === "one" && picked.length > 1 && byUnit.length > 1) {
+      const twoAxis = byUnit.length === 2 && chartKind === "line";
+      let note, series;
+
+      if (twoAxis) {
+        series = [];
+        byUnit.forEach(function (g, gi) {
+          g.items.forEach(function (r) {
+            series.push({ name: r.label + (r.unit ? " (" + r.unit + ")" : "") +
+                            (gi ? " · 우축" : " · 좌축"),
+                          color: colorOf(r, series.length), data: r.data, right: gi === 1 });
+          });
+        });
+        note = '한 장에 겹쳤습니다 — 왼쪽 축은 <b>' + esc(byUnit[0].unit || "단위 없음") +
+          '</b>, 오른쪽 축은 <b>' + esc(byUnit[1].unit || "단위 없음") + '</b> 입니다. ' +
+          '두 축의 눈금이 다르므로 <b>선의 높낮이를 서로 견주지 마시고</b> 오르내리는 모양을 보세요.';
+      } else {
+        series = picked.map(function (r, i) {
+          const v = r.data.filter(x => x !== null && isFinite(x));
+          const lo = v.length ? Math.min.apply(null, v) : 0;
+          const hi = v.length ? Math.max.apply(null, v) : 0;
+          const span = hi - lo;
+          return { name: r.label + (r.unit ? " (" + r.unit + ")" : ""),
+                   color: colorOf(r, i),
+                   data: r.data.map(x => (x === null || !isFinite(x)) ? null
+                     : (span > 0 ? ((x - lo) / span) * 100 : 50)) };
+        });
+        note = '한 장에 겹쳤습니다. 단위가 ' + byUnit.length + '가지라 축을 나눌 수 없어, ' +
+          '각 항목을 <b>자기 최솟값 0 · 최댓값 100</b> 으로 눕혀 그렸습니다 — ' +
+          '세로축 숫자는 <b>실제 값이 아니라 그 항목 안에서의 상대 위치</b>입니다. ' +
+          '실제 값은 아래 표와 [Excel 내보내기] 에 그대로 있습니다. ' +
+          '실제 값으로 보시려면 [단위별] 로 돌리세요.';
+      }
+
+      const body = chartKind === "line"
+        ? window.Charts.line({ x: cats, series: series, h: 260, w: 820,
+                               aria: picked.map(r => r.label).join(" · ") + " 시료별 추이 (겹쳐 그림)" })
+        : window.Charts.bars({ cats: cats, series: series, h: 260, w: 820,
+                               aria: picked.map(r => r.label).join(" · ") + " 시료별 값 (겹쳐 그림)" });
+
+      return chartToolbar(pool) +
+        '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' + note + '</div></div>' +
+        card(picked.map(r => r.label).join(" · "),
+          '항목 ' + picked.length + '개 · 시료 ' + rows.length + '건 · ' +
+          (twoAxis ? '좌 · 우 축 (실제 값)' : '상대값 0~100'),
+          window.Charts.swatches(series) +
+          '<div class="chart-wrap" style="margin-top:var(--s-3)">' + body + '</div>' +
+          realTable(picked, picked.map(r => r.label).join(" · ")));
+    }
+
+    /* ── ② 단위별로 나눠 그리기 (기본) ──────────────────────────────── */
     const charts = byUnit.map(function (g) {
       const all = [];
       g.items.forEach(r => r.data.forEach(v => { if (v !== null) all.push(v); }));
       const lo = all.length ? Math.min.apply(null, all) : 0;
       const hi = all.length ? Math.max.apply(null, all) : 0;
-      const tight = all.length > 1 && lo > 0 && (hi - lo) < lo * 0.5;
+      /* ★ 축을 0 이 아닌 곳에서 시작하는 것은 **막대뿐**입니다.
+         선 그래프는 Charts.line 이 늘 0 부터 그립니다 — 예전에는 여기서
+         선에도 min 을 넘기고 "세로축은 N 부터 시작합니다" 라고 적었는데,
+         실제로는 0 부터 그려져 화면과 설명이 어긋났습니다. */
+      const tight = chartKind === "bar" && all.length > 1 && lo > 0 && (hi - lo) < lo * 0.5;
       const series = g.items.map((r, i) => ({
         name: r.label + (r.unit ? " (" + r.unit + ")" : ""),
-        color: r.team.color || PALETTE[i % PALETTE.length],
+        color: colorOf(r, i),
         data: r.data
       }));
       const body = chartKind === "line"
         ? window.Charts.line({ x: cats, series: series, h: 230, w: 820,
-                               min: tight ? Math.floor(lo * 0.98) : null,
                                aria: g.items.map(r => r.label).join(" · ") + " 시료별 추이" })
         : window.Charts.bars({ cats: cats, series: series, h: 230, w: 820,
                                min: tight ? Math.floor(lo * 0.98) : null,
                                aria: g.items.map(r => r.label).join(" · ") + " 시료별 값" });
 
-      return '<section class="card" style="margin:var(--s-4) 0">' +
-        '<div class="card-head"><div>' +
-          '<h2 class="card-title">' + esc(g.items.map(r => r.label).join(" · ")) + '</h2>' +
-          '<p class="card-sub">' + (g.unit ? esc(g.unit) + " · " : "") +
-            '시료 ' + rows.length + '건' +
-            (byUnit.length > 1 ? ' · 단위가 같은 항목끼리 묶어 그렸습니다' : "") + '</p>' +
-        '</div></div>' +
-        '<div class="card-body">' +
-          (series.length > 1 ? window.Charts.swatches(series) : "") +
-          '<div class="chart-wrap" style="margin-top:var(--s-3)">' + body + '</div>' +
-          (tight ? '<p style="font-size:11px;color:var(--c-text-mute);margin:var(--s-2) 0 0">' +
-            '세로축은 ' + Math.floor(lo * 0.98) + ' 부터 시작합니다 — 값이 좁은 구간에 ' +
-            '몰려 있어 0부터 그리면 차이가 보이지 않습니다.</p>' : "") +
-          window.Charts.dataTable(g.items.map(r => r.label).join(" · "),
-            ["시료"].concat(series.map(s => s.name)),
-            cats.map((c, i) => [c].concat(series.map(s =>
-              s.data[i] === null || !isFinite(s.data[i]) ? L.empty : String(s.data[i]))))) +
-        '</div></section>';
+      return card(g.items.map(r => r.label).join(" · "),
+        (g.unit ? esc(g.unit) + " · " : "") + '시료 ' + rows.length + '건' +
+          (byUnit.length > 1 ? ' · 단위가 같은 항목끼리 묶어 그렸습니다' : ""),
+        (series.length > 1 ? window.Charts.swatches(series) : "") +
+        '<div class="chart-wrap" style="margin-top:var(--s-3)">' + body + '</div>' +
+        (tight ? '<p style="font-size:11px;color:var(--c-text-mute);margin:var(--s-2) 0 0">' +
+          '세로축은 ' + Math.floor(lo * 0.98) + ' 부터 시작합니다 — 값이 좁은 구간에 ' +
+          '몰려 있어 0부터 그리면 차이가 보이지 않습니다.</p>' : "") +
+        realTable(g.items, g.items.map(r => r.label).join(" · ")));
     }).join("");
 
     return chartToolbar(pool) +
       (byUnit.length > 1
         ? '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' +
           '고른 항목의 단위가 ' + byUnit.length + '가지라 ' + byUnit.length + '장으로 나눠 그렸습니다 — ' +
-          '단위가 다른 값을 한 축에 겹치면 작은 쪽이 바닥에 깔려 실제보다 나빠 보입니다.' +
+          '단위가 다른 값을 한 축에 겹치면 작은 쪽이 바닥에 깔려 실제보다 나빠 보입니다. ' +
+          '그래도 한 장에서 모양을 견주시려면 위 <b>[한 장에 겹쳐]</b> 를 누르세요.' +
           '</div></div>'
         : "") +
       charts;
@@ -508,6 +612,9 @@
     $$("[data-ckind]").forEach(b => b.addEventListener("click", function () {
       chartKind = b.dataset.ckind; redraw();
     }));
+    $$("[data-caxis]").forEach(b => b.addEventListener("click", function () {
+      chartAxis = b.dataset.caxis; redraw();
+    }));
     const all = $("#chart-all");
     if (all) all.addEventListener("click", function () {
       chartPick = pool.map(r => r.key); redraw();
@@ -525,7 +632,10 @@
      꺼낼 수 있습니다. */
   function columns(titerDays, opts) {
     const sel = window.Scope.get();
-    const team = sel.team;
+    /* noNarrow — 팀 · 분류 · 검색어로 측정 컬럼을 좁히지 않습니다.
+       그래프 화면이 씁니다 (팀을 가로질러 겹쳐 보기 위해서). */
+    const wide = !!(opts && opts.noNarrow);
+    const team = wide ? null : sel.team;
 
     /* ── 식별 컬럼 ──────────────────────────────────────────────────────
        과제 → Study → 팀 → Sample. 계층 그대로입니다.
@@ -571,7 +681,8 @@
     });
 
     /* Data 입력에서 직접 더한 항목 · 열 */
-    const all = base.concat(narrowMeasures(measure.concat(customCols(opts && opts.batches)), sel));
+    const withCustom = measure.concat(customCols(opts && opts.batches));
+    const all = base.concat(wide ? withCustom : narrowMeasures(withCustom, sel));
     if (opts && opts.all) return all;
 
     /* 마지막 한 컬럼까지 숨기지는 않습니다 — 빈 표가 되면 되돌릴 손잡이가
@@ -1015,11 +1126,29 @@
         paintBlankNote(0);
 
         if (groupBy === "chart") {
-          $("#count").textContent = srows.length + "개 시료" +
-            (window.Scope.periodLabel() ? " · " + window.Scope.periodLabel() : "");
-          paintGridTools(null, batches);
-          $("#table-host").innerHTML = chartView(srows, scols);
-          wireChartView(srows, scols);
+          /* ★ 그래프 화면은 **팀 · 분류 선택을 넘어서** 그립니다.
+
+             다른 화면에서는 [배양공정팀] 을 고르면 그 팀의 시료만 내려옵니다
+             (그릇이 팀별로 1:1 이라 그래야 맞습니다). 그런데 그 규칙이 이
+             화면에서는 겹쳐 보기를 막습니다 — 배양의 Max VCD 와 정제의 수율을
+             나란히 놓고 보려고 들어온 사람이, 위쪽 팀 선택 때문에 한쪽 항목만
+             고를 수 있게 됩니다. 겹쳐 보려고 만든 화면이 겹치기를 막는 셈입니다.
+
+             그래서 여기서만 팀 없이 다시 읽습니다. 범위(과제 · Study · 기간)는
+             그대로 지킵니다 — 넓히는 것은 팀 한 겹뿐이고, 그 사실은 조작 줄에
+             적어 둡니다. */
+          window.Repo.resolveBatches(Object.assign({}, sel, { team: null }))
+            .then(function (all) {
+              const cdays = window.DATA_TITER_DAYS.filter(d =>
+                all.some(b => (b.upstream?.titer?.[d] ?? null) !== null));
+              const ccols = columns(cdays, { all: true, batches: all, noNarrow: true });
+              const crows = buildRows(all, studies);
+              $("#count").textContent = crows.length + "개 시료" +
+                (window.Scope.periodLabel() ? " · " + window.Scope.periodLabel() : "");
+              paintGridTools(null, all);
+              $("#table-host").innerHTML = chartView(crows, ccols);
+              wireChartView(crows, ccols);
+            });
           return;
         }
 
@@ -1535,57 +1664,18 @@
     return genLabels.some(g => s === g || s.endsWith(" " + g));
   }
 
-  /* ── 파일 저장 · 엑셀 쓰기 — 두 내보내기가 같이 씁니다 ────────────────
-     조회 표와 그래프가 각자 파일을 만들면, 숫자 타입이나 고지 시트가
-     한쪽에만 붙는 날이 옵니다. 만드는 곳을 하나로 둡니다. */
-  function saveBlob(blob, name) {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  }
-
-  /* sheets: [{ name, aoa }] · 첫 시트에 머리글 고정과 너비를 겁니다.
-     실패하면 첫 시트를 CSV 로 내려보냅니다 — 내보내기 자체가 막히는 것이
-     가장 나쁩니다. */
-  function writeWorkbook(sheets, base, onDone) {
-    function csvFallback(why) {
-      const aoa = sheets[0].aoa;
-      const q = v => {
-        if (v === null || v === undefined) return "";
-        const s = String(v);
-        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-      };
-      const text = aoa.map(r => r.map(q).join(",")).join("\r\n");
-      saveBlob(new Blob(["﻿" + text], { type: "text/csv;charset=utf-8;" }), base + ".csv");
-      toast("엑셀 파일을 만들지 못해 CSV 로 내보냈습니다" + (why ? " (" + why + ")" : "") + ".");
-    }
-    if (!window.AskTables || !window.AskTables.loadXLSX) { csvFallback("엑셀 모듈 없음"); return; }
-
-    window.AskTables.loadXLSX().then(function (XLSX) {
-      const wb = XLSX.utils.book_new();
-      sheets.forEach(function (s, i) {
-        const ws = XLSX.utils.aoa_to_sheet(s.aoa);
-        const head = s.aoa[0] || [];
-        ws["!cols"] = head.map(function (h, ci) {
-          let w = String(h === null || h === undefined ? "" : h).length;
-          for (let r = 1; r < s.aoa.length; r++) {
-            const v = s.aoa[r][ci];
-            const n = String(v === null || v === undefined ? "" : v).length;
-            if (n > w) w = n;
-          }
-          return { wch: Math.min(Math.max(w + 2, 8), 46) };
-        });
-        if (i === 0) ws["!freeze"] = { xSplit: 0, ySplit: 1 };
-        XLSX.utils.book_append_sheet(wb, ws, s.name);
-      });
-      const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-      saveBlob(new Blob([out], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      }), base + ".xlsx");
-      if (onDone) onDone();
-    }).catch(function (e) { csvFallback((e && e.message) ? "네트워크" : ""); });
+  /* ── 파일 저장 · 엑셀 쓰기 ────────────────────────────────────────────
+     만드는 일은 XlsxOut 한 곳에서 합니다 (data/xlsx-out.js). 조회 표 ·
+     그래프 · DoE 가 같은 함수를 쓰므로, 숫자 타입이나 고지 시트가 한쪽
+     파일에만 붙는 일이 생기지 않습니다. 여기서는 할 말만 정합니다. */
+  function writeWorkbook(sheets, base, onDone, csv) {
+    window.XlsxOut.write(sheets, base, {
+      csv: csv,
+      onDone: function () { if (onDone) onDone(); },
+      onFallback: function (why) {
+        toast("엑셀 파일을 만들지 못해 CSV 로 내보냈습니다" + (why ? " (" + why + ")" : "") + ".");
+      }
+    });
   }
 
   /* ── 그래프 화면 내보내기 ─────────────────────────────────────────────
@@ -1600,12 +1690,22 @@
     const items = [];
     sets.forEach(s => s.items.forEach(it => items.push({ team: s.team, it: it })));
 
-    const data = [["시료", "Study", "팀"].concat(items.map(x =>
-      x.it.col.label + (x.it.col.unit ? " (" + x.it.col.unit + ")" : "")))];
-    rows.forEach(function (r, i) {
-      data.push([r.sampleName || "", r.studyName || "", r.teamLabel || ""]
-        .concat(items.map(x => x.it.data[i] === null ? "" : x.it.data[i])));
-    });
+    /* 지금 화면에 그린 항목을 **앞 시트**에 둡니다 — 세 개를 보고 내보낸
+       사람이 파일을 열었을 때 그 세 개가 먼저 나와야 합니다. 나머지 항목도
+       같은 파일 뒤쪽(전체 항목)에 그대로 넣습니다. 화면에서 안 골랐다고
+       지워 버리면, 다시 내보내야 하는 일이 생깁니다. */
+    const onScreen = chartPick
+      .map(k => items.find(x => x.it.col.key === k)).filter(Boolean);
+    const sheetOf = list => {
+      const aoa = [["시료", "Study", "팀"].concat(list.map(x =>
+        x.it.col.label + (x.it.col.unit ? " (" + x.it.col.unit + ")" : "")))];
+      rows.forEach(function (r, i) {
+        aoa.push([r.sampleName || "", r.studyName || "", r.teamLabel || ""]
+          .concat(list.map(x => x.it.data[i] === null ? "" : x.it.data[i])));
+      });
+      return aoa;
+    };
+    const data = sheetOf(onScreen.length ? onScreen : items);
 
     const sum = [["팀", "항목", "단위", "기록 건수", "평균", "최소", "최대"]];
     items.forEach(function (x) {
@@ -1618,14 +1718,19 @@
                 Math.min.apply(null, v), Math.max.apply(null, v)]);
     });
 
-    const scope = window.Scope.describe ? window.Scope.describe() : "";
     const notice = [
       ["※ 그래프 화면에서 내보낸 파일입니다"],
-      ["내보낸 범위", scope],
+      ["내보낸 범위", scopeText()],
       ["가로축", "시료 (시작일 순) — 이 데이터에는 일자축이 없어 일자별 추이가 아닙니다"],
       ["내보낸 시각", window.Entries.stamp()],
       ["시료 수", rows.length],
-      ["항목 수", items.length]
+      ["화면에 그린 항목", onScreen.length
+        ? onScreen.map(x => x.it.col.label).join(" · ") : "(선택 없음 — 전체를 넣었습니다)"],
+      ["항목 수", items.length + "개 중 화면 " + onScreen.length + "개"],
+      ["축", chartAxis === "one"
+        ? "한 장에 겹쳐 보기로 그린 화면입니다. 그림의 세로축은 좌·우 축이거나 상대값(0~100)일 수 " +
+          "있지만, 이 파일의 숫자는 모두 **실제 값**입니다."
+        : "단위별로 나눠 그린 화면입니다. 이 파일의 숫자는 실제 값입니다."]
     ];
     const pv = provenanceOf();
     if (pv) {
@@ -1636,14 +1741,29 @@
       notice.push(["출처", pv.P.SOURCE.file + " / " + pv.P.SOURCE.sheet + " — 스캔 이미지 전사본"]);
     }
 
-    writeWorkbook([{ name: "그래프 데이터", aoa: data },
-                   { name: "요약", aoa: sum },
-                   { name: "고지", aoa: notice }],
+    const rest = items.filter(x => onScreen.indexOf(x) === -1);
+    writeWorkbook([{ name: "그래프 데이터", aoa: data }]
+        .concat(onScreen.length && rest.length
+          ? [{ name: "전체 항목", aoa: sheetOf(items) }] : [])
+        .concat([{ name: "요약", aoa: sum },
+                 { name: "고지", aoa: notice, cols: [{ wch: 18 }, { wch: 92 }] }]),
       "bio_chart_" + window.Entries.stamp().slice(0, 10),
       function () {
-        toast("시료 " + rows.length + "건 · 항목 " + items.length + "개를 엑셀로 내보냈습니다 " +
-          "([그래프 데이터] [요약] [고지] 시트).");
+        toast("시료 " + rows.length + "건 · 화면 항목 " +
+          (onScreen.length || items.length) + "개를 엑셀로 내보냈습니다 " +
+          ((onScreen.length && rest.length)
+            ? "([그래프 데이터] [전체 항목] [요약] [고지] 시트)."
+            : "([그래프 데이터] [요약] [고지] 시트)."));
       });
+  }
+
+  /* 내보낸 범위를 **글자로** 적습니다. Scope.describe() 는 객체라 그대로
+     셀에 넣으면 "[object Object]" 가 찍힙니다. */
+  function scopeText() {
+    const d = window.Scope.describe ? window.Scope.describe() : null;
+    const path = (d && d.path) ? d.path.map(p => p.label).filter(Boolean) : [];
+    const per = window.Scope.periodLabel ? window.Scope.periodLabel() : "";
+    return path.concat(per ? [per] : []).join(" · ");
   }
 
   /* [Excel 내보내기] — 못 만들면 CSV 로 내려갑니다 (아래 fallbackCSV) */
@@ -1787,7 +1907,7 @@
             ")가 여러 항목에서 동시에 같은 값입니다. 원본 스캔과 대조 전까지 통계에 " +
             "넣지 마세요. 해당 항목은 데이터 시트의 \"검증 필요 항목\" 열에 적었습니다."
           : "이 파일에 없음"]);
-        notice.push(["내보낸 범위", window.Scope.describe ? window.Scope.describe() : ""]);
+        notice.push(["내보낸 범위", scopeText()]);
         notice.push(["내보낸 시각", window.Entries.stamp()]);
         notice.push(["행 수", rows.length]);
       }
@@ -1795,13 +1915,6 @@
       const stamp = window.Entries.stamp().slice(0, 10);
       const base = "bio_data_" + stamp;
 
-      function saveBlob(blob, name) {
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = name;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      }
       function done(kind) {
         /* 내보낸 직후에도 한 번 말해 줍니다 — 파일을 열기 전에 알아야
            보고서에 붙이기 전에 확인합니다 */
@@ -1811,47 +1924,16 @@
           ((genInFile.length || unvRows.length)
             ? " — [고지] 시트를 확인하세요." : ""));
       }
-      function fallbackCSV(why) {
-        const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
-        saveBlob(blob, base + ".csv");
-        toast("엑셀 파일을 만들지 못해 CSV 로 내보냈습니다" + (why ? " (" + why + ")" : "") + ".");
-      }
-
-      if (!window.AskTables || !window.AskTables.loadXLSX) { fallbackCSV("엑셀 모듈 없음"); return; }
-
-      window.AskTables.loadXLSX().then(function (XLSX) {
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.aoa_to_sheet(sheetRows);
-
-        /* 컬럼 너비 — 글자 수에 맞춥니다. 기본값이면 머리글이 전부
-           "####" 로 잘려 나와, 받는 사람이 매번 폭을 늘려야 합니다. */
-        ws["!cols"] = sheetRows[0].map(function (h, i) {
-          let w = String(h).length;
-          for (let r = 1; r < sheetRows.length; r++) {
-            const v = sheetRows[r][i];
-            const n = String(v === null || v === undefined ? "" : v).length;
-            if (n > w) w = n;
-          }
-          return { wch: Math.min(Math.max(w + 2, 8), 42) };
-        });
-        /* 머리글 고정 — 수백 행을 내려도 무엇의 값인지 보입니다 */
-        ws["!freeze"] = { xSplit: 0, ySplit: 1 };
-        XLSX.utils.book_append_sheet(wb, ws, "데이터");
-
-        if (notice.length) {
-          const nws = XLSX.utils.aoa_to_sheet(notice);
-          nws["!cols"] = [{ wch: 18 }, { wch: 92 }];
-          XLSX.utils.book_append_sheet(wb, nws, "고지");
-        }
-
-        const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-        saveBlob(new Blob([out], {
-          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        }), base + ".xlsx");
-        done("엑셀");
-      }).catch(function (e) {
-        fallbackCSV((e && e.message) ? "네트워크" : "");
-      });
+      /* ★ CSV 폴백은 **위에서 만든 lines** 를 씁니다 — 고지 줄이 파일 머리에
+         붙어 있는 글자입니다. 첫 시트를 그대로 옮기면 그 고지가 떨어져
+         나가, 생성값인지 실측인지 모르는 파일이 돌아다니게 됩니다. */
+      writeWorkbook(
+        [{ name: "데이터", aoa: sheetRows }]
+          .concat(notice.length
+            ? [{ name: "고지", aoa: notice, cols: [{ wch: 18 }, { wch: 92 }] }] : []),
+        base,
+        function () { done("엑셀"); },
+        lines.join("\r\n"));
     });
   }
 

@@ -6,7 +6,9 @@
                                  ANOVA with computed p-values
      2. AI 자연어 검색         — 실제 데이터 조회 + 외부 학술 문헌 실시간 검색.
                                  구현은 ask.js / ask-engine.js / lit-api.js.
-     3. Troubleshooting & Wiki — 구현은 wiki.js.
+     ※ Troubleshooting & Wiki 탭은 2026-10 에 내렸습니다. 기록(Issues) 자체는
+       그대로 남아 회의 모드에서 쌓이고 AI 검색이 찾아 줍니다 — 화면 한 겹만
+       없앴지 데이터를 지운 것이 아닙니다.
 
    더 이상 목업 응답이 없습니다. DoE 통계는 doe.js 에서 실제로 계산되고,
    AI 검색의 수치는 ask-engine.js 가 브라우저에서 실제 데이터로 계산하며,
@@ -32,12 +34,12 @@
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
   let tab = (location.hash || "").replace("#", "") || "doe";
-  /* 예전 #lit 링크(K-Ron)는 AI 검색으로 보냅니다 — 북마크가 죽지 않도록 */
-  if (tab === "lit") tab = "ai";
-  if (["doe", "ai", "wiki", "spec", "qlog"].indexOf(tab) === -1) tab = "doe";
-
-  /* Troubleshooting 위키 상태 — 작성 중인지 / 어느 기록을 수정 중인지 */
-  let wikiWriting = false, wikiEdit = null;
+  /* 예전 링크는 AI 검색으로 보냅니다 — 북마크가 죽지 않도록.
+     #lit 는 K-Ron 탭, #wiki 는 Troubleshooting & Wiki 탭이었습니다.
+     위키 화면은 내렸지만 그 기록(Issues)은 남아 있어, AI 검색에서
+     "pH 문제 사례 있어?" 처럼 물으면 그대로 찾아옵니다. */
+  if (tab === "lit" || tab === "wiki") tab = "ai";
+  if (["doe", "ai", "spec", "qlog"].indexOf(tab) === -1) tab = "doe";
 
   /* 개발 · 관리자 모드 — ?dev=1 로 켜고 ?dev=0 으로 끕니다 */
   function devMode() {
@@ -558,8 +560,7 @@
     window.Shell.subnav([
       { label: "Intelligence Hub", items: [
         { key: "doe", ko: "DoE 조건 설계 & 분석", active: tab === "doe", color: "var(--c-accent-mid)" },
-        { key: "ai",  ko: "AI 검색 (데이터 · 문헌)", active: tab === "ai",  color: "#6D28D9" },
-        { key: "wiki", ko: "Troubleshooting & Wiki", active: tab === "wiki", color: "#B45309" }
+        { key: "ai",  ko: "AI 검색 (데이터 · 문헌)", active: tab === "ai",  color: "#6D28D9" }
       ]
         /* 규격은 Pass/Fail 판정의 기준이라 연구원이 드나들 화면이 아닙니다.
            다만 기능을 없애면 규격이 0건인 채로 굳어 "실패한 배치 있어?" 류
@@ -654,7 +655,15 @@
       '<section class="card">' +
         '<div class="card-head"><div>' +
           '<h2 class="card-title">④ 반응표면 분석 · Response Surface (RSM)</h2>' +
-          '<p class="card-sub">최소제곱법으로 적합한 실제 모델 — 값을 바꾸면 곡면이 다시 계산됩니다</p></div></div>' +
+          '<p class="card-sub">최소제곱법으로 적합한 실제 모델 — 값을 바꾸면 곡면이 다시 계산됩니다</p></div>' +
+          /* 설계 · 실험값 · 분석 결과를 한 파일로. 모델이 아직 안 섰어도
+             설계와 Run Table 은 내보낼 수 있습니다 — 실험을 나가기 전에
+             배치표를 받아 가는 것이 이 화면의 첫 쓸모입니다. */
+          '<button class="btn btn-accent" id="doe-xlsx">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+            'stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
+            '<path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg> Excel 내보내기</button>' +
+        '</div>' +
         '<div id="analysis" aria-live="polite"></div>' +
       '</section>';
   }
@@ -732,6 +741,8 @@
       '</tbody></table>';
 
     $$("[data-run]").forEach(inp => inp.addEventListener("input", function () {
+      /* 사람이 한 칸이라도 직접 적으면 더는 "시연값" 이 아닙니다 */
+      demoFilled = false;
       DS.responses[+inp.dataset.run] = inp.value === "" ? "" : +inp.value;
       inp.classList.toggle("is-filled", inp.value !== "");
       refit();
@@ -805,12 +816,7 @@
             stat("RMSE", m.rmse.toFixed(4)) + stat("관측 / 계수", m.n + " / " + m.p) +
           '</div>' +
 
-          /* 설계 조건 옆에 과거 사례를 붙입니다 — 조건을 정하는 자리에서
-             "그 조건에서 예전에 뭐가 터졌나"를 같이 봐야 의미가 있습니다. */
-          '<div style="margin-top:var(--s-5);padding-top:var(--s-4);' +
-            'border-top:1px solid var(--c-paper-2)" id="doe-wiki">' +
-            window.Wiki.designPanel(DS.factors.map(f => f.name), DS.response.name) +
-          '</div></div></div>' +
+          '</div></div>' +
 
       '<div class="rule-hair" style="margin:var(--s-6) 0 var(--s-5)"></div>' +
       '<div class="eyebrow" style="margin-bottom:var(--s-3)">회귀계수 · Model coefficients</div>' +
@@ -831,18 +837,6 @@
     });
     $("#goal").addEventListener("change", function () { DS.goal = this.value; paintAnalysis(); });
 
-    /* 사례를 누르면 위키 탭으로 넘어가 그 카드가 펼쳐집니다 */
-    $$("[data-jump]").forEach(b => b.addEventListener("click", function (e) {
-      e.preventDefault();
-      window.Wiki.state().open = b.dataset.jump;
-      const it = window.Issues.get(b.dataset.jump);
-      if (it && it.visibility === "team") window.Wiki.state().team = it.team;
-      tab = "wiki"; location.hash = "wiki"; paint();
-      setTimeout(function () {
-        const el = document.getElementById("wiki-" + b.dataset.jump);
-        if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
-      }, 120);
-    }));
   }
 
   function axisSelect(id, label, val) {
@@ -976,7 +970,203 @@
       '<div style="height:100%;width:' + ((v / max) * 100).toFixed(1) + '%;background:' + color + ';border-radius:4px"></div></div></div>';
   }
 
-  function fillDemo() { DS.responses = D.demoResponses(DS.plan, 11); paintRuns(); refit(); }
+  /* ══════════════════════════════════════════════════════════════════════
+     DoE 내보내기 — 설계 · 실험값 · 분석 결과를 한 파일로
+
+     파일을 만드는 일은 XlsxOut 한 곳에서 합니다 (data/xlsx-out.js) — 조회
+     화면 · 그래프 화면과 같은 함수입니다. 숫자는 글자가 아니라 숫자 그대로
+     넘기고, 사내망에서 엑셀 라이브러리를 못 받아 오면 CSV 로 내려갑니다.
+
+     ★ [고지] 시트가 반드시 붙습니다. 이 화면에는 [예시 반응치로 시연]
+       버튼이 있어서, 파일만 받아 본 사람은 그 숫자가 실험 결과인지
+       시연값인지 알 수 없습니다. 파일 안에 적어 둡니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  /* 지금 Run Table 의 반응치가 시연용으로 채운 값인가 */
+  let demoFilled = false;
+
+  function exportDoe() {
+    const p = DS.plan;
+    if (!p) { toast("내보낼 설계가 없습니다."); return; }
+    const m = DS.model && DS.model.ok ? DS.model : null;
+    /* 숫자는 숫자로 넣되, 없는 값은 0 이 아니라 **빈 칸**으로 둡니다 —
+       0 은 "쟀더니 0" 으로 읽힙니다. */
+    const round = (v, dp) => (v === null || v === undefined || !isFinite(v))
+      ? "" : +(+v).toFixed(dp);
+
+    /* ① 설계 조건 */
+    const design = [
+      ["항목", "값"],
+      ["설계", p.design.ko + (p.design.en && p.design.en !== p.design.ko ? " (" + p.design.en + ")" : "")],
+      ["요인 수", p.k],
+      ["Run 수", p.runs.length],
+      ["중심점 반복", DS.centers],
+      ["α (축점 거리)", p.alpha],
+      ["반응치", DS.response.name],
+      ["반응치 단위", DS.response.unit],
+      ["목표", DS.goal === "max" ? "최대화" : "최소화"],
+      [],
+      ["요인", "단위", "하한 (코드 −1)", "상한 (코드 +1)"]
+    ];
+    DS.factors.forEach(f => design.push([f.name, f.unit, +f.low, +f.high]));
+
+    /* ② Run Table — 실제값 · 코드값 · 반응치 (+ 모델이 있으면 적합값 · 잔차) */
+    const runHead = ["Run"]
+      .concat(DS.factors.map(f => f.name + (f.unit && f.unit !== "—" ? " (" + f.unit + ")" : "")))
+      .concat(DS.factors.map(f => f.name + " [코드]"))
+      .concat([DS.response.name + (DS.response.unit ? " (" + DS.response.unit + ")" : "")]);
+    if (m) runHead.push("적합값", "잔차");
+    const runs = [runHead];
+    p.runs.forEach(function (r, i) {
+      const y = DS.responses[i];
+      const row = [r.n].concat(r.actual).concat(r.coded)
+        .concat([(y === "" || y == null) ? "" : +y]);
+      if (m) {
+        const at = m.usedIdx.indexOf(i);
+        const fit = at > -1 ? m.fitted[at] : null;
+        row.push(fit === null ? "" : +fit.toFixed(4));
+        row.push((fit === null || y === "" || y == null) ? "" : +(y - fit).toFixed(4));
+      }
+      runs.push(row);
+    });
+
+    const sheets = [{ name: "설계 조건", aoa: design, cols: [{ wch: 22 }, { wch: 28 }, { wch: 16 }, { wch: 16 }] },
+                    { name: "Run Table", aoa: runs }];
+
+    /* ③ 회귀계수 · ④ ANOVA · ⑤ 반응표면 · ⑥ 최적 조건 — 모델이 섰을 때만 */
+    if (m) {
+      const coef = [["항", "계수", "표준오차", "t", "p-value", "유의성"]];
+      m.ts.forEach(function (t, i) {
+        const pv = m.pval ? m.pval[i] : null;
+        /* ★ p-value 는 반올림하지 않고 그대로 넣습니다. 0.000001 로 끊으면
+           아주 작은 p 가 전부 "0" 으로 찍혀, 받는 사람은 **정확히 0** 이라고
+           읽습니다. 엑셀은 3.2E-12 를 그대로 보여 주고 정렬도 됩니다. */
+        coef.push([t.label, round(m.beta[i], 6),
+                   m.se ? round(m.se[i], 6) : "",
+                   m.tval ? round(m.tval[i], 4) : "",
+                   (pv === null || !isFinite(pv)) ? "" : pv,
+                   (pv === null || !isFinite(pv)) ? "판정 불가"
+                     : pv < 0.001 ? "***" : pv < 0.01 ? "**" : pv < 0.05 ? "*" : "n.s."]);
+      });
+      sheets.push({ name: "회귀계수", aoa: coef });
+
+      const A = m.anova;
+      if (A && A.rows && A.rows.length) {
+        const an = [["Source", "DF", "SS", "MS", "F-value", "p-value"]];
+        A.rows.forEach(r => an.push([r.source.trim(), r.df, round(r.ss, 6), round(r.ms, 6),
+                                     round(r.f, 4),
+                                     (r.p === null || r.p === undefined || !isFinite(r.p)) ? "" : r.p]));
+        sheets.push({ name: "ANOVA", aoa: an });
+      }
+
+      /* 반응표면 — 화면에 그린 등고선과 **같은 모델**을 격자에 올린 값입니다.
+         화면은 56×56 으로 그리지만 파일에는 21×21 로 담습니다. 3,136칸짜리
+         시트는 엑셀에서 눈으로 읽을 수 있는 표가 아닙니다. */
+      const RES = 21;
+      const g = D.grid(m, p.k, DS.ax, DS.ay, RES, p.alpha);
+      const fx = DS.factors[DS.ax], fy = DS.factors[DS.ay];
+      const ax = [], ay = [];
+      for (let i = 0; i < RES; i++) {
+        const c = -g.lim + (2 * g.lim * i) / (RES - 1);
+        ax.push(D.codedToActual(c, fx));
+        ay.push(D.codedToActual(c, fy));
+      }
+      const surf = [[fy.name + " ＼ " + fx.name].concat(ax)];
+      g.g.forEach((row, iy) => surf.push([ay[iy]].concat(row.map(v => +v.toFixed(4)))));
+      sheets.push({ name: "반응표면", aoa: surf });
+
+      const opt = D.optimise(m, p.k, DS.goal, p.alpha);
+      const best = [["항목", "값", "단위"],
+                    ["목표", DS.goal === "max" ? "최대화" : "최소화", ""],
+                    ["예측 " + DS.response.name, +opt.y.toFixed(4), DS.response.unit]];
+      DS.factors.forEach((f, i) => best.push([f.name, +D.codedToActual(opt.x[i], f).toFixed(4), f.unit]));
+      best.push([], ["R²", +m.r2.toFixed(6), ""],
+                ["수정 R²", isFinite(m.r2adj) ? +m.r2adj.toFixed(6) : "", ""],
+                ["RMSE", +m.rmse.toFixed(6), ""],
+                ["관측 수", m.n, ""], ["계수 수", m.p, ""], ["잔차 자유도", m.dfRes, ""]);
+      sheets.push({ name: "최적 조건", aoa: best, cols: [{ wch: 24 }, { wch: 16 }, { wch: 12 }] });
+    }
+
+    /* ⑦ 고지 — 이 숫자가 무엇인지 */
+    const lof = m && m.anova && m.anova.rows ? m.anova.rows.find(r => r.lof) : null;
+    const notice = [
+      ["※ DoE 조건설계 & 분석 화면에서 내보낸 파일입니다"],
+      ["내보낸 시각", window.Entries ? window.Entries.stamp() : new Date().toISOString()],
+      ["과제", window.Shell.project() || ""],
+      ["설계", p.design.ko],
+      ["반응치", DS.response.name + (DS.response.unit ? " (" + DS.response.unit + ")" : "")],
+      ["반응치 출처", demoFilled
+        ? "★ [예시 반응치로 시연] 으로 채운 값입니다 — 실제 실험 결과가 아닙니다. "
+          + "보고서에 그대로 쓰지 마세요."
+        : "화면에서 직접 입력한 값입니다"],
+      ["계산 위치", "설계 생성 · 최소제곱 회귀 · ANOVA · 최적화는 모두 브라우저에서 계산했습니다 "
+        + "(AI 모델을 거치지 않습니다)"],
+      ["모델", m ? "적합됨 (관측 " + m.n + " · 계수 " + m.p + " · 잔차 자유도 " + m.dfRes + ")"
+                : "아직 적합되지 않았습니다 — 설계와 Run Table 만 들어 있습니다"]
+    ];
+    if (m) {
+      notice.push(["제곱합", "순차 제곱합(Type I SS) — "
+        + (m.anova && m.anova.seqOrder && m.anova.seqOrder.length
+            ? m.anova.seqOrder.join(" → ") : "모형") + " 순서로 분해했습니다. 순서를 바꾸면 값도 바뀝니다."]);
+      notice.push(["p-value", m.dfRes > 0
+        ? "두쪽 t 검정 (잔차 자유도 " + m.dfRes + ")"
+        : "잔차 자유도가 0이라 계산하지 않았습니다 — 중심점 반복이나 run 을 늘리세요"]);
+      notice.push(["적합결여", lof && isFinite(lof.p)
+        ? "p = " + lof.p.toFixed(4) + (lof.p < 0.05
+            ? " — 유의합니다. R² 가 높아도 모형 항이 부족하다는 뜻이라 재검토가 필요합니다."
+            : " — 부적합 근거는 없습니다.")
+        : "반복 run 이 없어 순수오차와 분리하지 못했습니다"]);
+      notice.push(["반응표면 시트", "화면 등고선과 같은 모델을 21×21 격자에 올린 예측값입니다 "
+        + "(화면은 56×56 으로 그립니다). 나머지 요인은 중심값 0 에 고정했습니다. "
+        + "X축 " + DS.factors[DS.ax].name + " · Y축 " + DS.factors[DS.ay].name + "."]);
+      notice.push(["예측값", "모델이 내놓은 **예측**이며 측정값이 아닙니다. 확인 실험 전에는 "
+        + "실적으로 쓰지 마세요."]);
+    }
+
+    /* 화면 아래 "기존 Batch 실적과 비교" 막대의 숫자 — 어디서 온 값인지
+       같이 적습니다. 이 수치는 사내 데이터가 아니라 시연용 레거시 표입니다. */
+    const bs = S.batches().filter(b => b.prj === window.Shell.project());
+    if (bs.length) {
+      const cmp = [["Batch", "스케일", "Titer (g/L)", "출처"]];
+      bs.forEach(b => cmp.push([b.id, b.scale, b.titer, "기존 Batch 실적 (시연 데이터)"]));
+      if (m) {
+        const o = D.optimise(m, p.k, DS.goal, p.alpha);
+        cmp.push(["DoE 예측 최적값", "—", +o.y.toFixed(4), "이 화면의 회귀 모델 예측값"]);
+      }
+      sheets.push({ name: "기존 Batch 비교", aoa: cmp });
+    }
+
+    sheets.push({ name: "고지", aoa: notice, cols: [{ wch: 18 }, { wch: 96 }] });
+
+    const stamp = (window.Entries ? window.Entries.stamp() : new Date().toISOString()).slice(0, 10);
+    window.XlsxOut.write(sheets, "doe_" + stamp, {
+      onDone: function () {
+        toast("DoE 설계 " + p.runs.length + " runs 를 엑셀로 내보냈습니다 (" +
+          sheets.map(s => "[" + s.name + "]").join(" ") + " 시트)." +
+          (demoFilled ? " 반응치는 예시 시연값입니다 — [고지] 시트를 확인하세요." : ""));
+      },
+      onFallback: function (why) {
+        toast("엑셀 파일을 만들지 못해 CSV 로 내보냈습니다" + (why ? " (" + why + ")" : "") +
+          ". 설계 조건 시트만 들어 있습니다.");
+      }
+    });
+  }
+
+  /* 화면 아래쪽에 잠깐 떠 있는 알림 — 내보내기 결과를 말해 줍니다 */
+  function toast(msg) {
+    const t = $("#toast");
+    if (!t) return;
+    t.innerHTML = '<div class="card" style="border-left:3px solid var(--c-ok);padding:var(--s-3) var(--s-4);' +
+      'font-size:13px">' + esc(msg) + '</div>';
+    t.style.display = "block";
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => { t.style.display = "none"; }, 4500);
+  }
+
+  function fillDemo() {
+    DS.responses = D.demoResponses(DS.plan, 11);
+    demoFilled = true;
+    paintRuns(); refit();
+  }
 
   function rebuild() {
     const k = DS.factors.length;
@@ -987,6 +1177,7 @@
     DS.plan = D.generate(DS.designId, DS.factors, DS.centers);
     DS.responses = new Array(DS.plan ? DS.plan.runs.length : 0).fill("");
     DS.model = null;
+    demoFilled = false;
     paintDesigns(); paintRuns(); paintAnalysis();
   }
 
@@ -1000,6 +1191,7 @@
     $("#resp-name").addEventListener("change", function () { DS.response.name = this.value; paintRuns(); paintAnalysis(); });
     $("#resp-unit").addEventListener("change", function () { DS.response.unit = this.value; paintRuns(); paintAnalysis(); });
     $("#demo-fill").addEventListener("click", fillDemo);
+    $("#doe-xlsx").addEventListener("click", exportDoe);
     paintFactors(); rebuild();
   }
 
@@ -1020,29 +1212,6 @@
     window.Ask.wire(paintAsk);
   }
 
-  /* ══════════════════════════════════════════════════════════════════════
-     4. Troubleshooting & Wiki — 구현은 wiki.js
-     예전 '연구 지식' 독립 메뉴를 이 탭 안으로 옮겼습니다. 설계 조건을 정하는
-     자리와 과거 사례를 보는 자리가 붙어 있어야 서로 참조가 일어납니다.
-     ══════════════════════════════════════════════════════════════════════ */
-  function wikiView() {
-    return wikiWriting ? window.Wiki.formView(wikiEdit) : window.Wiki.view();
-  }
-
-  function wireWiki() {
-    if (wikiWriting) {
-      window.Wiki.wireForm(wikiEdit, function (o) {
-        if (o && o.done) { wikiWriting = false; wikiEdit = null; }
-        paint();
-      });
-      return;
-    }
-    window.Wiki.wire(function (o) {
-      if (o && o.hasOwnProperty("edit")) { wikiEdit = o.edit; wikiWriting = true; }
-      paint();
-    });
-  }
-
   /* ── Paint ──────────────────────────────────────────────────────────── */
   function paint() {
     paintSubnav();
@@ -1051,12 +1220,10 @@
     if (window.AIContext) window.AIContext.setSection(tab === "doe" ? "doe" : tab === "ai" ? "lit" : tab);
     const titles = { doe: "DoE 조건 설계 & 분석",
                      ai: "AI 자연어 검색 · 사내 데이터 & 학술 문헌",
-                     wiki: "Troubleshooting & Lesson Learned",
                      spec: "규격(Spec) 관리 · Pass/Fail 판정 기준 (관리자)",
                      qlog: "미응답 · 저신뢰 질의 (관리자)" };
     $("#page-title").textContent = titles[tab];
-    $("#hub-tabs").innerHTML = [["doe", "DoE 설계 & 분석"], ["ai", "AI 검색"],
-                                ["wiki", "Troubleshooting & Wiki"]]
+    $("#hub-tabs").innerHTML = [["doe", "DoE 설계 & 분석"], ["ai", "AI 검색"]]
       .concat(canSeeSpec() ? [["spec", "규격(Spec) 관리"]] : [])
       .concat(devMode() ? [["qlog", "미응답 · 저신뢰 질의"]] : [])
       .map(([k, ko]) => '<button class="track-tab" data-tab="' + k + '" aria-selected="' + (tab === k) + '" ' +
@@ -1064,7 +1231,6 @@
     $$("[data-tab]").forEach(b => b.addEventListener("click", () => { tab = b.dataset.tab; location.hash = tab; paint(); }));
 
     const host = $("#hub-body");
-    if (tab === "wiki") { host.innerHTML = wikiView(); wireWiki(); return; }
     if (tab === "ai") { paintAsk(); return; }
     if (tab === "spec") {
       /* 예전 북마크(#spec)로 들어온 일반 사용자 — 빈 화면을 주는 대신
@@ -1109,7 +1275,7 @@
      다시 그립니다. 없는 탭 이름이면 손대지 않고 그렇다고 알립니다. */
   if (window.AIContext && window.AIContext.registerHook) {
     window.AIContext.registerHook("section", function (key) {
-      const known = ["doe", "ai", "wiki", "spec", "qlog"];
+      const known = ["doe", "ai", "spec", "qlog"];
       if (known.indexOf(key) === -1) throw new Error("그런 탭이 없습니다: " + key);
       tab = key;
       location.hash = key;
