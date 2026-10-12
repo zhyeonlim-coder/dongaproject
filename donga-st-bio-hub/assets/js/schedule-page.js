@@ -2,10 +2,17 @@
    일정 관리
 
    화면 구성
-     1. 전체 과제 타임라인 (간트)  — 모든 과제를 한 차트에. 항상 맨 위에 둡니다.
-     2. 선택 과제 상세 간트          — Study · Batch 단위
-     3. 일정 추가                    — 선택한 과제에만 등록
-     4. 타임라인 목록                — 월별로 접어서
+     1. 일정 추가                    — 맨 위. 날짜를 고르는 손과 적는 손이
+                                       같은 자리에 있어야 합니다.
+     2. 월간 일정 (달력)             — 날짜를 누르면 위 폼의 날짜가 그날로
+                                       바뀌고, 그날 일정이 옆에 열립니다.
+     3. 전체 과제 타임라인 (간트)    — 모든 과제를 한 차트에
+     4. 선택 과제 상세 간트          — Study · Batch 단위
+
+   ※ 맨 아래에 있던 '타임라인 목록'(월별 접기 목록)은 내렸습니다 — 달력이
+     같은 일정을 더 짧게 보여 줍니다. 다만 그 목록에만 있던 **일정 삭제**는
+     달력의 그날 일정 칸으로 옮겼습니다. 화면을 줄이면서 할 수 있던 일을
+     없애면, 사용자는 기능이 사라진 줄 압니다.
 
    일정은 전부 HubCalendar 한 곳에서 옵니다. 우측 미니 캘린더 · 대시보드 ·
    데이터 탐색이 같은 소스를 보므로 화면 간 일정이 어긋나지 않습니다.
@@ -194,78 +201,7 @@
       '</div></section>';
   }
 
-  /* ── 4. 타임라인 목록 ───────────────────────────────────────────────── */
-  function timeline(events, title) {
-    if (!events.length) {
-      return '<section class="card" style="margin-bottom:var(--s-4)">' +
-        '<div class="card-head"><div><h2 class="card-title">' + esc(title) + '</h2></div></div>' +
-        '<div class="empty"><div class="empty-title">등록된 일정이 없습니다</div></div></section>';
-    }
-
-    const dates = events.map(e => e.date);
-    const min = dates[0], max = dates[dates.length - 1];
-    const t0 = H.parse(min).getTime();
-    const t1 = H.parse(max).getTime();
-    const span = Math.max(1, t1 - t0);
-    const pos = d => ((H.parse(d).getTime() - t0) / span) * 100;
-    const today = H.today();
-
-    /* 월별 그룹 — 목록은 월 단위로 접어서 보여줍니다.
-       이번 달이 기본으로 펼쳐지도록 <details open> 을 붙입니다. */
-    const byMonth = {};
-    events.forEach(e => { const m = e.date.slice(0, 7); (byMonth[m] = byMonth[m] || []).push(e); });
-    const thisMonth = today.slice(0, 7);
-
-    return '<section class="card" style="margin-bottom:var(--s-4)">' +
-      '<div class="card-head"><div><h2 class="card-title">' + esc(title) + '</h2>' +
-      '<p class="card-sub">' + events.length + '건 · ' + esc(min) + ' ~ ' + esc(max) + '</p></div>' +
-      '<div style="display:flex;gap:var(--s-3);flex-wrap:wrap;font-size:11px;color:var(--c-text-mute)">' +
-        Object.keys(KIND).map(k => '<span style="display:flex;align-items:center;gap:5px">' +
-          '<span style="width:9px;height:9px;border-radius:50%;background:' + KIND[k].color + '"></span>' +
-          esc(KIND[k].ko) + '</span>').join("") + '</div></div>' +
-
-      '<div class="card-body">' +
-        '<div style="position:relative;height:44px;background:var(--c-paper);border-radius:var(--r-md);' +
-          'margin-bottom:var(--s-5)">' +
-          events.map(e => '<span title="' + esc(e.date + " · " + e.ko) + '" style="position:absolute;' +
-            'left:' + pos(e.date).toFixed(2) + '%;top:12px;width:10px;height:10px;margin-left:-5px;' +
-            'border-radius:50%;background:' + (KIND[e.kind] || KIND.meeting).color +
-            (e.src === "user" ? ";outline:2px solid var(--c-surface)" : "") + '"></span>').join("") +
-          (today >= min && today <= max
-            ? '<span style="position:absolute;left:' + pos(today).toFixed(2) + '%;top:0;bottom:0;width:2px;' +
-              'margin-left:-1px;background:var(--c-risk)" title="오늘"></span>' : "") +
-          '<span style="position:absolute;left:0;bottom:4px;font-size:10px;font-family:var(--font-data);' +
-            'color:var(--c-text-mute)">' + esc(min) + '</span>' +
-          '<span style="position:absolute;right:0;bottom:4px;font-size:10px;font-family:var(--font-data);' +
-            'color:var(--c-text-mute)">' + esc(max) + '</span>' +
-        '</div>' +
-
-        Object.keys(byMonth).sort().map(m =>
-          '<details' + (m >= thisMonth ? " open" : "") + ' style="margin-bottom:var(--s-4)">' +
-            '<summary class="eyebrow" style="margin-bottom:var(--s-2);cursor:pointer">' +
-              esc(m.replace("-", "년 ") + "월") + ' · ' + byMonth[m].length + '건</summary>' +
-            byMonth[m].map(e =>
-              '<div class="rail-event">' +
-                '<span class="rail-event-bar" style="background:' + (KIND[e.kind] || KIND.meeting).color + '"></span>' +
-                '<span style="min-width:0;flex:1">' +
-                  '<span style="display:block;font-size:12.5px;font-weight:500">' + esc(e.ko) + '</span>' +
-                  '<span style="display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap">' +
-                    '<span class="mono" style="font-size:10.5px;color:var(--c-text-mute)">' + esc(e.date) + '</span>' +
-                    '<span class="badge" style="font-size:10px">' + esc((KIND[e.kind] || {}).ko || e.kind) + '</span>' +
-                    '<span class="badge' + (e.src === "user" ? " badge-accent" : "") + '" style="font-size:10px">' +
-                      esc(SRC_LABEL[e.src] || e.src) + '</span>' +
-                  '</span></span>' +
-                (e.src === "user"
-                  ? '<button class="btn-icon" data-del="' + esc(e.id) + '" aria-label="일정 삭제" ' +
-                    'style="width:28px;height:28px"><svg width="12" height="12" viewBox="0 0 24 24" ' +
-                    'fill="none" stroke="currentColor" stroke-width="2.4"><path d="M18 6 6 18M6 6l12 12"/>' +
-                    '</svg></button>' : "") +
-              '</div>').join("") +
-          '</details>').join("") +
-      '</div></section>';
-  }
-
-  /* ── 3. 일정 추가 폼 ────────────────────────────────────────────────── */
+  /* ── 일정 추가 폼 ────────────────────────────────────────────────── */
   function addForm(scope) {
     const kinds = ["meeting", "deadline", "culture", "harvest", "analysis", "milestone"];
     return '<section class="card" style="margin-bottom:var(--s-4)">' +
@@ -301,28 +237,32 @@
 
     if (mode === "all") {
       $("#page-title").textContent = "일정 관리 · 전체 보기";
-      $("#body").innerHTML = monthCalendar(null) + overviewGantt() +
-        allScopes().map(s => timeline(eventsForScope(s), s.label + " 일정")).join("");
+      /* 전체 보기에는 등록 폼이 없습니다 — 일정은 과제 하나에 붙습니다.
+         어느 과제에 넣을지 모른 채 적게 두면 엉뚱한 과제에 들어갑니다. */
+      $("#body").innerHTML = monthCalendar(null) + overviewGantt();
       wire(null);
       return;
     }
 
     if (!sel.scopeId) {
       $("#page-title").textContent = "일정 관리";
-      /* 과제를 안 골랐어도 전체 타임라인은 보여줍니다 —
+      /* 과제를 안 골랐어도 달력과 전체 간트는 보여줍니다 —
          "무엇을 골라야 할지" 를 이 화면이 알려주는 게 맞습니다. */
       $("#body").innerHTML = monthCalendar(null) + overviewGantt() +
         '<div class="empty"><div class="empty-title">과제를 선택하면 상세 일정이 열립니다</div>' +
-        '<div class="empty-body">상단 우측 셀렉터에서 과제를 고르면 그 과제의 간트 · 일정 등록 · ' +
-        '타임라인이 표시됩니다. 과제별로 일정은 완전히 분리됩니다.</div></div>';
+        '<div class="empty-body">상단 우측 셀렉터에서 과제를 고르면 그 과제의 일정 등록 칸과 ' +
+        '상세 간트가 열립니다. 과제별로 일정은 완전히 분리됩니다.</div></div>';
       wire(null);
       return;
     }
 
     const scope = { id: sel.scopeId, label: desc.scope };
     $("#page-title").textContent = "일정 관리 · " + desc.scope;
-    $("#body").innerHTML = monthCalendar(scope) + overviewGantt() + scopeGantt(scope) + addForm(scope) +
-      timeline(eventsForScope(scope), desc.scope + " 일정");
+    /* 적는 칸이 맨 위, 바로 아래가 달력입니다 — 달력에서 날짜를 누르면 위
+       칸의 날짜가 그날로 바뀌므로, 둘이 떨어져 있으면 고른 날이 어디에
+       들어갔는지 보이지 않습니다. */
+    $("#body").innerHTML = addForm(scope) + monthCalendar(scope) +
+      overviewGantt() + scopeGantt(scope);
     wire(scope);
   }
 
@@ -334,9 +274,9 @@
      좁은 달력이 데이터 표가 넓어야 할 다른 화면들의 폭을 가져가고 있었습니다.
 
      이제 필요한 한 곳에서 본문 폭을 씁니다. 날짜를 누르면 오른쪽에 그날
-     일정이 펼쳐지고, 간트와 타임라인은 그대로 아래에 이어집니다.
+     일정이 펼쳐지고, **위 [일정 추가] 의 날짜도 그날로 바뀝니다.**
 
-     ★ 일정 소스는 HubCalendar 하나입니다 — 간트 · 타임라인 · 이 달력이
+     ★ 일정 소스는 HubCalendar 하나입니다 — 간트 · 대시보드 · 이 달력이
        같은 곳을 보므로 한 화면 안에서 숫자가 어긋나지 않습니다.
      ══════════════════════════════════════════════════════════════════════ */
   let calMonth = null, calPick = null;
@@ -428,7 +368,17 @@
                     '<span style="display:block;font-size:12.5px;font-weight:500">' + esc(e.ko) + '</span>' +
                     '<span class="badge" style="margin-top:4px;font-size:10px">' +
                       esc(SRC_LABEL[e.src] || e.src || "") + '</span>' +
-                  '</span></div>').join("")
+                  '</span>' +
+                  /* 직접 등록한 일정만 지울 수 있습니다. Excel 파생 · 생성
+                     일정은 원본에서 나온 것이라 여기서 지우면 다음에 다시
+                     나타납니다 — 지워지지 않는 삭제 버튼은 두지 않습니다. */
+                  (e.src === "user"
+                    ? '<button class="btn-icon" data-del="' + esc(e.id) + '" ' +
+                      'aria-label="' + esc(e.ko) + ' 일정 삭제" style="width:28px;height:28px">' +
+                      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" ' +
+                      'stroke="currentColor" stroke-width="2.4"><path d="M18 6 6 18M6 6l12 12"/>' +
+                      '</svg></button>' : "") +
+                '</div>').join("")
             : '<p style="font-size:12.5px;color:var(--c-text-mute);margin:0">' +
               '이날 등록된 일정이 없습니다.</p>') +
 
@@ -452,11 +402,38 @@
 
   /* 달력은 본문을 통째로 다시 그리지 않고 제자리에서 갱신합니다 — 다시
      그리면 아래 간트가 깜빡이고 스크롤 위치가 튑니다. */
+  /* 달력에서 고른 날을 위 [일정 추가] 칸에 넣어 줍니다.
+
+     날짜를 누르는 사람은 대개 "그날 뭐가 있나" 아니면 "그날 뭘 넣겠다" 둘 중
+     하나입니다. 두 번째 경우에 날짜를 다시 손으로 적게 하면, 달력에서 고른
+     날과 폼에 적힌 날이 어긋나도 알아채지 못합니다. 그래서 고르는 즉시
+     폼의 날짜를 바꾸고, 바뀐 자리를 잠깐 밝혀 어디에 들어갔는지 보입니다. */
+  function bindFormDate(date) {
+    const d = $("#ev-date");
+    if (!d) return;                       /* 과제 미선택 · 전체 보기에는 폼이 없습니다 */
+    d.value = date;
+    d.classList.add("is-flash");
+    setTimeout(() => d.classList.remove("is-flash"), 900);
+    /* 폼이 화면 밖이면 끌어올립니다 — 눌렀는데 아무 일도 안 일어난 것처럼
+       보이지 않도록. 보이는 자리에 있으면 스크롤을 건드리지 않습니다. */
+    const form = $("#ev-form");
+    if (form) {
+      const r = form.getBoundingClientRect();
+      if (r.top < 0 || r.bottom > (window.innerHeight || 0)) {
+        form.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    }
+    /* 이어서 바로 적을 수 있게 커서를 내용 칸에 둡니다 (날짜는 이미 찼습니다) */
+    const t = $("#ev-title");
+    if (t) t.focus({ preventScroll: true });
+  }
+
   function wireCalendar(scope) {
     const prev = $("#cal-prev"), next = $("#cal-next"), todayBtn = $("#cal-today");
     if (!prev) return;
+    const sect = () => $("#cal-h") && $("#cal-h").closest("section");
     const redraw = () => {
-      const host = $("#cal-h") && $("#cal-h").closest("section");
+      const host = sect();
       if (!host) { render(); return; }
       host.outerHTML = monthCalendar(scope);
       wireCalendar(scope);
@@ -465,12 +442,20 @@
     next.addEventListener("click", () => { calMonth = shiftMonth(calMonth, 1); redraw(); });
     if (todayBtn) todayBtn.addEventListener("click", function () {
       calPick = H.today(); calMonth = calPick.slice(0, 7); redraw();
+      bindFormDate(calPick);
     });
-    $$("[data-date]", $("#cal-h").closest("section")).forEach(b =>
+    $$("[data-date]", sect()).forEach(b =>
       b.addEventListener("click", function () {
         calPick = b.dataset.date;
         /* 다가오는 일정에서 다른 달을 눌렀으면 달력도 그달로 넘깁니다 */
         if (calPick.slice(0, 7) !== calMonth) calMonth = calPick.slice(0, 7);
+        redraw();
+        bindFormDate(calPick);
+      }));
+    /* 그날 일정 칸의 삭제 — 달력만 다시 그려도 다시 걸립니다 */
+    $$("[data-del]", sect()).forEach(b =>
+      b.addEventListener("click", function () {
+        H.removeUserEvent(b.dataset.del);
         redraw();
       }));
   }
@@ -497,10 +482,8 @@
         refresh();
       });
     }
-    $$("[data-del]").forEach(b => b.addEventListener("click", function () {
-      H.removeUserEvent(b.dataset.del);
-      refresh();
-    }));
+    /* 삭제 버튼은 달력의 '그날 일정' 칸에만 있고, wireCalendar 가 겁니다 —
+       여기서 또 걸면 한 번 눌러 두 번 지우려 듭니다. */
   }
 
   /* 월 달력이 본문 안으로 들어와 render() 한 번이면 둘 다 갱신됩니다.

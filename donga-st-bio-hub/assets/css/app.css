@@ -3160,3 +3160,22 @@ body.is-colresize { cursor: col-resize; user-select: none; }
 }
 .bk-reset-row input { margin-top: 3px; flex: none; }
 .bk-reset-note { font-size: 11px; color: var(--c-text-mute); line-height: 1.6; }
+
+/* --------------------------------------------------------------------------
+   달력에서 고른 날짜가 [일정 추가] 칸으로 들어갔다는 표시
+
+   값만 조용히 바뀌면, 누른 사람은 아무 일도 안 일어난 줄 압니다.
+   잠깐 밝혔다 원래대로 돌아갑니다 (움직임을 줄이도록 설정한 사용자에게는
+   깜빡임 없이 테두리만 남깁니다).
+   -------------------------------------------------------------------------- */
+.ebr-input.is-flash {
+  animation: field-flash .9s ease-out;
+  border-color: var(--c-accent);
+}
+@keyframes field-flash {
+  0%   { background: var(--c-accent-soft, #DBEAFE); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ebr-input.is-flash { animation: none; }
+}

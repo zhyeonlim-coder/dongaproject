@@ -742,6 +742,42 @@ window.SSOTTest = (function () {
           "막대 높이 " + hs.join(","));
       }
 
+      /* 그래프를 그림으로 떠서 엑셀에 같이 넣습니다. 떠내는 자리에서 색과
+         글꼴이 CSS 변수로 적혀 있는데, 그 변수를 풀지 않으면 그림이
+         **통째로 뜨지 않습니다** (글꼴 값에 들어 있는 따옴표가 XML 을
+         깨뜨립니다). 한 번 겪은 고장이라 검사로 묶어 둡니다. */
+      if (X && X.svgToPng && typeof document !== "undefined") {
+        /* 검사 페이지는 app.css 를 싣지 않아 변수가 비어 있습니다. 실제
+           화면과 같은 조건을 만들어 둡니다 — 글꼴 값에 **따옴표가 든** 그
+           상태가 이 고장의 원인이었습니다. */
+        const root = document.documentElement;
+        root.style.setProperty("--font-data", '"IBM Plex Mono", "SFMono-Regular", monospace');
+        root.style.setProperty("--c-accent", "#0369A1");
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", "0 0 60 40");
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("x", 2); rect.setAttribute("y", 2);
+        rect.setAttribute("width", 50); rect.setAttribute("height", 30);
+        rect.setAttribute("fill", "var(--c-accent)");
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("x", 4); t.setAttribute("y", 20);
+        t.setAttribute("font-family", "var(--font-data)");   /* 따옴표가 든 값 */
+        t.textContent = "12.3";
+        svg.appendChild(rect); svg.appendChild(t);
+        const restoreVars = function () {
+          root.style.removeProperty("--font-data");
+          root.style.removeProperty("--c-accent");
+        };
+        pending.push(X.svgToPng(svg, 1).then(function (r) {
+          restoreVars();
+          T.add("㉒ 그래프를 그림(PNG)으로 뜰 수 있음",
+            !!r && /^data:image\/png;base64,/.test(r.png || ""), "png 아님");
+        }).catch(function (e) {
+          restoreVars();
+          T.add("㉒ 그래프를 그림(PNG)으로 뜰 수 있음", false, (e && e.message) || "실패");
+        }));
+      }
+
       /* 챗봇의 화면 이름이 메뉴와 같은가 — 메뉴를 바꾸면 여기도 바뀌어야
          "그래프 확인으로 가줘" 가 길을 찾습니다 */
       const C = window.AICommands;

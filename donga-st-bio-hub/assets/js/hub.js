@@ -1135,20 +1135,36 @@
       sheets.push({ name: "기존 Batch 비교", aoa: cmp });
     }
 
-    sheets.push({ name: "고지", aoa: notice, cols: [{ wch: 18 }, { wch: 96 }] });
-
     const stamp = (window.Entries ? window.Entries.stamp() : new Date().toISOString()).slice(0, 10);
-    window.XlsxOut.write(sheets, "doe_" + stamp, {
-      onDone: function () {
-        toast("DoE 설계 " + p.runs.length + " runs 를 엑셀로 내보냈습니다 (" +
-          sheets.map(s => "[" + s.name + "]").join(" ") + " 시트)." +
-          (demoFilled ? " 반응치는 예시 시연값입니다 — [고지] 시트를 확인하세요." : ""));
-      },
-      onFallback: function (why) {
-        toast("엑셀 파일을 만들지 못해 CSV 로 내보냈습니다" + (why ? " (" + why + ")" : "") +
-          ". 설계 조건 시트만 들어 있습니다.");
-      }
-    });
+
+    /* 화면의 반응표면(등고선 또는 3D 곡면)을 그대로 떠서 함께 넣습니다 —
+       보고 자료에 붙일 그림을 다시 만들지 않아도 되도록. 지금 보고 있는
+       그림만 뜹니다(등고선/3D 중 고른 쪽). */
+    window.XlsxOut.captureCharts("#analysis .contour-wrap svg", 1)
+      .catch(() => [])
+      .then(function (images) {
+        notice.push(["차트 이미지", images.length
+          ? "[차트 이미지] 시트에 지금 화면의 " + (DS.view === "contour" ? "등고선" : "3D 곡면") +
+            "을 넣었습니다. 보기용이며, 같은 모델의 격자값은 [반응표면] 시트에 있습니다."
+          : "이 파일에는 없습니다 — 화면에서 그래프를 뜨지 못했습니다(숫자 시트는 그대로입니다)."]);
+        sheets.push({ name: "고지", aoa: notice, cols: [{ wch: 18 }, { wch: 96 }] });
+
+        window.XlsxOut.write(sheets, "doe_" + stamp, {
+          images: images,
+          onDone: function (kind, info) {
+            toast("DoE 설계 " + p.runs.length + " runs 를 엑셀로 내보냈습니다 (" +
+              sheets.map(s => "[" + s.name + "]").join(" ") +
+              (info && info.image ? " [차트 이미지]" : "") + " 시트)." +
+              (demoFilled ? " 반응치는 예시 시연값입니다 — [고지] 시트를 확인하세요." : "") +
+              (images.length && !(info && info.image)
+                ? " 그래프 그림은 넣지 못했습니다 — 숫자는 그대로입니다." : ""));
+          },
+          onFallback: function (why) {
+            toast("엑셀 파일을 만들지 못해 CSV 로 내보냈습니다" + (why ? " (" + why + ")" : "") +
+              ". 설계 조건 시트만 들어 있습니다.");
+          }
+        });
+      });
   }
 
   /* 화면 아래쪽에 잠깐 떠 있는 알림 — 내보내기 결과를 말해 줍니다 */

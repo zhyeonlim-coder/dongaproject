@@ -1655,10 +1655,11 @@
      만드는 일은 XlsxOut 한 곳에서 합니다 (data/xlsx-out.js). 조회 표 ·
      그래프 · DoE 가 같은 함수를 쓰므로, 숫자 타입이나 고지 시트가 한쪽
      파일에만 붙는 일이 생기지 않습니다. 여기서는 할 말만 정합니다. */
-  function writeWorkbook(sheets, base, onDone, csv) {
+  function writeWorkbook(sheets, base, onDone, csv, images) {
     window.XlsxOut.write(sheets, base, {
       csv: csv,
-      onDone: function () { if (onDone) onDone(); },
+      images: images,
+      onDone: function (kind, info) { if (onDone) onDone(info || {}); },
       onFallback: function (why) {
         toast("엑셀 파일을 만들지 못해 CSV 로 내보냈습니다" + (why ? " (" + why + ")" : "") + ".");
       }
@@ -1739,18 +1740,32 @@
     }
 
     const rest = items.filter(x => onScreen.indexOf(x) === -1);
-    writeWorkbook([{ name: "그래프 데이터", aoa: data }]
-        .concat(onScreen.length && rest.length
-          ? [{ name: "전체 항목", aoa: sheetOf(items) }] : [])
-        .concat([{ name: "요약", aoa: sum },
-                 { name: "고지", aoa: notice, cols: [{ wch: 18 }, { wch: 92 }] }]),
-      "bio_chart_" + window.Entries.stamp().slice(0, 10),
-      function () {
-        toast("시료 " + rows.length + "건 · 화면 항목 " +
-          (onScreen.length || items.length) + "개를 엑셀로 내보냈습니다 " +
-          ((onScreen.length && rest.length)
-            ? "([그래프 데이터] [전체 항목] [요약] [고지] 시트)."
-            : "([그래프 데이터] [요약] [고지] 시트)."));
+
+    /* 화면에 그려진 그래프를 그대로 떠서 함께 넣습니다 — 받는 사람이 숫자만
+       보고 그림을 다시 만들지 않아도 되도록. 뜨지 못하면 그림만 빠집니다. */
+    window.XlsxOut.captureCharts("#table-host .chart-wrap svg", 2)
+      .catch(() => [])
+      .then(function (images) {
+        notice.push(["차트 이미지", images.length
+          ? "[차트 이미지] 시트에 화면 그대로의 그래프를 넣었습니다. 보기용이며, 값은 숫자 시트가 원본입니다."
+          : "이 파일에는 없습니다 — 화면에서 그래프를 뜨지 못했습니다(숫자 시트는 그대로입니다)."]);
+        writeWorkbook([{ name: "그래프 데이터", aoa: data }]
+            .concat(onScreen.length && rest.length
+              ? [{ name: "전체 항목", aoa: sheetOf(items) }] : [])
+            .concat([{ name: "요약", aoa: sum },
+                     { name: "고지", aoa: notice, cols: [{ wch: 18 }, { wch: 92 }] }]),
+          "bio_chart_" + window.Entries.stamp().slice(0, 10),
+          function (info) {
+            toast("시료 " + rows.length + "건 · 화면 항목 " +
+              (onScreen.length || items.length) + "개를 엑셀로 내보냈습니다 " +
+              ((onScreen.length && rest.length)
+                ? "([그래프 데이터] [전체 항목] [요약] [고지]"
+                : "([그래프 데이터] [요약] [고지]") +
+              (info && info.image ? " [차트 이미지]" : "") + " 시트)." +
+              (images.length && !(info && info.image)
+                ? " 그래프 그림은 넣지 못했습니다 — 숫자는 그대로입니다." : ""));
+          },
+          null, images);
       });
   }
 
