@@ -29,10 +29,10 @@ window.Shell = (function () {
     /* 회의 모드는 별도 메뉴가 아니라 대시보드 안의 버튼으로 진입합니다.
        (내비게이션에서 의도적으로 제외 — 대시보드에서 선택한 스터디를 그대로
         들고 들어가야 해서 별도 페이지로 두면 동선이 끊깁니다) */
-    { id: "schedule", href: "schedule.html", ko: "일정 관리",
-      icon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>' },
     { id: "hub", href: "hub.html", ko: "DoE & Intelligence",
       icon: '<path d="M4 19h16M7 19V9M12 19V5M17 19v-7"/>' },
+    { id: "schedule", href: "schedule.html", ko: "일정 관리",
+      icon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>' },
     { id: "booking", href: "booking.html", ko: "장비 예약",
       icon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>' }
     /* 데이터 탐색(explorer.html)은 메뉴에서 내렸습니다.

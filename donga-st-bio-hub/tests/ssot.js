@@ -693,6 +693,39 @@ window.SSOTTest = (function () {
       T.add("㉒ 내보낼 것이 없으면 파일을 만들지 않음",
         none && none !== "saved", String(none));
 
+      /* 단위가 달라도 한 장에 겹칩니다 — 쪼개지 않고 축을 둘로 둡니다.
+         선·막대 **둘 다** 오른쪽 축을 그려야 합니다. 막대만 못 그리면
+         [막대] 를 누른 사람은 작은 쪽이 바닥에 깔린 그림을 봅니다. */
+      const G = window.Charts;
+      if (G) {
+        const two = { cats: ["a", "b"],
+                      series: [{ name: "큰 값", color: "#000", data: [100, 150] },
+                               { name: "작은 값", color: "#111", data: [1.2, 1.8], right: true }] };
+        const svgBar = G.bars(Object.assign({ w: 400, h: 200 }, two));
+        const svgLine = G.line({ x: two.cats, series: two.series, w: 400, h: 200 });
+        /* 오른쪽 축 눈금이 실제로 찍혔는가 — 그림 **오른쪽 끝**에 숫자가
+           서 있어야 합니다. 글자 안의 "1.5" 를 찾는 식으로 보면 좌표
+           문자열에도 걸려 거짓 통과가 됩니다. */
+        function rightTicks(svg) {
+          const d = new DOMParser().parseFromString(svg, "image/svg+xml");
+          return Array.prototype.slice.call(d.querySelectorAll("text"))
+            .filter(t => parseFloat(t.getAttribute("x")) > 400 * 0.8)
+            .map(t => t.textContent)
+            .filter(s => /^[\d.]+$/.test(s));
+        }
+        T.add("㉒ 막대도 단위가 둘이면 오른쪽 축을 그림",
+          rightTicks(svgBar).length >= 3, "오른쪽 눈금 " + rightTicks(svgBar).join(","));
+        T.add("㉒ 선도 단위가 둘이면 오른쪽 축을 그림",
+          rightTicks(svgLine).length >= 3, "오른쪽 눈금 " + rightTicks(svgLine).join(","));
+        /* 막대 두 개가 모두 제 키로 서는가 — 한쪽이 바닥에 깔리면 실패 */
+        const hs = (svgBar.match(/height="([\d.]+)"/g) || [])
+          .map(s => parseFloat(s.replace(/\D*([\d.]+).*/, "$1")))
+          .filter(h => h > 0);
+        T.add("㉒ 작은 단위 막대가 바닥에 깔리지 않음",
+          hs.length >= 4 && Math.min.apply(null, hs) > Math.max.apply(null, hs) * 0.2,
+          "막대 높이 " + hs.join(","));
+      }
+
       /* 챗봇의 화면 이름이 메뉴와 같은가 — 메뉴를 바꾸면 여기도 바뀌어야
          "그래프 확인으로 가줘" 가 길을 찾습니다 */
       const C = window.AICommands;

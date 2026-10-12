@@ -51,8 +51,7 @@
        컬럼 필터(colFilters)와 달리 행 수를 바꾸지 않습니다.
      ══════════════════════════════════════════════════════════════════════ */
   const GRID_KEY = "hub.data.grid";
-  const GRID_DEFAULT = { dense: true, hidden: {}, width: {}, chartPick: [], chartKind: "bar",
-                         chartAxis: "split" };
+  const GRID_DEFAULT = { dense: true, hidden: {}, width: {}, chartPick: [], chartKind: "bar" };
 
   let grid = (function () {
     try {
@@ -60,8 +59,7 @@
       if (!r || typeof r !== "object") return Object.assign({}, GRID_DEFAULT);
       return { dense: r.dense !== false, hidden: r.hidden || {}, width: r.width || {},
                chartPick: Array.isArray(r.chartPick) ? r.chartPick : [],
-               chartKind: r.chartKind === "line" ? "line" : "bar",
-               chartAxis: r.chartAxis === "one" ? "one" : "split" };
+               chartKind: r.chartKind === "line" ? "line" : "bar" };
     } catch (e) { return Object.assign({}, GRID_DEFAULT); }
   })();
 
@@ -69,15 +67,11 @@
      매번 새로 고를 때마다 같은 항목을 다시 찾는 일이 없도록. */
   let chartPick = grid.chartPick.slice();
   let chartKind = grid.chartKind;
-  /* 단위가 다른 항목을 어떻게 놓을지 — "split" 단위별로 나눠 그리기,
-     "one" 한 장에 겹쳐 그리기 (좌·우 축 또는 상대값) */
-  let chartAxis = grid.chartAxis;
   const PALETTE = ["#0369A1", "#6D28D9", "#0F766E", "#B45309", "#B91C1C", "#1D4ED8"];
 
   function saveGrid() {
     grid.chartPick = chartPick.slice();
     grid.chartKind = chartKind;
-    grid.chartAxis = chartAxis;
     window.Persist.setLocalJSON(GRID_KEY, grid);
   }
 
@@ -392,14 +386,6 @@
           '<button type="button" class="live-segb' + (chartKind === "bar" ? " is-on" : "") +
             '" data-ckind="bar" aria-pressed="' + (chartKind === "bar") + '">막대</button>' +
         '</span>' +
-        '<span class="live-seg" role="group" aria-label="단위가 다를 때">' +
-          '<button type="button" class="live-segb' + (chartAxis === "split" ? " is-on" : "") +
-            '" data-caxis="split" aria-pressed="' + (chartAxis === "split") +
-            '" title="단위가 같은 항목끼리 묶어 여러 장으로">단위별</button>' +
-          '<button type="button" class="live-segb' + (chartAxis === "one" ? " is-on" : "") +
-            '" data-caxis="one" aria-pressed="' + (chartAxis === "one") +
-            '" title="단위가 달라도 한 장에 겹쳐서">한 장에 겹쳐</button>' +
-        '</span>' +
         (pool.length > chartPick.length
           ? '<select class="input" id="chart-add" style="min-width:170px">' +
               '<option value="">+ 항목 겹쳐 보기</option>' +
@@ -491,104 +477,95 @@
         '</div></div><div class="card-body">' + inner + '</div></section>';
     }
 
-    /* ── ① 한 장에 겹쳐 그리기 ────────────────────────────────────────
-       단위가 두 가지면 좌·우 축에 하나씩 둡니다 (실제 값 그대로).
-       세 가지 이상이면 축이 모자라므로 각 항목을 **자기 최솟값~최댓값**
-       기준 0~100 으로 눕혀 모양만 겹칩니다. 그림은 모양 비교용이고,
-       숫자는 아래 표와 엑셀에 원값으로 남습니다. */
-    if (chartAxis === "one" && picked.length > 1 && byUnit.length > 1) {
-      const twoAxis = byUnit.length === 2 && chartKind === "line";
-      let note, series;
+    /* ── 고른 항목은 **언제나 한 장**에 겹칩니다 ──────────────────────
+       고르는 사람은 "이것들을 나란히 놓고 보겠다" 는 뜻으로 고릅니다.
+       단위가 다르다는 이유로 그림을 둘로 쪼개면, 그 비교를 눈이 아니라
+       머리로 해야 합니다. 쪼개지 않고 축으로 해결합니다:
 
-      if (twoAxis) {
-        series = [];
-        byUnit.forEach(function (g, gi) {
-          g.items.forEach(function (r) {
-            series.push({ name: r.label + (r.unit ? " (" + r.unit + ")" : "") +
-                            (gi ? " · 우축" : " · 좌축"),
-                          color: colorOf(r, series.length), data: r.data, right: gi === 1 });
-          });
+         단위 1가지 → 그대로 한 축
+         단위 2가지 → 왼쪽·오른쪽 축에 하나씩, **실제 값 그대로**
+         단위 3가지 이상 → 축이 모자라므로 각 항목을 자기 최솟값~최댓값
+                           기준 0~100 으로 눕혀 모양만 겹칩니다
+
+       마지막 경우에는 세로축 숫자가 실제 값이 아닙니다. 그 사실을 그림
+       바로 위에 적고, 실제 값은 아래 표와 엑셀에 원값으로 남깁니다 —
+       눈금을 바꿔 그렸다는 말이 없으면 98 과 15 를 같은 자리에서 본
+       사람은 둘을 견줄 수 있다고 믿습니다. */
+    const mode = byUnit.length <= 1 ? "plain" : byUnit.length === 2 ? "two" : "rel";
+
+    const series = [];
+    if (mode === "two") {
+      byUnit.forEach(function (g, gi) {
+        g.items.forEach(function (r) {
+          series.push({ name: r.label + (r.unit ? " (" + r.unit + ")" : "") +
+                          (gi ? " · 우축" : " · 좌축"),
+                        color: colorOf(r, series.length), data: r.data, right: gi === 1 });
         });
-        note = '한 장에 겹쳤습니다 — 왼쪽 축은 <b>' + esc(byUnit[0].unit || "단위 없음") +
-          '</b>, 오른쪽 축은 <b>' + esc(byUnit[1].unit || "단위 없음") + '</b> 입니다. ' +
-          '두 축의 눈금이 다르므로 <b>선의 높낮이를 서로 견주지 마시고</b> 오르내리는 모양을 보세요.';
-      } else {
-        series = picked.map(function (r, i) {
-          const v = r.data.filter(x => x !== null && isFinite(x));
-          const lo = v.length ? Math.min.apply(null, v) : 0;
-          const hi = v.length ? Math.max.apply(null, v) : 0;
-          const span = hi - lo;
-          return { name: r.label + (r.unit ? " (" + r.unit + ")" : ""),
-                   color: colorOf(r, i),
-                   data: r.data.map(x => (x === null || !isFinite(x)) ? null
-                     : (span > 0 ? ((x - lo) / span) * 100 : 50)) };
-        });
-        note = '한 장에 겹쳤습니다. 단위가 ' + byUnit.length + '가지라 축을 나눌 수 없어, ' +
-          '각 항목을 <b>자기 최솟값 0 · 최댓값 100</b> 으로 눕혀 그렸습니다 — ' +
-          '세로축 숫자는 <b>실제 값이 아니라 그 항목 안에서의 상대 위치</b>입니다. ' +
-          '실제 값은 아래 표와 [Excel 내보내기] 에 그대로 있습니다. ' +
-          '실제 값으로 보시려면 [단위별] 로 돌리세요.';
-      }
-
-      const body = chartKind === "line"
-        ? window.Charts.line({ x: cats, series: series, h: 260, w: 820,
-                               aria: picked.map(r => r.label).join(" · ") + " 시료별 추이 (겹쳐 그림)" })
-        : window.Charts.bars({ cats: cats, series: series, h: 260, w: 820,
-                               aria: picked.map(r => r.label).join(" · ") + " 시료별 값 (겹쳐 그림)" });
-
-      return chartToolbar(pool) +
-        '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' + note + '</div></div>' +
-        card(picked.map(r => r.label).join(" · "),
-          '항목 ' + picked.length + '개 · 시료 ' + rows.length + '건 · ' +
-          (twoAxis ? '좌 · 우 축 (실제 값)' : '상대값 0~100'),
-          window.Charts.swatches(series) +
-          '<div class="chart-wrap" style="margin-top:var(--s-3)">' + body + '</div>' +
-          realTable(picked, picked.map(r => r.label).join(" · ")));
+      });
+    } else if (mode === "rel") {
+      picked.forEach(function (r, i) {
+        const v = r.data.filter(x => x !== null && isFinite(x));
+        const lo = v.length ? Math.min.apply(null, v) : 0;
+        const hi = v.length ? Math.max.apply(null, v) : 0;
+        const span = hi - lo;
+        series.push({ name: r.label + (r.unit ? " (" + r.unit + ")" : ""),
+                      color: colorOf(r, i),
+                      data: r.data.map(x => (x === null || !isFinite(x)) ? null
+                        : (span > 0 ? ((x - lo) / span) * 100 : 50)) });
+      });
+    } else {
+      picked.forEach(function (r, i) {
+        series.push({ name: r.label + (r.unit ? " (" + r.unit + ")" : ""),
+                      color: colorOf(r, i), data: r.data });
+      });
     }
 
-    /* ── ② 단위별로 나눠 그리기 (기본) ──────────────────────────────── */
-    const charts = byUnit.map(function (g) {
-      const all = [];
-      g.items.forEach(r => r.data.forEach(v => { if (v !== null) all.push(v); }));
-      const lo = all.length ? Math.min.apply(null, all) : 0;
-      const hi = all.length ? Math.max.apply(null, all) : 0;
-      /* ★ 축을 0 이 아닌 곳에서 시작하는 것은 **막대뿐**입니다.
-         선 그래프는 Charts.line 이 늘 0 부터 그립니다 — 예전에는 여기서
-         선에도 min 을 넘기고 "세로축은 N 부터 시작합니다" 라고 적었는데,
-         실제로는 0 부터 그려져 화면과 설명이 어긋났습니다. */
-      const tight = chartKind === "bar" && all.length > 1 && lo > 0 && (hi - lo) < lo * 0.5;
-      const series = g.items.map((r, i) => ({
-        name: r.label + (r.unit ? " (" + r.unit + ")" : ""),
-        color: colorOf(r, i),
-        data: r.data
-      }));
-      const body = chartKind === "line"
-        ? window.Charts.line({ x: cats, series: series, h: 230, w: 820,
-                               aria: g.items.map(r => r.label).join(" · ") + " 시료별 추이" })
-        : window.Charts.bars({ cats: cats, series: series, h: 230, w: 820,
-                               min: tight ? Math.floor(lo * 0.98) : null,
-                               aria: g.items.map(r => r.label).join(" · ") + " 시료별 값" });
+    /* 값이 좁은 구간에 몰려 있으면 막대 축을 0 이 아닌 곳에서 시작합니다.
+       ★ 선 그래프는 Charts.line 이 늘 0 부터 그리므로 이 설명을 붙이지
+         않습니다 — 예전에는 선에도 붙어 화면과 설명이 어긋났습니다.
+       ★ 좌·우 축이나 상대값일 때도 붙이지 않습니다. 축이 이미 두 벌이라
+         "세로축은 N 부터" 가 어느 축 이야기인지 말할 수 없습니다. */
+    const flat = [];
+    picked.forEach(r => r.data.forEach(v => { if (v !== null) flat.push(v); }));
+    const lo = flat.length ? Math.min.apply(null, flat) : 0;
+    const hi = flat.length ? Math.max.apply(null, flat) : 0;
+    const tight = mode === "plain" && chartKind === "bar" &&
+                  flat.length > 1 && lo > 0 && (hi - lo) < lo * 0.5;
 
-      return card(g.items.map(r => r.label).join(" · "),
-        (g.unit ? esc(g.unit) + " · " : "") + '시료 ' + rows.length + '건' +
-          (byUnit.length > 1 ? ' · 단위가 같은 항목끼리 묶어 그렸습니다' : ""),
+    const title = picked.map(r => r.label).join(" · ");
+    const body = chartKind === "line"
+      ? window.Charts.line({ x: cats, series: series, h: 270, w: 820,
+                             aria: title + " 시료별 추이" })
+      : window.Charts.bars({ cats: cats, series: series, h: 270, w: 820,
+                             min: tight ? Math.floor(lo * 0.98) : null,
+                             aria: title + " 시료별 값" });
+
+    const note = mode === "two"
+      ? '단위가 두 가지라 <b>왼쪽 축은 ' + esc(byUnit[0].unit || "단위 없음") +
+        '</b>, <b>오른쪽 축은 ' + esc(byUnit[1].unit || "단위 없음") + '</b> 으로 그렸습니다. ' +
+        '값은 실제 값 그대로입니다. 축이 둘이므로 <b>높낮이를 서로 견주지 마시고</b> ' +
+        '오르내리는 모양을 보세요.'
+      : mode === "rel"
+      ? '단위가 ' + byUnit.length + '가지라 축을 둘로도 나눌 수 없어, 각 항목을 ' +
+        '<b>자기 최솟값 0 · 최댓값 100</b> 으로 눕혀 한 장에 겹쳤습니다 — ' +
+        '세로축 숫자는 <b>실제 값이 아니라 그 항목 안에서의 상대 위치</b>입니다. ' +
+        '실제 값은 아래 표와 [Excel 내보내기] 에 그대로 있습니다.'
+      : "";
+
+    return chartToolbar(pool) +
+      (note ? '<div class="card-body" style="padding-bottom:0">' +
+              '<div class="demo-note">' + note + '</div></div>' : "") +
+      card(title,
+        '항목 ' + picked.length + '개 · 시료 ' + rows.length + '건 · ' +
+        (mode === "two" ? '좌 · 우 축 (실제 값)'
+          : mode === "rel" ? '상대값 0~100 (실제 값은 아래 표)'
+          : esc(byUnit[0] ? (byUnit[0].unit || "단위 없음") : "")),
         (series.length > 1 ? window.Charts.swatches(series) : "") +
         '<div class="chart-wrap" style="margin-top:var(--s-3)">' + body + '</div>' +
         (tight ? '<p style="font-size:11px;color:var(--c-text-mute);margin:var(--s-2) 0 0">' +
           '세로축은 ' + Math.floor(lo * 0.98) + ' 부터 시작합니다 — 값이 좁은 구간에 ' +
           '몰려 있어 0부터 그리면 차이가 보이지 않습니다.</p>' : "") +
-        realTable(g.items, g.items.map(r => r.label).join(" · ")));
-    }).join("");
-
-    return chartToolbar(pool) +
-      (byUnit.length > 1
-        ? '<div class="card-body" style="padding-bottom:0"><div class="demo-note">' +
-          '고른 항목의 단위가 ' + byUnit.length + '가지라 ' + byUnit.length + '장으로 나눠 그렸습니다 — ' +
-          '단위가 다른 값을 한 축에 겹치면 작은 쪽이 바닥에 깔려 실제보다 나빠 보입니다. ' +
-          '그래도 한 장에서 모양을 견주시려면 위 <b>[한 장에 겹쳐]</b> 를 누르세요.' +
-          '</div></div>'
-        : "") +
-      charts;
+        realTable(picked, title));
   }
 
   function wireChartView(rows, cols) {
@@ -611,9 +588,6 @@
     }));
     $$("[data-ckind]").forEach(b => b.addEventListener("click", function () {
       chartKind = b.dataset.ckind; redraw();
-    }));
-    $$("[data-caxis]").forEach(b => b.addEventListener("click", function () {
-      chartAxis = b.dataset.caxis; redraw();
     }));
     const all = $("#chart-all");
     if (all) all.addEventListener("click", function () {
@@ -1727,10 +1701,20 @@
       ["화면에 그린 항목", onScreen.length
         ? onScreen.map(x => x.it.col.label).join(" · ") : "(선택 없음 — 전체를 넣었습니다)"],
       ["항목 수", items.length + "개 중 화면 " + onScreen.length + "개"],
-      ["축", chartAxis === "one"
-        ? "한 장에 겹쳐 보기로 그린 화면입니다. 그림의 세로축은 좌·우 축이거나 상대값(0~100)일 수 " +
-          "있지만, 이 파일의 숫자는 모두 **실제 값**입니다."
-        : "단위별로 나눠 그린 화면입니다. 이 파일의 숫자는 실제 값입니다."]
+      ["축", (function () {
+        /* 화면은 고른 항목을 한 장에 겹칩니다. 단위 수에 따라 세로축이
+           좌·우 두 벌이거나 상대값(0~100)일 수 있으므로, 파일을 받는
+           사람에게 **이 파일의 숫자는 실제 값**이라고 적어 둡니다. */
+        const units = Array.from(new Set((onScreen.length ? onScreen : items)
+          .map(x => x.it.col.unit || "")));
+        return units.length <= 1
+          ? "한 장에 그렸습니다 (단위 " + (units[0] || "없음") + "). 이 파일의 숫자는 실제 값입니다."
+          : units.length === 2
+          ? "한 장에 좌·우 두 축으로 겹쳐 그렸습니다 (" + units.join(" / ") + "). " +
+            "이 파일의 숫자는 실제 값입니다."
+          : "한 장에 겹쳐 그렸습니다. 단위가 " + units.length + "가지라 화면에서는 각 항목을 " +
+            "상대값(0~100)으로 눕혀 그렸지만, 이 파일의 숫자는 실제 값입니다.";
+      })()]
     ];
     const pv = provenanceOf();
     if (pv) {

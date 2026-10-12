@@ -175,50 +175,74 @@ window.Charts = (function () {
      차이를 읽을 수 없기 때문입니다. 축이 0 이 아니라는 사실은 축 라벨과
      caption 에 드러나므로 과장이 되지 않습니다.
 
-     cfg = { cats:[], series:[{name,color,data:[]}], min, max, w, h, aria } */
+     ★ series 에 right: true 를 주면 그 계열만 **오른쪽 축**으로 잽니다.
+       단위가 다른 항목을 한 장에 함께 세울 때 씁니다 — 10⁶ cells/mL 15 와
+       % 98 을 같은 눈금에 세우면 앞의 것이 바닥에 깔린 막대가 되어, 눈으로는
+       "배양이 망했다" 로 읽힙니다. 축을 둘로 두면 둘 다 제 키로 섭니다.
+       (어느 막대가 어느 축인지는 부르는 쪽이 범례에 적어야 합니다)
+
+     cfg = { cats:[], series:[{name,color,data:[],right}], min, max, w, h, aria } */
   function bars(cfg) {
     const W = cfg.w || 700, H = cfg.h || 260, big = cfg.big;
     const cats = cfg.cats || [], series = cfg.series || [];
-    const pad = { t: 14, r: 16, b: big ? 52 : 42, l: big ? 58 : 48 };
+    const hasRight = series.some(s => s.right);
+    const pad = { t: 14, r: hasRight ? (big ? 60 : 48) : 16, b: big ? 52 : 42, l: big ? 58 : 48 };
     const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
     if (!cats.length) return emptySVG(W, H, "데이터 없음");
 
     const vals = series.reduce((a, s) => a.concat((s.data || []).filter(isFinite)), []);
     if (!vals.length) return emptySVG(W, H, "미입력");
 
-    const hiRaw = Math.max.apply(null, vals);
-
-    /* 눈금은 "딱 떨어지는" 값에 놓습니다. 축 시작점을 60·95 처럼 옮기면
-       단순히 4등분한 눈금이 70.2 · 80.4 처럼 나와 읽기 어렵습니다. */
-    const lo = cfg.min != null ? cfg.min : 0;
-    const diff = Math.max(1e-6, hiRaw - lo);
-    const step = niceStep(diff / 4);
-    let hi;
-    if (cfg.max != null) {
-      hi = cfg.max;
-    } else {
-      hi = lo + step * Math.ceil(diff / step);
-      if (hi <= hiRaw) hi += step;                // 막대가 축 꼭대기에 닿지 않도록
+    /* 축 하나를 계산합니다 — 왼쪽과 오른쪽이 같은 함수를 씁니다 */
+    function scaleOf(list, min, max) {
+      const v = list.filter(isFinite);
+      const hiRaw = v.length ? Math.max.apply(null, v) : 1;
+      /* 눈금은 "딱 떨어지는" 값에 놓습니다. 축 시작점을 60·95 처럼 옮기면
+         단순히 4등분한 눈금이 70.2 · 80.4 처럼 나와 읽기 어렵습니다. */
+      const lo = min != null ? min : 0;
+      const diff = Math.max(1e-6, hiRaw - lo);
+      const step = niceStep(diff / 4);
+      let hi;
+      if (max != null) {
+        hi = max;
+      } else {
+        hi = lo + step * Math.ceil(diff / step);
+        if (hi <= hiRaw) hi += step;              // 막대가 축 꼭대기에 닿지 않도록
+      }
+      const n = Math.min(8, Math.max(2, Math.round((hi - lo) / step)));
+      const range = (hi - lo) || 1;
+      const ticks = [];
+      for (let i = 0; i <= n; i++) ticks.push(lo + (range * i) / n);
+      /* 눈금이 전부 정수면 소수점을 붙이지 않습니다. 반대로 소수 눈금을
+         정수로 반올림하면 서로 다른 눈금이 같은 숫자로 찍힙니다. */
+      const dp = ticks.every(x => Math.abs(x - Math.round(x)) < 1e-9) ? 0 : (step >= 0.1 ? 1 : 2);
+      return { lo: lo, range: range, ticks: ticks, dp: dp };
     }
-    const nTicks = Math.min(8, Math.max(2, Math.round((hi - lo) / step)));
 
-    const range = (hi - lo) || 1;
-    const yAt = v => pad.t + ih - ((v - lo) / range) * ih;
+    const L = scaleOf(series.filter(s => !s.right)
+                        .reduce((a, s) => a.concat(s.data || []), []), cfg.min, cfg.max);
+    const R = hasRight
+      ? scaleOf(series.filter(s => s.right).reduce((a, s) => a.concat(s.data || []), []), null, null)
+      : null;
+    const lo = L.lo;
+    const yAt = (v, right) => {
+      const sc = (right && R) ? R : L;
+      return pad.t + ih - ((v - sc.lo) / sc.range) * ih;
+    };
     const fs = big ? 12 : 10;
 
-    const ticks = [];
-    for (let i = 0; i <= nTicks; i++) ticks.push(lo + (range * i) / nTicks);
-    /* 눈금이 전부 정수면 소수점을 붙이지 않습니다. 반대로 소수 눈금을
-       정수로 반올림하면 서로 다른 눈금이 같은 숫자로 찍힙니다. */
-    const dp = ticks.every(v => Math.abs(v - Math.round(v)) < 1e-9) ? 0 : (step >= 0.1 ? 1 : 2);
-
+    /* 눈금선은 왼쪽 축 기준으로 한 벌만 긋습니다 — 두 벌을 그으면 격자가
+       엇갈려 어느 선이 어느 축인지 알 수 없게 됩니다. */
     let grid = "";
-    ticks.forEach(function (v) {
+    L.ticks.forEach(function (v, i) {
       const y = yAt(v);
       grid += '<line x1="' + pad.l + '" y1="' + y.toFixed(1) + '" x2="' + (W - pad.r) + '" y2="' + y.toFixed(1) +
         '" stroke="var(--c-paper-2)"/>' +
         '<text x="' + (pad.l - 7) + '" y="' + (y + fs / 2.8).toFixed(1) + '" text-anchor="end" font-size="' + fs +
-        '" font-family="var(--font-data)" fill="var(--c-text-mute)">' + v.toFixed(dp) + '</text>';
+        '" font-family="var(--font-data)" fill="var(--c-text-mute)">' + v.toFixed(L.dp) + '</text>' +
+        (R ? '<text x="' + (W - pad.r + 7) + '" y="' + (y + fs / 2.8).toFixed(1) + '" font-size="' + fs +
+          '" font-family="var(--font-data)" fill="var(--c-text-mute)">' +
+          (R.lo + (R.range * i) / (L.ticks.length - 1)).toFixed(R.dp) + '</text>' : "");
     });
 
     const bw = iw / cats.length;
@@ -232,7 +256,8 @@ window.Charts = (function () {
       series.forEach(function (s, k) {
         const v = (s.data || [])[i];
         if (!isFinite(v) || v === null) return;
-        const y = yAt(Math.max(lo, v));
+        const base = (s.right && R) ? R.lo : lo;
+        const y = yAt(Math.max(base, v), s.right);
         const h = Math.max(0, pad.t + ih - y);
         rects += '<rect x="' + (x0 + k * (groupW / series.length)).toFixed(1) + '" y="' + y.toFixed(1) +
           '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="1.5" fill="' + s.color +
