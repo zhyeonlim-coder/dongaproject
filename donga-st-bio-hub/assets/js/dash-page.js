@@ -182,7 +182,7 @@
       list.map(function (m) {
         const c = m.counts || {};
         return '<details style="border-bottom:1px solid var(--c-paper-2);padding:var(--s-2) 0">' +
-          '<summary style="cursor:pointer;font-size:13px;font-weight:600">' + esc(m.title || "회의") +
+          '<summary style="cursor:pointer;font-size:13px;font-weight:600">' + esc(P.meetingLabel ? P.meetingLabel(m) : (m.title || "회의")) +
             '<span style="display:block;font-weight:400;font-size:11.5px;color:var(--c-text-mute);margin-top:2px">' +
               esc(String(m.minutesAt || m.startedAt).replace("T", " ").slice(0, 16)) +
               ' · 결정 ' + (c.decisions || 0) + ' · 조치 ' + (c.actions || 0) +

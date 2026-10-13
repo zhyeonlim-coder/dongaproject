@@ -43,7 +43,7 @@ window.MeetingView = (function () {
     big: false,             // 글자 크게 보기 (빔프로젝터)
     minutesOpen: false, minutesMsg: "",
     shareOpen: false, shareMsg: null,
-    agendaDraft: ""
+    titleDraft: null, titleMsg: ""
   };
 
   let batches = [], samples = [], outMap = {};
@@ -684,35 +684,29 @@ window.MeetingView = (function () {
 
   let pinKind = "decision";
 
-  function agendaSection() {
+  /* ── 오늘 회의 제목 ────────────────────────────────────────────────────
+     예전에는 여기가 "안건 목록" 이었습니다 — 여러 줄을 쌓고, 순서를 바꾸고,
+     완료 체크를 하고, 그 중 하나를 "진행 중" 으로 고르는 구조였습니다.
+     실제 회의에서는 그 손질을 할 틈이 없어 대부분 비어 있었고, 비어 있으면
+     결정 · 조치가 어디에도 묶이지 않았습니다.
+
+     이제 **제목 한 줄**입니다. 그 아래 적는 결정 · 조치 · 핀이 전부 이
+     회의의 것으로 묶입니다. 제목은 회의록의 머리글이자 [지난 회의록]
+     목록에 보이는 이름이 됩니다. */
+  function titleSection() {
     const P = window.Pins;
     if (!P) return "";
-    const list = P.agenda();
-    const cur = P.currentAgenda();
-    return '<section class="mm-sec"><div class="mm-sec-h">안건 ' +
-      '<span class="mm-sec-n">' + list.filter(a => a.done).length + " / " + list.length + ' 완료</span></div>' +
-      (list.length
-        ? '<ol class="mm-ag">' + list.map(function (a, i) {
-            return '<li class="mm-ag-i' + (a.done ? " is-done" : "") +
-              (cur && cur.id === a.id ? " is-cur" : "") + '">' +
-              '<input type="checkbox" data-agt="' + esc(a.id) + '"' + (a.done ? " checked" : "") +
-                ' aria-label="' + esc(a.title) + ' 완료">' +
-              '<button class="mm-ag-t" data-agc="' + esc(a.id) + '" title="이 안건을 진행 중으로">' +
-                esc(a.title) + (a.carriedFrom ? ' <span class="mm-ag-c">이월</span>' : "") + '</button>' +
-              '<span class="mm-ag-x">' +
-                '<button data-agu="' + esc(a.id) + '" aria-label="위로" title="위로">↑</button>' +
-                '<button data-agd="' + esc(a.id) + '" aria-label="아래로" title="아래로">↓</button>' +
-                '<button data-agr="' + esc(a.id) + '" aria-label="삭제" title="삭제">×</button>' +
-              '</span></li>';
-          }).join("") + '</ol>'
-        : '<p class="mm-empty">안건을 적어 두면 핀 · 결정이 안건별로 묶이고 회의록도 그 순서로 정리됩니다.</p>') +
+    const cur = P.currentMeeting();
+    const t = (cur && cur.title) ? cur.title : "";
+    return '<section class="mm-sec"><div class="mm-sec-h">오늘 회의' +
+      (t ? '<span class="mm-sec-n">제목 적힘</span>' : "") + '</div>' +
       '<div class="mm-note-row">' +
-        '<input class="ebr-input" id="mm-ag-new" placeholder="새 안건" value="' + esc(view.agendaDraft) + '">' +
-        '<button class="btn btn-ghost btn-sm" id="mm-ag-add">추가</button>' +
+        '<input class="ebr-input" id="mm-title" style="flex:1" ' +
+          'placeholder="오늘 회의 제목 · 주제" value="' + esc(view.titleDraft !== null ? view.titleDraft : t) + '">' +
+        '<button class="btn btn-ghost btn-sm" id="mm-title-go">저장</button>' +
       '</div>' +
-      '<button class="btn btn-ghost btn-sm" id="mm-ag-carry" style="width:100%;margin-top:6px">' +
-        '지난 회의 미완료 안건 가져오기</button>' +
-      '<p class="mm-msg" id="mm-ag-msg"></p></section>';
+      '<p class="mm-msg" id="mm-title-msg">' + esc(view.titleMsg || "") + '</p>' +
+      '</section>';
   }
 
   function pinComposer() {
@@ -794,7 +788,7 @@ window.MeetingView = (function () {
             const c = m.counts || {};
             return '<details class="mm-item">' +
               '<summary style="cursor:pointer;font-size:12.5px;font-weight:500">' +
-                esc(m.title || "회의") +
+                esc(P.meetingLabel ? P.meetingLabel(m) : (m.title || "회의")) +
                 (cur && m.id === cur.id ? ' <span class="badge badge-accent" ' +
                   'style="font-size:10px">이번 회의</span>' : "") +
                 '<span class="mm-item-m" style="display:block;font-weight:400">' +
@@ -826,8 +820,6 @@ window.MeetingView = (function () {
     const past = P ? P.openActions(cur ? cur.id : null) : [];
     const decisions = mine.notes.filter(n => n.kind === "decision");
     const actions = mine.notes.filter(n => n.kind === "action");
-    const curAg = P ? P.currentAgenda() : null;
-
     host.innerHTML =
       '<div class="mm-side-head"><span>회의 기록</span>' +
         '<button class="btn-icon" id="mm-panel-hide" aria-label="패널 닫기" title="패널 닫기">' +
@@ -835,16 +827,17 @@ window.MeetingView = (function () {
         'stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div>' +
       '<div class="mm-side-body">' +
       (view.pinTarget ? pinComposer() : "") +
-      agendaSection() +
+      titleSection() +
 
-      '<section class="mm-sec"><div class="mm-sec-h">결정 · 조치 기록' +
-        (curAg ? '<span class="mm-sec-n">안건: ' + esc(curAg.title) + '</span>' : "") + '</div>' +
+      '<section class="mm-sec"><div class="mm-sec-h">결정 · 조치 기록</div>' +
         '<div class="mm-note-kinds">' +
           '<button class="mm-kind" data-nk="decision" aria-pressed="' + (view.noteKind === "decision") + '">의사결정</button>' +
           '<button class="mm-kind" data-nk="action" aria-pressed="' + (view.noteKind === "action") + '">조치 (To-Do)</button>' +
         '</div>' +
+        /* 예시 문구를 넣지 않습니다 — 회의에서 급히 적을 때 예시가 그대로
+           남는 일이 있고, 남으면 아무도 안 한 결정이 회의록에 들어갑니다. */
         '<textarea class="ebr-input mm-ta" id="mm-note-text" rows="2" placeholder="' +
-          (view.noteKind === "action" ? "예: B123-7 조건으로 확인 배양 1회 추가" : "예: 다음 DoE 시 2번 배지 조건 채택") +
+          (view.noteKind === "action" ? "할 일을 적으세요" : "정한 내용을 적으세요") +
           '"></textarea>' +
         (view.noteKind === "action"
           ? '<div class="mm-note-row">' +
@@ -855,8 +848,11 @@ window.MeetingView = (function () {
                       '<option value="' + esc(p.name) + '" data-team="' + esc(p.team) + '">' +
                       esc(p.name) + " · " + esc(p.role) + '</option>').join("") + '</optgroup>').join("") : "") +
                 '</select></label>' +
+              /* 기한도 미리 채우지 않습니다. 예전에는 일주일 뒤가 들어가
+                 있었는데, 아무도 정하지 않은 날짜가 담당자의 마감으로
+                 달력과 To-Do 에 올라갔습니다. */
               '<label class="ebr-cell" style="width:132px"><span>기한</span>' +
-                '<input class="ebr-input" id="mm-note-due" type="date" value="' + esc(defaultDue()) + '"></label>' +
+                '<input class="ebr-input" id="mm-note-due" type="date" value=""></label>' +
             '</div>' : "") +
         '<div class="mm-note-row">' +
           '<button class="btn btn-accent btn-sm" id="mm-note-go" style="flex:1">' +
@@ -900,43 +896,22 @@ window.MeetingView = (function () {
     const hide = $("#mm-panel-hide", host);
     if (hide) hide.addEventListener("click", function () { view.panel = false; paintPanel(); paintPanelToggle(); });
 
-    /* ── 안건 ── */
-    const agNew = $("#mm-ag-new", host);
-    if (agNew) agNew.addEventListener("input", function () { view.agendaDraft = this.value; });
-    const agAdd = $("#mm-ag-add", host);
-    const addAg = function () {
-      const r = P.addAgenda({ title: view.agendaDraft, context: meetingContext() });
-      const msg = $("#mm-ag-msg");
-      if (!r.ok) { if (msg) msg.textContent = r.reason; return; }
-      view.agendaDraft = "";
+    /* ── 오늘 회의 제목 ── */
+    const tin = $("#mm-title", host);
+    if (tin) tin.addEventListener("input", function () { view.titleDraft = this.value; });
+    const saveTitle = function () {
+      const r = P.setMeetingTitle(view.titleDraft === null ? (tin ? tin.value : "") : view.titleDraft,
+                                  meetingContext());
+      view.titleMsg = r.ok
+        ? "제목을 적었습니다. 아래 결정 · 조치가 이 회의 아래로 묶입니다."
+        : r.reason;
+      if (r.ok) view.titleDraft = null;      /* 저장본을 다시 보여 줍니다 */
       paintPanel();
-      setTimeout(() => { const i = $("#mm-ag-new"); if (i) i.focus(); }, 20);
     };
-    if (agAdd) agAdd.addEventListener("click", addAg);
-    if (agNew) agNew.addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); addAg(); }
-    });
-    $$("[data-agt]", host).forEach(el => el.addEventListener("change", function () {
-      P.toggleAgenda(el.dataset.agt); paintPanel();
-    }));
-    $$("[data-agc]", host).forEach(el => el.addEventListener("click", function () {
-      P.setCurrentAgenda(el.dataset.agc); paintPanel();
-    }));
-    $$("[data-agu]", host).forEach(el => el.addEventListener("click", function () {
-      P.moveAgenda(el.dataset.agu, -1); paintPanel();
-    }));
-    $$("[data-agd]", host).forEach(el => el.addEventListener("click", function () {
-      P.moveAgenda(el.dataset.agd, 1); paintPanel();
-    }));
-    $$("[data-agr]", host).forEach(el => el.addEventListener("click", function () {
-      P.removeAgenda(el.dataset.agr); paintPanel();
-    }));
-    const carry = $("#mm-ag-carry", host);
-    if (carry) carry.addEventListener("click", function () {
-      const r = P.carryOverAgenda(meetingContext());
-      const msg = $("#mm-ag-msg");
-      if (!r.ok) { if (msg) msg.textContent = r.reason; return; }
-      paintPanel();
+    const tgo = $("#mm-title-go", host);
+    if (tgo) tgo.addEventListener("click", saveTitle);
+    if (tin) tin.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); saveTitle(); }
     });
 
     /* ── 핀 · 노트 ── */

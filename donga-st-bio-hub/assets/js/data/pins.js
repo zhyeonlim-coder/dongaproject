@@ -147,11 +147,36 @@ window.Pins = (function () {
       studyId: c.studyId || null,
       studyName: c.studyName || null,
       by: who(),
-      title: c.title || ((c.projectCode ? c.projectCode + " " : "") + "데이터 리뷰 회의")
+      /* ★ 제목을 지어내지 않습니다. 예전에는 "DA-1234 데이터 리뷰 회의" 가
+         자동으로 붙었습니다 — 아무도 그렇게 부른 적 없는 이름이 회의록
+         머리글과 목록에 남았습니다. 사람이 적기 전까지는 비워 둡니다
+         (화면과 회의록은 과제 코드 · 날짜로 대신 가리킵니다). */
+      title: c.title || null
     };
     state.meetings.push(rec);
     openId = rec.id;
     return rec;
+  }
+
+  /* 오늘 회의 제목 — 사람이 적은 그대로 들어갑니다.
+     제목을 적는 행위 자체가 "회의를 시작한다" 는 뜻이므로, 아직 회의
+     레코드가 없으면 여기서 만듭니다. */
+  function setMeetingTitle(title, ctx) {
+    const t = String(title == null ? "" : title).trim();
+    if (!t) return { ok: false, reason: "회의 제목을 적어 주세요" };
+    const m = ensureMeeting(ctx);
+    m.title = t;
+    emit();
+    return { ok: true, meeting: m };
+  }
+
+  /* 제목이 없을 때 화면 · 회의록이 쓰는 이름 — 지어낸 문구가 아니라
+     기록된 사실(과제 코드 · 날짜)만 씁니다. */
+  function meetingLabel(m) {
+    if (!m) return "";
+    if (m.title) return m.title;
+    const d = String(m.startedAt || "").slice(0, 10);
+    return [m.projectCode, d].filter(Boolean).join(" · ") || "제목 없는 회의";
   }
 
   function endMeeting() {
@@ -299,7 +324,8 @@ window.Pins = (function () {
       const r = window.Todos.add({
         text: text,
         team: rec.team,
-        due: rec.due || today(),
+        /* 기한을 지어내지 않습니다 — 정하지 않았으면 비워 둡니다 */
+        due: rec.due || null,
         assignee: rec.assignee,
         source: "meeting",
         meetingId: m.id
@@ -387,92 +413,73 @@ window.Pins = (function () {
     };
   }
 
-  /* 회의록 텍스트 — 클립보드 · 파일로 그대로 내보낼 수 있는 형태 */
+  /* ── 회의록 텍스트 ─────────────────────────────────────────────────────
+     ★ **적힌 것만** 들어갑니다.
+
+     예전 회의록에는 아무도 적지 않은 줄이 섞여 있었습니다 —
+       · "## 조치 사항 (0건) / - 없음" 처럼 빈 칸을 채우는 줄
+       · 맨 아래 출처 · 판정 기준 두 줄 (어느 회의록에나 똑같이 붙던 문구)
+       · 지어낸 제목("… 데이터 리뷰 회의")
+     회의록은 회의에서 오간 것을 남기는 문서입니다. 시스템이 끼워 넣은
+     문장이 섞이면, 읽는 사람은 그것도 누가 말한 것으로 읽습니다.
+
+     남는 것은 사실로 기록된 머리글(일시 · 과제 · 작성자)과 사람이 적은
+     핀 · 결정 · 조치뿐이고, 비어 있는 항목은 줄 자체가 없습니다. */
   function minutesText(meetingId) {
     const d = minutes(meetingId);
     if (!d) return "";
     const L = [];
-    L.push("# " + d.meeting.title);
+    L.push("# " + meetingLabel(d.meeting));
     L.push("");
     L.push("- 일시: " + String(d.meeting.startedAt).replace("T", " ") +
       (d.meeting.endedAt ? " ~ " + String(d.meeting.endedAt).slice(11) : ""));
     if (d.meeting.projectCode) L.push("- 과제: " + d.meeting.projectCode +
       (d.meeting.studyName ? " · " + d.meeting.studyName : ""));
-    L.push("- 작성: " + d.meeting.by);
-    L.push("");
+    /* 이름을 모를 때는 그 줄을 쓰지 않습니다 — "작성: —" 는 아무것도
+       말해 주지 않으면서 자리만 차지합니다 */
+    const named = s => s && s !== "—" && String(s).trim() ? String(s) : null;
+    if (named(d.meeting.by)) L.push("- 작성: " + d.meeting.by);
 
-    /* 안건이 있으면 안건별로 묶습니다 — 회의록은 "무엇을 논의했는가" 순서로
-       읽히는 게 자연스럽고, 다음 회의에서 이어붙이기도 쉽습니다. */
+    const byTag = s => named(s) ? " (" + s + ")" : "";
     const pinLine = p => "- [" + KIND[p.kind].ko + "] " + p.batchLabel + " · " + p.metricLabel +
       (p.value !== null ? " " + p.value + (p.unit ? " " + p.unit : "") : " (미입력)") +
-      (p.day ? " · " + p.day : "") + " — " + p.text + " (" + p.createdBy + ")";
-    const decLine = n => "- [결정] " + n.text + " (" + n.createdBy + ")";
-    const actLine = n => "- [조치] " + n.text + " — 담당 " + (n.assignee || "미지정") +
+      (p.day ? " · " + p.day : "") + " — " + p.text + byTag(p.createdBy);
+    const decLine = n => "- " + n.text + byTag(n.createdBy);
+    const actLine = n => "- " + n.text + " — 담당 " + (n.assignee || "미지정") +
       (n.due ? " · 기한 " + n.due : "") + (n.todoId ? " · To-Do 등록됨" : "");
 
-    if (d.agenda && d.agenda.length) {
-      L.push("## 안건별 기록");
-      d.agenda.forEach(function (a, i) {
-        L.push("");
-        L.push("### " + (i + 1) + ". " + a.title + (a.done ? "  [완료]" : "  [미완료]") +
-          (a.carriedFrom ? "  (지난 회의에서 이월)" : ""));
-        const ps = d.pins.filter(p => p.agendaId === a.id);
-        const ds = d.decisions.filter(n => n.agendaId === a.id);
-        const as = d.actions.filter(n => n.agendaId === a.id);
-        if (!ps.length && !ds.length && !as.length) { L.push("- 기록 없음"); return; }
-        ps.forEach(p => L.push(pinLine(p)));
-        ds.forEach(n => L.push(decLine(n)));
-        as.forEach(n => L.push(actLine(n)));
-      });
-
-      /* 안건에 묶이지 않은 기록도 빠뜨리지 않습니다 */
-      const loose = {
-        pins: d.pins.filter(p => !p.agendaId),
-        dec: d.decisions.filter(n => !n.agendaId),
-        act: d.actions.filter(n => !n.agendaId)
-      };
-      if (loose.pins.length || loose.dec.length || loose.act.length) {
-        L.push("");
-        L.push("### 안건 밖 기록");
-        loose.pins.forEach(p => L.push(pinLine(p)));
-        loose.dec.forEach(n => L.push(decLine(n)));
-        loose.act.forEach(n => L.push(actLine(n)));
-      }
+    if (d.pins.length) {
       L.push("");
-    } else {
       L.push("## 검토 중 지적된 값 (" + d.pins.length + "건)");
-      if (!d.pins.length) L.push("- 없음");
       d.pins.forEach(p => L.push(pinLine(p)));
-      L.push("");
-
-      L.push("## 결정 사항 (" + d.decisions.length + "건)");
-      if (!d.decisions.length) L.push("- 없음");
-      d.decisions.forEach(n => L.push("- " + n.text + " (" + n.createdBy + ")"));
-      L.push("");
-
-      L.push("## 조치 사항 (" + d.actions.length + "건)");
-      if (!d.actions.length) L.push("- 없음");
-      d.actions.forEach(n => L.push(actLine(n)));
-      L.push("");
     }
-
-    /* 조치는 담당자별로 한 번 더 모읍니다 — 회의 끝나고 각자 자기 것만
-       떼어 가는 게 실제 사용 방식입니다. */
+    if (d.decisions.length) {
+      L.push("");
+      L.push("## 결정 사항 (" + d.decisions.length + "건)");
+      d.decisions.forEach(n => L.push(decLine(n)));
+    }
     if (d.actions.length) {
-      L.push("## 담당자별 조치");
+      L.push("");
+      L.push("## 조치 사항 (" + d.actions.length + "건)");
+      d.actions.forEach(n => L.push(actLine(n)));
+
+      /* 담당자별로 한 번 더 모읍니다 — 회의가 끝나면 각자 자기 것만
+         떼어 가는 것이 실제 사용 방식입니다. 조치가 있을 때만 붙습니다. */
       const by = {};
       d.actions.forEach(n => { (by[n.assignee || "미지정"] = by[n.assignee || "미지정"] || []).push(n); });
-      Object.keys(by).forEach(function (who2) {
-        L.push("- " + who2 + " (" + by[who2].length + "건)");
-        by[who2].forEach(n => L.push("  - " + n.text + (n.due ? " · " + n.due : "")));
-      });
-      L.push("");
+      const names = Object.keys(by);
+      if (names.length > 1) {
+        L.push("");
+        L.push("## 담당자별 조치");
+        names.forEach(function (who2) {
+          L.push("- " + who2 + " (" + by[who2].length + "건)");
+          by[who2].forEach(n => L.push("  - " + n.text + (n.due ? " · " + n.due : "")));
+        });
+      }
     }
-
-    L.push("— 값은 Batch_Data_example.xlsx 원본과 생성된 정제 데이터에서 조회한 것입니다.");
-    L.push("— 규격표가 없어 Pass/Fail 판정은 포함하지 않습니다. 이탈 표시는 같은 Study 내 ±2SD 기준입니다.");
     return L.join("\n");
   }
+
 
   /* ══════════════════════════════════════════════════════════════════════
      회의록 보관 — 만든 회의록을 그 회의에 붙여 둡니다
@@ -622,6 +629,7 @@ window.Pins = (function () {
     ensureMeeting, endMeeting, currentMeeting, resumeRecent, meetings,
     addAgenda, agenda, toggleAgenda, removeAgenda, moveAgenda,
     setCurrentAgenda, currentAgenda, carryOverAgenda,
-    minutes, minutesText, saveMinutes, savedMinutes, minutesOf, hydrate
+    minutes, minutesText, saveMinutes, savedMinutes, minutesOf,
+    setMeetingTitle, meetingLabel, hydrate
   };
 })();

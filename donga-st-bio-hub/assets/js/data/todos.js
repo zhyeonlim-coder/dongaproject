@@ -96,7 +96,10 @@ window.Todos = (function () {
     const rec = {
       id: uid(), text: text,
       team: input.team || null,
-      due: input.due || today(),
+      /* ★ 기한을 지어내지 않습니다. 예전에는 비워 두면 **오늘**이 들어가,
+         아무도 정하지 않은 마감이 그날로 잡혔습니다. 정렬은 기한 없는 것을
+         뒤로 보내도록 이미 되어 있습니다(아래 sort). */
+      due: input.due || null,
       /* 담당자 · 출처 — 회의 모드에서 넘어온 조치는 어느 회의에서 나왔는지
          남겨야 나중에 "이건 왜 하는 일인가"를 되짚을 수 있습니다. */
       assignee: input.assignee || null,

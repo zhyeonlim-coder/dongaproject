@@ -832,8 +832,39 @@ window.SSOTTest = (function () {
             "달력에 " + hit.length + "건");
         }
 
+        /* ★ 적지 않은 것은 채우지 않습니다 — 제목 · 기한 · 회의록 문구 */
+        const cur0 = P.currentMeeting();
+        T.add("㉓ 회의 제목을 지어내지 않음",
+          !!cur0 && !cur0.title, "제목=" + (cur0 ? String(cur0.title) : "회의 없음"));
+        T.add("㉓ 제목이 없으면 과제 · 날짜로 가리킴",
+          !!(cur0 && /\d{4}-\d{2}-\d{2}/.test(P.meetingLabel(cur0))),
+          cur0 ? P.meetingLabel(cur0) : "");
+
+        /* 기한을 비운 조치는 To-Do 기한도 비어 있어야 합니다 (오늘로 채우지 않음) */
+        const noDue = P.addNote({ kind: "action", text: "ZZ 기한 없는 조치",
+                                  assignee: "검사자", context: ctx });
+        if (noDue.ok) {
+          made.push(noDue.note.id);
+          const tl = (window.Todos && window.Todos.state) ? (window.Todos.state().list || []) : [];
+          const td = tl.find(t => t.id === noDue.note.todoId);
+          T.add("㉓ 기한을 비우면 To-Do 기한도 비어 있음",
+            !!td && !td.due, td ? "기한=" + String(td.due) : "To-Do 없음");
+          T.add("㉓ 기한이 없으면 달력에도 올리지 않음", !noDue.note.calId,
+            "calId=" + String(noDue.note.calId));
+        }
+
+        /* 제목을 적으면 회의록 머리글이 그 제목이 됩니다 */
+        const st = P.setMeetingTitle("ZZ 오늘 회의 제목", ctx);
+        T.add("㉓ 회의 제목을 사람이 적을 수 있음", st.ok, st.reason || "");
+
         /* ① 회의록 저장 */
         const cur = P.currentMeeting();
+        const txt = P.minutesText(cur ? cur.id : null);
+        T.add("㉓ 회의록 머리글이 적은 제목 그대로",
+          txt.indexOf("# ZZ 오늘 회의 제목") === 0, txt.slice(0, 40));
+        T.add("㉓ 회의록에 자동 문구가 섞이지 않음",
+          !/- 없음|Batch_Data_example|±2SD|데이터 리뷰 회의/.test(txt),
+          txt.split("\n").filter(l => /없음|Batch_Data|2SD/.test(l)).join(" / "));
         const sv = P.saveMinutes(cur ? cur.id : null);
         T.add("㉓ 회의록이 저장됨", sv.ok, sv.reason || "");
         const list = P.savedMinutes ? P.savedMinutes() : [];
