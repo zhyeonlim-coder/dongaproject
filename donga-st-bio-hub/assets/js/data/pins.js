@@ -170,6 +170,23 @@ window.Pins = (function () {
     return { ok: true, meeting: m };
   }
 
+  /* ── 안건 및 논의 내용 (자유 메모) ────────────────────────────────────
+     결정 · 조치는 한 줄씩 떨어지는 기록이고, 회의에서 오간 말의 대부분은
+     그 사이를 잇는 이야기입니다. 그 이야기를 담을 칸이 없으면 사람들은
+     결정 칸에 "A 의견: … / B 의견: …" 을 욱여넣게 됩니다 — 그러면 결정이
+     아닌 것이 결정 목록에 남습니다.
+
+     형식을 두지 않습니다. 적은 그대로 회의록의 [안건 및 논의 내용] 에
+     들어갑니다. 지우면(빈 칸) 그 절도 회의록에서 사라집니다. */
+  function setMeetingNote(text, ctx) {
+    const t = String(text == null ? "" : text).replace(/\s+$/, "");
+    const m = ensureMeeting(ctx);
+    m.note = t ? t : null;
+    m.noteAt = t ? now() : null;
+    emit();
+    return { ok: true, meeting: m, cleared: !t };
+  }
+
   /* 제목이 없을 때 화면 · 회의록이 쓰는 이름 — 지어낸 문구가 아니라
      기록된 사실(과제 코드 · 날짜)만 씁니다. */
   function meetingLabel(m) {
@@ -440,6 +457,14 @@ window.Pins = (function () {
     const named = s => s && s !== "—" && String(s).trim() ? String(s) : null;
     if (named(d.meeting.by)) L.push("- 작성: " + d.meeting.by);
 
+    /* 안건 및 논의 내용 — 적은 그대로 옮깁니다. 줄바꿈도 그대로 둡니다.
+       회의 중 급히 적은 메모의 줄 나눔에는 대개 뜻이 있습니다. */
+    if (d.meeting.note) {
+      L.push("");
+      L.push("## 안건 및 논의 내용");
+      String(d.meeting.note).split(/\r?\n/).forEach(line => L.push(line));
+    }
+
     const byTag = s => named(s) ? " (" + s + ")" : "";
     const pinLine = p => "- [" + KIND[p.kind].ko + "] " + p.batchLabel + " · " + p.metricLabel +
       (p.value !== null ? " " + p.value + (p.unit ? " " + p.unit : "") : " (미입력)") +
@@ -498,7 +523,8 @@ window.Pins = (function () {
     if (!m) return { ok: false, reason: "저장할 회의가 없습니다" };
     const d = minutes(m.id);
     if (!d) return { ok: false, reason: "회의 기록을 찾지 못했습니다" };
-    if (!d.pins.length && !d.decisions.length && !d.actions.length && !d.agenda.length) {
+    /* 메모만 적고 끝나는 회의도 있습니다 — 그것도 기록입니다 */
+    if (!d.pins.length && !d.decisions.length && !d.actions.length && !m.note) {
       return { ok: false, reason: "기록이 하나도 없어 저장하지 않았습니다" };
     }
     /* 글자와 함께 **건수**도 적어 둡니다 — 목록에서 열어 보기 전에
@@ -630,6 +656,6 @@ window.Pins = (function () {
     addAgenda, agenda, toggleAgenda, removeAgenda, moveAgenda,
     setCurrentAgenda, currentAgenda, carryOverAgenda,
     minutes, minutesText, saveMinutes, savedMinutes, minutesOf,
-    setMeetingTitle, meetingLabel, hydrate
+    setMeetingTitle, setMeetingNote, meetingLabel, hydrate
   };
 })();

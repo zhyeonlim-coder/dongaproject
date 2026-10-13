@@ -43,7 +43,8 @@ window.MeetingView = (function () {
     big: false,             // 글자 크게 보기 (빔프로젝터)
     minutesOpen: false, minutesMsg: "",
     shareOpen: false, shareMsg: null,
-    titleDraft: null, titleMsg: ""
+    titleDraft: null, titleMsg: "",
+    memoDraft: null, memoMsg: ""
   };
 
   let batches = [], samples = [], outMap = {};
@@ -698,6 +699,7 @@ window.MeetingView = (function () {
     if (!P) return "";
     const cur = P.currentMeeting();
     const t = (cur && cur.title) ? cur.title : "";
+    const memo = (cur && cur.note) ? cur.note : "";
     return '<section class="mm-sec"><div class="mm-sec-h">오늘 회의' +
       (t ? '<span class="mm-sec-n">제목 적힘</span>' : "") + '</div>' +
       '<div class="mm-note-row">' +
@@ -706,6 +708,19 @@ window.MeetingView = (function () {
         '<button class="btn btn-ghost btn-sm" id="mm-title-go">저장</button>' +
       '</div>' +
       '<p class="mm-msg" id="mm-title-msg">' + esc(view.titleMsg || "") + '</p>' +
+
+      /* 안건 및 논의 내용 — 틀 없는 메모 칸.
+         결정 · 조치는 한 줄씩 남는 기록이고, 회의에서 오간 말의 대부분은
+         그 사이를 잇는 이야기입니다. 담을 칸이 없으면 그 이야기가 결정
+         칸으로 들어가, 결정이 아닌 것이 결정 목록에 남습니다. */
+      '<label class="mm-memo-l" for="mm-memo">안건 및 논의 내용 <span>자유롭게</span></label>' +
+      '<textarea class="ebr-input mm-ta mm-memo" id="mm-memo" rows="6" ' +
+        'placeholder="오간 이야기 · 짚어야 할 안건을 자유롭게 적으세요. 적은 그대로 회의록에 들어갑니다.">' +
+        esc(view.memoDraft !== null ? view.memoDraft : memo) + '</textarea>' +
+      '<div class="mm-note-row">' +
+        '<button class="btn btn-ghost btn-sm" id="mm-memo-go" style="flex:1">메모 저장</button>' +
+      '</div>' +
+      '<p class="mm-msg" id="mm-memo-msg">' + esc(view.memoMsg || "") + '</p>' +
       '</section>';
   }
 
@@ -912,6 +927,31 @@ window.MeetingView = (function () {
     if (tgo) tgo.addEventListener("click", saveTitle);
     if (tin) tin.addEventListener("keydown", function (e) {
       if (e.key === "Enter") { e.preventDefault(); saveTitle(); }
+    });
+
+    /* ── 안건 및 논의 메모 ──
+       적는 중에 패널이 다시 그려져도(핀 하나만 더 찍어도 그렇습니다) 글이
+       사라지지 않도록 draft 를 들고 있고, 칸을 벗어나면 자동으로 저장합니다
+       — 회의 중에 [저장] 을 누르는 것을 기억하기는 어렵습니다. */
+    const mem = $("#mm-memo", host);
+    if (mem) mem.addEventListener("input", function () { view.memoDraft = this.value; });
+    const saveMemo = function (quiet) {
+      const txt = view.memoDraft === null ? (mem ? mem.value : "") : view.memoDraft;
+      const r = P.setMeetingNote(txt, meetingContext());
+      view.memoMsg = r.ok
+        ? (r.cleared ? "메모를 비웠습니다." : "메모를 저장했습니다 — 회의록의 [안건 및 논의 내용] 에 들어갑니다.")
+        : (r.reason || "");
+      if (r.ok) view.memoDraft = null;
+      if (!quiet) paintPanel();
+    };
+    const mgo = $("#mm-memo-go", host);
+    if (mgo) mgo.addEventListener("click", function () { saveMemo(false); });
+    if (mem) mem.addEventListener("blur", function () {
+      /* 바뀐 것이 없으면 건드리지 않습니다 */
+      if (view.memoDraft === null) return;
+      saveMemo(true);
+      const el = $("#mm-memo-msg", host);
+      if (el) el.textContent = view.memoMsg;
     });
 
     /* ── 핀 · 노트 ── */

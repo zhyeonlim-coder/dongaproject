@@ -857,6 +857,24 @@ window.SSOTTest = (function () {
         const st = P.setMeetingTitle("ZZ 오늘 회의 제목", ctx);
         T.add("㉓ 회의 제목을 사람이 적을 수 있음", st.ok, st.reason || "");
 
+        /* 안건 및 논의 메모 — 적은 그대로(줄바꿈까지) 회의록에 들어갑니다 */
+        const memo = "ZZ 첫째 줄\nZZ 둘째 줄";
+        const mn = P.setMeetingNote(memo, ctx);
+        T.add("㉓ 안건 · 논의 메모를 적을 수 있음", mn.ok, mn.reason || "");
+        const curN = P.currentMeeting();
+        const txtN = P.minutesText(curN ? curN.id : null);
+        T.add("㉓ 회의록에 [안건 및 논의 내용] 절이 생김",
+          txtN.indexOf("## 안건 및 논의 내용") > -1, txtN.slice(0, 60));
+        T.add("㉓ 메모의 줄 나눔이 그대로 남음",
+          txtN.indexOf("ZZ 첫째 줄\nZZ 둘째 줄") > -1, "줄이 합쳐졌습니다");
+
+        /* 메모를 비우면 그 절도 사라집니다 — 빈 제목만 남기지 않습니다 */
+        P.setMeetingNote("", ctx);
+        const txtC = P.minutesText(curN ? curN.id : null);
+        T.add("㉓ 메모를 비우면 그 절도 사라짐",
+          txtC.indexOf("## 안건 및 논의 내용") === -1, "빈 절이 남았습니다");
+        P.setMeetingNote(memo, ctx);
+
         /* ① 회의록 저장 */
         const cur = P.currentMeeting();
         const txt = P.minutesText(cur ? cur.id : null);

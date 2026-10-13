@@ -3208,3 +3208,15 @@ body.is-colresize { cursor: col-resize; user-select: none; }
 .cmp-tbl tbody tr:last-child th { border-bottom: 1px solid var(--c-border); }
 .cmp-tbl thead th { background: var(--c-paper); }
 .cmp-tbl .cmp-sep > th { text-align: center; }
+
+/* 회의 기록 — 안건 및 논의 메모 */
+.mm-memo-l {
+  display: block; margin: var(--s-3) 0 4px;
+  font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--c-text-soft);
+}
+.mm-memo-l span {
+  font-weight: 400; letter-spacing: 0; text-transform: none;
+  color: var(--c-text-mute);
+}
+.mm-ta.mm-memo { min-height: 120px; line-height: 1.7; resize: vertical; }
