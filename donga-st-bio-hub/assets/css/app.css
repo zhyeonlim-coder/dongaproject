@@ -2578,20 +2578,15 @@ tr:hover .mm-pinb, .mm-cell:focus-within .mm-pinb,
 .mm-out-v { font-weight: 600; }
 .mm-out-m { font-size: 10.5px; color: var(--c-text-soft); margin-left: auto; }
 
-/* 발표자 모드 */
-.mm-lockmsg {
-  font-size: 12px; font-weight: 600; color: #8A4308;
-  background: var(--c-warn-bg, #FDF3E3); border-radius: var(--r-sm);
-  padding: 6px 10px; margin: 0 0 var(--s-3);
-}
-#mv-lock[aria-pressed="true"] {
+/* 글자 크게 보기 — 빔프로젝터로 띄울 때 */
+#mv-big[aria-pressed="true"] {
   background: var(--c-accent); border-color: var(--c-accent); color: #fff;
 }
-.mm.is-locked .mm-scroll { font-size: 15px; }
-.mm.is-locked .mm-tbl { font-size: 14px; }
-.mm.is-locked .card-title { font-size: 17px; }
-.mm.is-locked .mm-sync-row { font-size: 14px; }
-.mm.is-locked .mm-range { pointer-events: none; }
+.mm.is-big .mm-scroll { font-size: 15px; }
+.mm.is-big .mm-tbl { font-size: 14px; }
+.mm.is-big .card-title { font-size: 17px; }
+.mm.is-big .mm-sync-row { font-size: 14px; }
+.mm.is-big .team-metric { font-size: 14px; }
 
 /* 패널 항목 안의 보조 버튼 */
 .mm-item-btn {

@@ -2,7 +2,7 @@
    units.js — 임계값 파싱 + 단위 해석 (공통)  ·  window.Units
 
    왜 공통 모듈인가
-     AI 검색(ask-engine.js)과 회의 모드 봇(meeting-ask.js)이 각자 임계값을
+     AI 검색(ask-engine.js)이 임계값을
      읽고 있었습니다. 한쪽만 고치면 같은 질문이 화면마다 다르게 동작합니다.
      숫자를 조건으로 바꾸는 일은 여기 한 곳에서만 합니다.
 

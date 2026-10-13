@@ -794,6 +794,86 @@ window.SSOTTest = (function () {
     })();
 
     /* ══════════════════════════════════════════════════════════════════
+       ㉓ 회의 기록 — 회의록이 남는가 · 조치 기한이 달력에 오르는가
+
+       회의에서 정한 것은 회의가 끝난 뒤부터 쓰입니다. 그래서 세 가지를
+       봅니다: ① 만든 회의록이 저장되는가 ② 저장본이 **새로고침 뒤에도**
+       남는가(= local 저장이 통째로 보존되는가) ③ 조치의 기한이 달력에
+       오르고, 조치를 지우면 그 일정도 내려가는가.
+       ══════════════════════════════════════════════════════════════════ */
+    (function meetingRecords() {
+      const P = window.Pins;
+      if (!P || !P.saveMinutes) { T.add("㉓ Pins.saveMinutes 있음", false, "없음"); return; }
+      const KEY = "hub.pins.v1";
+      const keep = (function () {
+        try { return localStorage.getItem(KEY); } catch (e) { return null; }
+      })();
+      const ctx = { projectId: "ZZPRJ", projectCode: "ZZ-TEST" };
+      const made = [];
+      try {
+        const dec = P.addNote({ kind: "decision", text: "ZZ 검사용 결정", context: ctx });
+        T.add("㉓ 결정을 기록할 수 있음", dec.ok, dec.reason || "");
+        if (!dec.ok) return;
+        made.push(dec.note.id);
+
+        const act = P.addNote({ kind: "action", text: "ZZ 검사용 조치",
+                                assignee: "검사자", due: "2026-12-24", context: ctx });
+        T.add("㉓ 조치를 기록할 수 있음", act.ok, act.reason || "");
+
+        /* ② 조치 기한이 달력에 올라갔는가 */
+        if (act.ok) {
+          made.push(act.note.id);
+          const H = window.HubCalendar;
+          /* all() 로 봅니다 — eventsOn() 은 지금 고른 과제로 한 번 거르는데,
+             검사용 일정은 검사용 과제(ZZPRJ)에 붙어 있어 걸러집니다. */
+          const onDay = H ? H.all().filter(e => e.date === "2026-12-24") : [];
+          const hit = onDay.filter(e => String(e.ko || "").indexOf("ZZ 검사용 조치") > -1);
+          T.add("㉓ 조치 기한이 달력에 오름", hit.length === 1,
+            "달력에 " + hit.length + "건");
+        }
+
+        /* ① 회의록 저장 */
+        const cur = P.currentMeeting();
+        const sv = P.saveMinutes(cur ? cur.id : null);
+        T.add("㉓ 회의록이 저장됨", sv.ok, sv.reason || "");
+        const list = P.savedMinutes ? P.savedMinutes() : [];
+        T.add("㉓ 저장된 회의록을 다시 찾을 수 있음",
+          list.some(m => cur && m.id === cur.id && (m.minutes || "").length > 20),
+          "저장본 " + list.length + "건");
+        const mine = list.find(m => cur && m.id === cur.id);
+        T.add("㉓ 회의록에 결정 · 조치 건수가 함께 적힘",
+          !!(mine && mine.counts && mine.counts.decisions >= 1),
+          mine && mine.counts ? JSON.stringify(mine.counts) : "없음");
+
+        /* ③ local 저장이 통째로 남는가 — 네 묶음이 같은 키를 쓰면서 마지막
+           묶음이 빈 목록으로 덮으면, 새로고침 때 회의 기록이 통째로 사라집니다 */
+        if (!(window.Persist && window.Persist.isServer && window.Persist.isServer())) {
+          let raw = null;
+          try { raw = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
+          T.add("㉓ 저장본에 회의 · 결정이 모두 들어 있음 (새로고침해도 남음)",
+            !!(raw && raw.meetings && raw.meetings.length && raw.notes && raw.notes.length),
+            raw ? "키=" + Object.keys(raw).join(",") : "저장본 없음");
+        }
+
+        /* 조치를 지우면 달력 일정도 내려간다 */
+        if (act.ok) {
+          P.removeNote(act.note.id);
+          const H2 = window.HubCalendar;
+          const left = (H2 ? H2.all().filter(e => e.date === "2026-12-24") : [])
+            .filter(e => String(e.ko || "").indexOf("ZZ 검사용 조치") > -1);
+          T.add("㉓ 조치를 지우면 달력 일정도 내려감", left.length === 0,
+            "남은 일정 " + left.length + "건");
+        }
+      } finally {
+        made.forEach(function (id) { try { P.removeNote(id); } catch (e) {} });
+        try {
+          if (keep === null) localStorage.removeItem(KEY);
+          else localStorage.setItem(KEY, keep);
+        } catch (e) {}
+      }
+    })();
+
+    /* ══════════════════════════════════════════════════════════════════
        ⑯ 화면 조작 명령 — 읽는 것과 읽지 않는 것
 
        실행은 여기서 하지 않습니다 (화면을 옮기면 검사 페이지가 사라집니다).

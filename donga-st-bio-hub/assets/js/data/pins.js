@@ -74,8 +74,19 @@ window.Pins = (function () {
     } catch (e) { /* 저장본이 깨졌으면 빈 상태로 시작합니다 */ }
     return null;
   }
+  /* ★ local 모드에서는 **한 번만** 씁니다.
+
+     네 묶음이 같은 키(hub.pins.v1)를 쓰는데, 통째로 저장하는 역할은 첫
+     묶음(pin)만 맡습니다. 그런데 넷을 다 부르면 나머지 셋이 같은 키에
+     자기 목록만 덮어썼습니다 — 마지막(agenda)이 비어 있으면 저장본이
+     {"list":[]} 가 되어, **새로고침하면 회의 기록이 통째로 사라졌습니다.**
+     (서버 모드는 묶음마다 레코드 종류가 달라 해당되지 않습니다.) */
   function save() {
-    PARTS.forEach(function (kind) { COLS[kind].save(); });
+    if (window.Persist && window.Persist.isServer()) {
+      PARTS.forEach(function (kind) { COLS[kind].save(); });
+    } else {
+      COLS[PARTS[0]].save();
+    }
   }
 
   /* 서버에서 받은 한 벌로 갈아 끼웁니다 (bootstrap · 폴링) */
@@ -295,6 +306,29 @@ window.Pins = (function () {
       });
       if (r && r.ok) rec.todoId = r.todo.id;
       else return { ok: false, reason: (r && r.reason) || "To-Do 등록에 실패했습니다" };
+
+      /* ★ 기한은 **달력에도** 올립니다.
+
+         To-Do 목록에만 있으면 그 목록을 여는 사람만 압니다. 회의에서 정한
+         기한이 지나가는 가장 흔한 이유가 그것입니다 — 아무도 그날 그것을
+         보지 않습니다. 일정 관리 · 대시보드가 같이 보는 달력에 올려 둡니다.
+         (회의록에서 그 조치를 지우면 이 일정도 함께 내려갑니다) */
+      if (rec.due && window.HubCalendar && window.HubCalendar.addUserEvent) {
+        try {
+          const ev = {
+            id: "EV-MT-" + rec.id,
+            scopeKey: m.projectId ? "project:" + m.projectId : null,
+            studyId: m.studyId || null,
+            date: rec.due,
+            ko: "[조치] " + text + (rec.assignee ? " @" + rec.assignee : ""),
+            kind: "deadline",
+            createdBy: who(), createdAt: now(),
+            meetingId: m.id, noteId: rec.id
+          };
+          window.HubCalendar.addUserEvent(ev);
+          rec.calId = ev.id;
+        } catch (e) { /* 달력이 없어도 조치 기록 자체는 남아야 합니다 */ }
+      }
     }
 
     state.notes.push(rec);
@@ -309,6 +343,11 @@ window.Pins = (function () {
     state.notes = state.notes.filter(x => x.id !== id);
     /* To-Do 로 넘어간 조치는 To-Do 쪽에서 지워야 실제로 사라집니다 */
     if (n && n.todoId && window.Todos && window.Todos.remove) window.Todos.remove(n.todoId);
+    /* 달력에 올려 둔 기한도 같이 내립니다 — 지운 조치의 마감일만 남으면
+       아무도 무엇의 기한인지 모르는 일정이 됩니다 */
+    if (n && n.calId && window.HubCalendar && window.HubCalendar.removeUserEvent) {
+      try { window.HubCalendar.removeUserEvent(n.calId); } catch (e) {}
+    }
     emit();
     return !!n;
   }
@@ -436,6 +475,48 @@ window.Pins = (function () {
   }
 
   /* ══════════════════════════════════════════════════════════════════════
+     회의록 보관 — 만든 회의록을 그 회의에 붙여 둡니다
+
+     예전에는 [회의록 만들기] 가 글자를 만들어 보여 주기만 했습니다. 회의
+     모드를 닫으면 그 글자는 사라지고, 다음 회의에서 "지난번에 뭐라고
+     적었더라" 를 찾을 길이 없었습니다. 핀 · 결정 · 조치는 남는데 **정리된
+     회의록만 남지 않았습니다.**
+
+     저장 위치는 다른 기록과 같습니다 — Collections 가 서버(Neon)에 닿으면
+     서버에, 아니면 이 브라우저에 씁니다. 회의록은 그 회의 레코드 안에
+     들어가므로 따로 동기화할 그릇을 만들지 않습니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function saveMinutes(meetingId) {
+    const m = M().find(x => x.id === meetingId) || currentMeeting();
+    if (!m) return { ok: false, reason: "저장할 회의가 없습니다" };
+    const d = minutes(m.id);
+    if (!d) return { ok: false, reason: "회의 기록을 찾지 못했습니다" };
+    if (!d.pins.length && !d.decisions.length && !d.actions.length && !d.agenda.length) {
+      return { ok: false, reason: "기록이 하나도 없어 저장하지 않았습니다" };
+    }
+    /* 글자와 함께 **건수**도 적어 둡니다 — 목록에서 열어 보기 전에
+       무엇이 들어 있는 회의록인지 알 수 있어야 합니다. */
+    m.minutes = minutesText(m.id);
+    m.minutesAt = now();
+    m.minutesBy = who();
+    m.counts = { pins: d.pins.length, decisions: d.decisions.length,
+                 actions: d.actions.length, agenda: d.agenda.length };
+    emit();
+    return { ok: true, meeting: m };
+  }
+
+  /* 저장된 회의록 목록 — 최근 것이 앞 */
+  function savedMinutes(limit) {
+    const list = M().filter(m => m.minutes)
+      .sort((a, b) => String(b.minutesAt || b.startedAt).localeCompare(String(a.minutesAt || a.startedAt)));
+    return limit ? list.slice(0, limit) : list;
+  }
+  function minutesOf(meetingId) {
+    const m = M().find(x => x.id === meetingId);
+    return m && m.minutes ? m : null;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
      안건 (Agenda)
 
      회의를 순서대로 진행하기 위한 목록입니다. 핀 · 노트는 만들어질 때
@@ -541,6 +622,6 @@ window.Pins = (function () {
     ensureMeeting, endMeeting, currentMeeting, resumeRecent, meetings,
     addAgenda, agenda, toggleAgenda, removeAgenda, moveAgenda,
     setCurrentAgenda, currentAgenda, carryOverAgenda,
-    minutes, minutesText, hydrate
+    minutes, minutesText, saveMinutes, savedMinutes, minutesOf, hydrate
   };
 })();

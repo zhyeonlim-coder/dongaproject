@@ -158,6 +158,56 @@
     }).join("") + '</div>';
   }
 
+  /* ── 지난 회의록 ───────────────────────────────────────────────────────
+     회의 모드에서 저장한 회의록을 대시보드에서도 펼쳐 봅니다.
+
+     회의 모드 안에서만 보이면, 거기 적힌 결정은 회의를 다시 여는 사람만
+     압니다. 결정과 조치는 회의가 끝난 **다음 날**부터 쓰이는 것이라 평소
+     보는 화면에 있어야 합니다. 저장된 것이 없으면 이 영역은 아예 뜨지
+     않습니다 — 빈 카드가 자리만 차지하지 않도록. */
+  function pastMinutes() {
+    const P = window.Pins;
+    if (!P || !P.savedMinutes) return "";
+    const sel = window.Scope.get();
+    const list = P.savedMinutes(12)
+      .filter(m => !m.projectId || !sel.scopeId || m.projectId === sel.scopeId)
+      .slice(0, 3);
+    if (!list.length) return "";
+    return '<section style="margin-top:var(--s-6)">' +
+      '<div class="card-head" style="padding:0 0 var(--s-3)"><div>' +
+        '<h2 class="card-title">지난 회의록</h2>' +
+        '<p class="card-sub">회의 모드에서 저장한 기록입니다 · 제목을 누르면 펼쳐집니다</p>' +
+      '</div></div>' +
+      '<div class="card"><div class="card-body">' +
+      list.map(function (m) {
+        const c = m.counts || {};
+        return '<details style="border-bottom:1px solid var(--c-paper-2);padding:var(--s-2) 0">' +
+          '<summary style="cursor:pointer;font-size:13px;font-weight:600">' + esc(m.title || "회의") +
+            '<span style="display:block;font-weight:400;font-size:11.5px;color:var(--c-text-mute);margin-top:2px">' +
+              esc(String(m.minutesAt || m.startedAt).replace("T", " ").slice(0, 16)) +
+              ' · 결정 ' + (c.decisions || 0) + ' · 조치 ' + (c.actions || 0) +
+              ' · 핀 ' + (c.pins || 0) + '</span></summary>' +
+          '<textarea class="ebr-input" rows="10" readonly data-min="' + esc(m.id) +
+            '" style="margin-top:var(--s-2);font-size:12px">' + esc(m.minutes) + '</textarea>' +
+          '<button class="btn btn-ghost btn-sm" data-mincopy="' + esc(m.id) +
+            '" style="margin-top:6px">복사</button>' +
+        '</details>';
+      }).join("") +
+      '</div></div></section>';
+  }
+
+  function wireMinutes() {
+    $$("[data-mincopy]").forEach(b => b.addEventListener("click", function () {
+      const ta = document.querySelector('[data-min="' + b.dataset.mincopy + '"]');
+      if (!ta) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(ta.value).then(
+          () => { b.textContent = "복사했습니다"; },
+          () => { ta.select(); b.textContent = "직접 복사해 주세요 (Ctrl+C)"; });
+      } else { ta.select(); b.textContent = "직접 복사해 주세요 (Ctrl+C)"; }
+    }));
+  }
+
   /* ── Study 선택 → 팀 카드 ───────────────────────────────────────────── */
   function teamCards(teamSets, batches) {
     return '<div class="team-grid">' + teamSets.map(function (t) {
@@ -656,8 +706,10 @@
                   '[Data 입력 →] 은 그 팀을 들고 입력 화면으로 갑니다'
                 : '과제 전체 기준입니다 — 위에서 Study 를 고르면 그 범위로 좁혀집니다') +
             '</p></div></div>' +
-            teamCards(teamSets, batches) + '</section>';
+            teamCards(teamSets, batches) + '</section>' +
+          pastMinutes();
         wireCommon();
+        wireMinutes();
         return;
       }
 
@@ -703,10 +755,28 @@
   /* 회의 모드는 페이지 이동이 아니라 대시보드 안에서 오버레이로 열립니다 —
      여기서 고른 과제·Study·팀을 그대로 들고 들어가야 하기 때문입니다. */
   window.MeetingView.install();
+  /* 회의에서 회의록을 저장하면 대시보드의 [지난 회의록] 이 곧바로 따라옵니다 —
+     회의를 닫고 나왔는데 방금 저장한 것이 안 보이면, 저장이 안 된 줄 압니다. */
+  if (window.Pins && window.Pins.subscribe) window.Pins.subscribe(render);
   $("#meeting-btn").addEventListener("click", function () {
     if (!window.Scope.get().scopeId) { window.alert("먼저 과제를 선택하세요."); return; }
     window.MeetingView.open();
   });
+
+  /* "같은 화면으로 부르기" 링크로 들어온 사람 — 주소에 #mv= 가 붙어 있으면
+     회의 모드를 열고 그 자리에 세웁니다. 주소는 바로 지웁니다: 남겨 두면
+     새로고침할 때마다 그 회의 화면이 다시 열려 대시보드로 못 돌아옵니다. */
+  if (/#mv=/.test(location.hash) && window.MeetingView.openFromLink) {
+    const h = location.hash;
+    setTimeout(function () {
+      /* 주소는 **무슨 일이 있어도** 지웁니다 (finally). 남겨 두면 새로고침할
+         때마다 그 회의 화면이 다시 열려 대시보드로 돌아올 수 없습니다. */
+      try { window.MeetingView.openFromLink(h); }
+      finally {
+        try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+      }
+    }, 60);
+  }
 
   /* 조회 바를 두지 않습니다 — 이 화면은 조건을 짜는 곳이 아니라 그래프를
      보는 곳입니다. Study 는 Study 카드에서, 팀은 좌측 "팀별 보기" 에서

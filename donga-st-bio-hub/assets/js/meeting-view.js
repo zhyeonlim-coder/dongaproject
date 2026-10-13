@@ -34,21 +34,19 @@ window.MeetingView = (function () {
   const fmt = (v, dp) => (v === null || v === undefined || !isFinite(v)) ? L.empty : Number(v).toFixed(dp);
   const num = (v) => typeof v === "number" && isFinite(v);
 
-  const PRESET_KEY = "hub.presets.v2";
   const PALETTE = ["#0369A1", "#6D28D9", "#0F766E", "#B45309", "#B91C1C", "#1D4ED8"];
 
   let view = {
-    tab: "all", q: "", picked: [], metric: null, sortKey: "id", sortDir: 1,
+    tab: "all", metric: null, sortKey: "id", sortDir: 1,
     focus: null, focusDay: null,
-    ranges: {},
     pinTarget: null, noteKind: "decision", panel: true,
-    locked: false,          // 발표자 모드
-    briefingSeen: false,
+    big: false,             // 글자 크게 보기 (빔프로젝터)
+    minutesOpen: false, minutesMsg: "",
     shareOpen: false, shareMsg: null,
     agendaDraft: ""
   };
 
-  let batches = [], samples = [], outMap = {}, briefing = null;
+  let batches = [], samples = [], outMap = {};
   /* 묶기 전의 그릇 목록 — 그릇 단위로 세는 계산(이탈 통계 · 미입력 현황)은
      이쪽을 씁니다. 묶음으로 세면 한 팀의 항목이 다른 팀 줄에서도 "미입력"
      으로 잡히고, 이탈 표시는 묶음 대표 그릇에만 붙어 실제 값이 적힌
@@ -195,29 +193,11 @@ window.MeetingView = (function () {
     if (tab === "analytics")  return all.filter(m => ["seHPLC.main", "ieHPLC.main", "ceSdsNR.monomer"].indexOf(m.key) > -1);
     return all.filter(m => ["titer.titerHCCF", "downstream.totalYield", "ceSdsNR.monomer"].indexOf(m.key) > -1);
   }
-  function visibleMetrics() {
-    const all = metricsFor(view.tab);
-    const term = view.q.trim().toLowerCase();
-    if (!term) return all;
-    const hit = all.filter(m => (m.label + " " + m.group + " " + m.unit).toLowerCase().indexOf(term) > -1);
-    return hit.length ? hit : all;
-  }
-  function visibleBatches() {
-    const term = view.q.trim().toLowerCase();
-    let list = rows();
-    if (term) {
-      const hit = list.filter(r =>
-        (rowLabel(r) + " " + (r.batchId || "") + " " + (r.stage || "")).toLowerCase().indexOf(term) > -1);
-      if (hit.length) list = hit;
-    }
-    return list;
-  }
-  function chartBatches() {
-    const vis = visibleBatches();
-    if (!view.picked.length) return vis;
-    const sel = vis.filter(r => view.picked.indexOf(r.id) > -1);
-    return sel.length ? sel : vis;
-  }
+  /* 검색·범위 필터를 걷어냈습니다 — 회의 화면은 "요약 → 팀 상세" 두 걸음이고,
+     좁히는 일은 데이터 조회 화면이 합니다. 여기서는 그 팀의 항목을 전부 봅니다. */
+  function visibleMetrics() { return metricsFor(view.tab); }
+  function visibleBatches() { return rows(); }
+  function chartBatches() { return visibleBatches(); }
   function chartMetrics() {
     if (view.metric) {
       const m = metricsFor(view.tab).find(x => x.key === view.metric);
@@ -227,74 +207,6 @@ window.MeetingView = (function () {
     return d.length ? d : visibleMetrics().slice(0, 3);
   }
   function sameUnit(ms) { return ms.every(m => m.unit === ms[0].unit); }
-
-  /* ══════════════════════════════════════════════════════════════════════
-     수치 범위 필터 — 강조 전용
-     ══════════════════════════════════════════════════════════════════════ */
-  const RANGE_DEFS = [
-    { id: "titer",  ko: "Titer",         fixed: "titer.titerHCCF" },
-    { id: "yield",  ko: "Step 수율",     picks: [
-        ["downstream.proteinAYield", "Protein A"], ["downstream.cexYield", "CEX"],
-        ["downstream.aexYield", "AEX"], ["downstream.totalYield", "Total"]] },
-    { id: "purity", ko: "순도",          picks: [
-        ["downstream.monomerPurity", "SEC Monomer"], ["seHPLC.main", "SE-HPLC Main"],
-        ["ieHPLC.main", "IE-HPLC Main"], ["ceSdsNR.monomer", "CE-SDS Monomer"]] },
-    { id: "trace",  ko: "당쇄 · 불순물", picks: [
-        ["nGlycan.highMannose", "High mannose"], ["nGlycan.sialicAcid", "Sialic acid"],
-        ["nGlycan.afucosylated", "Afucosylated"], ["seHPLC.hmw", "HMW"],
-        ["ieHPLC.acidic", "Acidic"], ["downstream.hcp", "HCP"],
-        ["downstream.residualDNA", "Residual DNA"]] }
-  ];
-
-  function initRanges() {
-    RANGE_DEFS.forEach(function (d) {
-      if (!view.ranges[d.id]) {
-        view.ranges[d.id] = { on: false, key: d.fixed || d.picks[0][0], min: null, max: null };
-      }
-    });
-  }
-  /* AI 봇이 "이 항목은 어느 슬라이더가 담당하는가"를 물을 때 씁니다 */
-  function rangeSlotFor(dottedKey) {
-    const d = RANGE_DEFS.find(def =>
-      def.fixed === dottedKey || (def.picks && def.picks.some(p => p[0] === dottedKey)));
-    return d ? d.id : null;
-  }
-
-  function boundsOf(key) {
-    const m = metricByKey(key);
-    if (!m) return null;
-    const vals = batches.map(b => m.get(b)).filter(num);
-    if (vals.length < 2) return null;
-    let lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-    if (hi === lo) hi = lo + 1;
-    const step = MC.niceStep((hi - lo) / 100) / 10 || 0.01;
-    lo = Math.floor(lo / step) * step;
-    hi = Math.ceil(hi / step) * step;
-    return { lo: lo, hi: hi, step: step, unit: m.unit, dp: m.dp, label: m.label, team: m.team };
-  }
-  function activeRanges() {
-    return RANGE_DEFS.map(d => Object.assign({ def: d }, view.ranges[d.id]))
-      .filter(r => r.on && r.min !== null && r.max !== null);
-  }
-  function stateOf(row) {
-    const act = activeRanges();
-    if (!act.length) return "none";
-    const b = row.batchId ? batchOf(row) : row;
-    let sawNoData = false;
-    for (let i = 0; i < act.length; i++) {
-      const m = metricByKey(act[i].key);
-      if (!m) continue;
-      const v = valueOfRow(b, m.groupId, m.itemKey);
-      if (!num(v)) { sawNoData = true; continue; }
-      if (v < act[i].min || v > act[i].max) return "miss";
-    }
-    return sawNoData ? "nodata" : "hit";
-  }
-  function stateCounts(list) {
-    const c = { hit: 0, miss: 0, nodata: 0 };
-    list.forEach(r => { const s = stateOf(r); if (c[s] !== undefined) c[s]++; });
-    return c;
-  }
 
   /* ══════════════════════════════════════════════════════════════════════
      핀 · 이탈
@@ -329,185 +241,6 @@ window.MeetingView = (function () {
   }
 
   /* ══════════════════════════════════════════════════════════════════════
-     필터 바
-     ══════════════════════════════════════════════════════════════════════ */
-  function presets() {
-    try { return JSON.parse(localStorage.getItem(PRESET_KEY) || "[]"); } catch (e) { return []; }
-  }
-  function savePresets(list) {
-    try { localStorage.setItem(PRESET_KEY, JSON.stringify(list)); } catch (e) {}
-  }
-  const dis = () => view.locked ? " disabled" : "";
-
-  function filterBar() {
-    const list = presets();
-    const mv = visibleMetrics();
-    const tabs = [{ key: "all", ko: "전체" }].concat(
-      window.DATA_TEAMS.map(t => ({ key: t.id, ko: t.short + "(" + (t.en || "") + ")" })));
-
-    return '<div class="mm-filter" id="mm-filter">' +
-      '<div class="card"><div class="card-body">' +
-      (view.locked
-        ? '<p class="mm-lockmsg">발표자 모드 — 조건 조작이 잠겨 있습니다. 핀 · 결정 · 조치 기록은 그대로 됩니다.</p>'
-        : "") +
-      '<div class="mm-frow">' +
-        '<span class="mm-flabel">공정 · 팀</span>' +
-        '<div class="mm-pills">' + tabs.map(t =>
-          '<button class="mm-pill" data-view="' + t.key + '"' +
-          (view.tab === t.key ? ' aria-current="true"' : "") + dis() + '>' + esc(t.ko) + '</button>').join("") +
-        '</div>' +
-        '<div class="mm-fspacer"></div>' +
-        '<label class="ebr-cell" style="min-width:190px"><span>배치 · 항목 검색</span>' +
-          '<input class="ebr-input" id="mm-q" type="search" value="' + esc(view.q) + '" ' +
-            'placeholder="예: B123-4, Titer"' + dis() + '></label>' +
-        '<label class="ebr-cell" style="min-width:150px"><span>정렬</span>' +
-          '<select class="ebr-input" id="mm-sort"' + dis() + '>' +
-            '<option value="id"' + (view.sortKey === "id" ? " selected" : "") + '>배치 번호</option>' +
-            mv.map(m => '<option value="' + esc(m.key) + '"' +
-              (view.sortKey === m.key ? " selected" : "") + '>' + esc(m.label) + '</option>').join("") +
-          '</select></label>' +
-        '<label class="ebr-cell" style="min-width:96px"><span>방향</span>' +
-          '<select class="ebr-input" id="mm-dir"' + dis() + '>' +
-            '<option value="1"' + (view.sortDir === 1 ? " selected" : "") + '>오름</option>' +
-            '<option value="-1"' + (view.sortDir === -1 ? " selected" : "") + '>내림</option>' +
-          '</select></label>' +
-      '</div>' +
-      '<div class="mm-ranges">' + RANGE_DEFS.map(rangeControl).join("") + '</div>' +
-      '<div class="mm-frow" style="margin-top:var(--s-3)">' +
-        '<div id="mm-summary" class="mm-summary"></div>' +
-        '<div class="mm-fspacer"></div>' +
-        (list.length
-          ? '<select class="ebr-input" id="mm-preset" style="max-width:170px"' + dis() + '>' +
-            '<option value="">— 프리셋 불러오기 —</option>' +
-            list.map((p, i) => '<option value="' + i + '">' + esc(p.name) + '</option>').join("") +
-            '</select>' : "") +
-        '<button class="btn btn-ghost btn-sm" id="mm-save"' + dis() + '>조합 저장</button>' +
-        '<button class="btn btn-ghost btn-sm" id="mm-reset"' + dis() + '>조건 초기화</button>' +
-      '</div>' +
-      '</div></div></div>';
-  }
-
-  function rangeControl(def) {
-    const r = view.ranges[def.id];
-    const b = boundsOf(r.key);
-    if (!b) {
-      return '<div class="mm-range is-off"><div class="mm-range-head">' +
-        '<span class="mm-range-ko">' + esc(def.ko) + '</span>' +
-        '<span class="mm-range-na">값이 부족해 범위를 만들 수 없습니다</span></div></div>';
-    }
-    if (r.min === null) { r.min = b.lo; r.max = b.hi; }
-    r.min = Math.max(b.lo, Math.min(r.min, b.hi));
-    r.max = Math.max(b.lo, Math.min(r.max, b.hi));
-    if (r.min > r.max) { const t = r.min; r.min = r.max; r.max = t; }
-    const pct = v => ((v - b.lo) / (b.hi - b.lo)) * 100;
-    const dp = b.dp === undefined ? 1 : b.dp;
-
-    return '<div class="mm-range' + (r.on ? " is-on" : "") + '" data-range="' + def.id + '">' +
-      '<div class="mm-range-head">' +
-        '<label class="mm-range-toggle"><input type="checkbox" data-ron="' + def.id + '"' +
-          (r.on ? " checked" : "") + dis() + '><span class="mm-range-ko">' + esc(def.ko) + '</span></label>' +
-        (def.picks
-          ? '<select class="mm-range-pick" data-rkey="' + def.id + '"' + dis() + '>' +
-            def.picks.map(p => '<option value="' + p[0] + '"' +
-              (r.key === p[0] ? " selected" : "") + '>' + esc(p[1]) + '</option>').join("") + '</select>'
-          : '<span class="mm-range-pick is-static">' + esc(b.label) + '</span>') +
-        '<span class="mm-range-val mono" data-rval="' + def.id + '">' +
-          r.min.toFixed(dp) + " ~ " + r.max.toFixed(dp) + (b.unit ? " " + esc(b.unit) : "") + '</span>' +
-      '</div>' +
-      '<div class="mm-dual">' +
-        '<div class="mm-dual-track"></div>' +
-        '<div class="mm-dual-fill" data-rfill="' + def.id + '" style="left:' + pct(r.min).toFixed(2) +
-          '%;right:' + (100 - pct(r.max)).toFixed(2) + '%"></div>' +
-        '<input type="range" data-rmin="' + def.id + '" min="' + b.lo + '" max="' + b.hi +
-          '" step="' + b.step + '" value="' + r.min + '" aria-label="' + esc(def.ko) + ' 최소"' + dis() + '>' +
-        '<input type="range" data-rmax="' + def.id + '" min="' + b.lo + '" max="' + b.hi +
-          '" step="' + b.step + '" value="' + r.max + '" aria-label="' + esc(def.ko) + ' 최대"' + dis() + '>' +
-      '</div></div>';
-  }
-
-  function paintSummary() {
-    const host = $("#mm-summary");
-    if (!host) return;
-    const act = activeRanges();
-    const list = visibleBatches();
-    if (!act.length) {
-      host.innerHTML = '<span class="mm-sum-none">수치 범위 조건이 없습니다 — ' +
-        '왼쪽 체크박스를 켜면 조건에 맞는 데이터가 강조됩니다.</span>';
-      return;
-    }
-    const c = stateCounts(list);
-    host.innerHTML =
-      '<span class="mm-sum-chip is-hit">● 조건 만족 ' + c.hit + '</span>' +
-      '<span class="mm-sum-chip is-miss">○ 벗어남 ' + c.miss + '</span>' +
-      '<span class="mm-sum-chip is-nodata">— 해당 항목 미입력 ' + c.nodata + '</span>' +
-      '<span class="mm-sum-note">전체 ' + list.length + '건은 모두 화면에 남아 있습니다 (숨기지 않습니다)</span>';
-  }
-
-  /* ══════════════════════════════════════════════════════════════════════
-     회의 전 브리핑
-     ══════════════════════════════════════════════════════════════════════ */
-  function briefingCard() {
-    if (view.briefingSeen || !briefing || !briefing.hasPrevious) return "";
-    const b = briefing;
-    if (!b.total && !b.actionsOpen.length) {
-      return '<div class="card mm-brief"><div class="card-body">' +
-        '<div class="mm-brief-h">지난 회의 이후 바뀐 것이 없습니다' +
-        '<button class="btn btn-ghost btn-sm" id="mm-brief-x">닫기</button></div>' +
-        '<p class="mm-brief-sub">' + esc(String(b.previous.title || "지난 회의")) + " · " +
-        esc(String(b.previous.endedAt).replace("T", " ")) + ' 종료 기준</p></div></div>';
-    }
-    const line = (ko, n, extra) => n
-      ? '<li><b>' + ko + " " + n + "건</b>" + (extra ? " — " + esc(extra) : "") + "</li>" : "";
-
-    return '<div class="card mm-brief"><div class="card-body">' +
-      '<div class="mm-brief-h">회의 전 브리핑' +
-        '<button class="btn btn-ghost btn-sm" id="mm-brief-x">닫기</button></div>' +
-      '<p class="mm-brief-sub">' + esc(String(b.previous.title || "지난 회의")) + " · " +
-        esc(String(b.previous.endedAt).replace("T", " ")) + ' 종료 이후 이 시스템에서 바뀐 것</p>' +
-      '<ul class="mm-brief-list">' +
-        line("Data 입력 · 수정", b.entries.length,
-          b.entries.slice(0, 3).map(e => e.scope + " " + e.field).join(", ")) +
-        line("완료된 조치", b.actionsDone.length) +
-        line("새 트러블슈팅 사례", b.newIssues.length,
-          b.newIssues.slice(0, 2).map(i => i.title).join(", ")) +
-        (b.pinnedChanged.length
-          ? '<li class="is-key"><b>지난 회의에서 지적한 값이 수정됨 ' + b.pinnedChanged.length + '건</b> — ' +
-            esc(b.pinnedChanged.slice(0, 3).map(x =>
-              x.pin.batchLabel + " " + x.pin.metricLabel).join(", ")) + '</li>'
-          : "") +
-        (b.actionsOpen.length
-          ? '<li class="is-warn"><b>미완료 조치 ' + b.actionsOpen.length + '건</b> — ' +
-            esc(b.actionsOpen.slice(0, 3).map(n =>
-              (n.assignee || "미지정") + ": " + n.text).join(" / ")) + '</li>'
-          : "") +
-      '</ul></div></div>';
-  }
-
-  /* ══════════════════════════════════════════════════════════════════════
-     확인 필요 후보 (±2SD)
-     ══════════════════════════════════════════════════════════════════════ */
-  function outlierCard() {
-    const list = window.MeetingStats ? window.MeetingStats.outliers(batches, { limit: 8 }) : [];
-    if (!list.length) return "";
-    return '<section class="card mm-outs" style="margin-bottom:var(--s-4)">' +
-      '<div class="card-head"><div>' +
-        '<h2 class="card-title">확인 필요 후보 · 통계적 이탈</h2>' +
-        '<p class="card-sub">같은 Study 안에서 평균 ±2SD 를 벗어난 값입니다 — ' +
-        '규격 이탈이 아니라 그 Study 자신의 분포 기준입니다. 표본 ' +
-        (window.MeetingStats.MIN_N) + '건 미만 Study 는 제외했습니다.</p></div></div>' +
-      '<div class="card-body"><div class="mm-out-list">' +
-      list.map(function (o) {
-        return '<button class="mm-out-item" data-outgo="' + esc(o.batchId + "|" + o.groupId + "|" + o.itemKey) + '">' +
-          '<span class="mono mm-out-b">' + esc(o.batchLabel) + '</span>' +
-          '<span class="mm-out-k">' + esc(o.label) + '</span>' +
-          '<span class="mono mm-out-v">' + fmt(o.value, o.dp) + (o.unit ? " " + esc(o.unit) : "") + '</span>' +
-          outlierMarkup(o) +
-          '<span class="mm-out-m">' + esc(o.studyName) + ' 평균 ' + fmt(o.mean, o.dp) + ' (n=' + o.n + ')</span>' +
-        '</button>';
-      }).join("") + '</div></div></section>';
-  }
-
-  /* ══════════════════════════════════════════════════════════════════════
      동기화 뷰
      ══════════════════════════════════════════════════════════════════════ */
   function focusBatch() {
@@ -527,13 +260,25 @@ window.MeetingView = (function () {
       batches.some(b => b.upstream && b.upstream.titer && num(b.upstream.titer[d])));
   }
 
-  function syncView() {
-    return (hasDayAxis()
-             ? '<section class="card" style="margin-bottom:var(--s-4)"><div id="mm-day"></div></section>'
-             : "") +
-           '<div id="mm-sync" style="margin-bottom:var(--s-4)"></div>' +
-           '<section class="card" style="margin-bottom:var(--s-4)"><div id="mm-table"></div></section>' +
-           '<section class="card"><div id="mm-chart"></div></section>';
+  /* ── 팀 상세 ───────────────────────────────────────────────────────────
+     요약 카드의 [상세 →] 로 들어오는 화면입니다. 그 팀의 시료 표와 그래프를
+     보되, 시료 한 줄을 누르면 **세 팀 값이 함께** 열립니다 — 회의에서 묻는
+     말은 늘 "이 시료, 다른 팀은 어땠나" 이기 때문입니다. */
+  function teamDetail() {
+    const t = (window.DATA_TEAMS || []).find(x => x.id === view.tab) || {};
+    return '<div class="card-head" style="padding:0 0 var(--s-3)"><div>' +
+        '<h2 class="card-title">' + esc(t.ko || view.tab) + ' 상세</h2>' +
+        '<p class="card-sub">표에서 시료를 누르면 그 시료의 배양 · 정제 · 분석 값이 ' +
+          '한 줄로 함께 열립니다</p></div>' +
+        '<button class="btn btn-ghost btn-sm" id="mm-back">← 팀별 요약</button>' +
+      '</div>' +
+      '<div id="mm-chips" style="margin-bottom:var(--s-4)"></div>' +
+      (hasDayAxis()
+        ? '<section class="card" style="margin-bottom:var(--s-4)"><div id="mm-day"></div></section>'
+        : "") +
+      '<div id="mm-sync" style="margin-bottom:var(--s-4)"></div>' +
+      '<section class="card" style="margin-bottom:var(--s-4)"><div id="mm-table"></div></section>' +
+      '<section class="card"><div id="mm-chart"></div></section>';
   }
 
   function paintDay() {
@@ -547,7 +292,7 @@ window.MeetingView = (function () {
       const pts = days.map(d => ({ day: d, value: (b.upstream && b.upstream.titer) ? b.upstream.titer[d] : null }))
         .filter(p => num(p.value));
       return { batchId: b.id, label: rowLabel(r), color: PALETTE[i % PALETTE.length],
-               points: pts, state: stateOf(r) };
+               points: pts, state: "none" };
     }).filter(s => s.points.length);
 
     host.innerHTML =
@@ -601,7 +346,6 @@ window.MeetingView = (function () {
       return;
     }
     const study = window.Repo.studyOf(b);
-    const st = stateOf(b);
     const teamsIn = (b.teams || [b.team]).filter(Boolean)
       .map(function (id) { const t = (window.DATA_TEAMS || []).find(x => x.id === id); return t ? t.short || t.ko : id; });
 
@@ -613,9 +357,6 @@ window.MeetingView = (function () {
           (teamsIn.length ? " · 입력한 팀 " + esc(teamsIn.join(" · ")) : "") +
           (view.focusDay ? " · 선택한 시점 " + esc(view.focusDay) : "") +
           " · 값은 시료 단위로 1건씩 기록됩니다</p></div>" +
-        '<span class="mm-state is-' + st + '">' +
-          (st === "hit" ? "● 조건 만족" : st === "miss" ? "○ 조건 벗어남" :
-           st === "nodata" ? "— 조건 항목 미입력" : "조건 없음") + '</span>' +
       '</div><div class="card-body"><div class="mm-sync-grid">' +
       syncSets().map(function (set) {
         const t = window.DATA_TEAMS.find(x => x.id === set.team) || {};
@@ -673,46 +414,37 @@ window.MeetingView = (function () {
     const mv = visibleMetrics();
     const list = sortedRows();
     const teamColor = id => (window.DATA_TEAMS.find(t => t.id === id) || {}).color || "var(--c-border)";
-    const syncMode = view.tab === "all";
 
     if (!list.length || !mv.length) {
       host.innerHTML = '<div class="empty"><div class="empty-title">표시할 데이터가 없습니다</div>' +
-        '<div class="empty-body">검색어를 지우거나 다른 팀을 선택해 보세요.</div></div>';
+        '<div class="empty-body">이 팀이 적은 값이 아직 없습니다. 다른 팀을 보시거나 ' +
+        'Data 입력에서 값을 적으면 바로 나타납니다.</div></div>';
       return;
     }
 
     host.innerHTML =
       '<div class="card-head" style="padding-bottom:var(--s-3)"><div>' +
-        '<h2 class="card-title">' + (syncMode ? "통합 데이터 테이블" : "데이터 테이블") + '</h2>' +
-        '<p class="card-sub">' +
-          (syncMode ? "행을 누르면 위 3개 팀 카드가 그 배치로 연동됩니다"
-                    : "행을 누르면 그 " + (isSampleGrain() ? "시료" : "배치") + "만 그래프에 남습니다") +
-          ' · 값 위에 마우스를 올리면 핀을 남길 수 있습니다 · ' +
+        '<h2 class="card-title">데이터 테이블</h2>' +
+        '<p class="card-sub">행을 누르면 위 3개 팀 카드가 그 시료로 연동됩니다 · ' +
+          '값 위에 마우스를 올리면 핀을 남길 수 있습니다 · ' +
           list.length + (isSampleGrain() ? "개 시료 · " : "개 배치 · ") + mv.length + "개 항목</p></div>" +
-        (!syncMode && view.picked.length
-          ? '<span class="badge badge-accent">' + view.picked.length + '건 선택</span>' : "") +
       '</div>' +
       '<div class="tbl-scroll"><table class="tbl mm-tbl"><thead><tr>' +
         '<th scope="col">시료</th>' +
-        '<th scope="col" style="width:64px">조건</th>' +
         mv.map(m => '<th scope="col" style="border-top:2px solid ' + teamColor(m.team) + '">' +
           esc(m.label) + '<br><span style="font-weight:400;text-transform:none">' +
           esc(m.unit) + '</span></th>').join("") +
       '</tr></thead><tbody>' +
       list.map(function (r) {
         const bid = batchIdOf(r);
-        const st = stateOf(r);
-        const on = view.picked.indexOf(r.id) > -1;
-        const focused = syncMode && view.focus === bid;
-        return '<tr class="is-pickable st-' + st + (on ? " is-picked" : "") + (focused ? " is-focus" : "") +
+        const focused = view.focus === bid;
+        return '<tr class="is-pickable' + (focused ? " is-focus" : "") +
           '" data-pick="' + esc(r.id) + '" data-batch="' + esc(bid) + '" tabindex="0" role="button" ' +
-          'aria-pressed="' + (syncMode ? focused : on) + '" aria-label="' + esc(rowLabel(r)) + '">' +
+          'aria-pressed="' + focused + '" aria-label="' + esc(rowLabel(r)) + '">' +
           '<td class="mono" style="font-weight:600">' + esc(rowLabel(r)) +
             (isSampleGrain() && r.stage
               ? '<br><span style="font-weight:400;font-size:10px;color:var(--c-text-mute)">' +
                 esc(r.stage) + '</span>' : "") + '</td>' +
-          '<td class="mm-st"><span class="mm-state is-' + st + '">' +
-            (st === "hit" ? "●" : st === "miss" ? "○" : st === "nodata" ? "—" : "·") + '</span></td>' +
           mv.map(function (m) {
             const v = m.get(r);
             const pins = pinsOfCell(bid, m.groupId, m.itemKey);
@@ -729,15 +461,12 @@ window.MeetingView = (function () {
       }).join("") + '</tbody></table></div>';
 
     $$("[data-pick]", host).forEach(function (tr) {
+      /* 행을 누르면 그 시료가 **3개 팀 카드**로 올라갑니다. 예전에는 팀 탭에서
+         누르면 "그래프에 남길 것 고르기" 였는데, 한 번의 누름에 뜻이 둘이라
+         무엇이 일어날지 예측되지 않았습니다. 하나로 둡니다. */
       const act = function () {
-        if (syncMode) {
-          view.focus = (view.focus === tr.dataset.batch) ? null : tr.dataset.batch;
-          view.focusDay = null;
-        } else {
-          const id = tr.dataset.pick;
-          const i = view.picked.indexOf(id);
-          if (i > -1) view.picked.splice(i, 1); else view.picked.push(id);
-        }
+        view.focus = (view.focus === tr.dataset.batch) ? null : tr.dataset.batch;
+        view.focusDay = null;
         syncAll();
       };
       tr.addEventListener("click", function (e) {
@@ -791,23 +520,20 @@ window.MeetingView = (function () {
     }));
     const allVals = series.reduce((a, s) => a.concat(s.data), []);
     const min = (ms.length === 1 || sameUnit(ms)) ? axisMin(allVals) : null;
-    const states = bs.map(stateOf);
-    const act = activeRanges();
     const focusRow = bs.find(r => batchIdOf(r) === view.focus);
 
     host.innerHTML =
       '<div class="card-head" style="padding-bottom:var(--s-3)"><div>' +
         '<h2 class="card-title">' + (view.metric ? esc(ms[0].label) : "대표 지표 비교") + '</h2>' +
         '<p class="card-sub">' +
-          (view.picked.length ? "선택한 " + bs.length + "건" : "전체 " + bs.length + "건") + " · " +
+          "전체 " + bs.length + "건 · " +
           (view.metric ? esc(ms[0].label) : "대표 지표 " + ms.length + "개") +
           (sameUnit(ms) ? "" : " · 단위가 서로 달라 같은 축에 겹쳐 보입니다") +
-          (act.length ? " · 조건에서 벗어난 막대는 흐리게 그렸습니다 (지우지 않습니다)" : "") +
         '</p></div></div>' +
       '<div class="card-body chart-swap">' +
         C.swatches(series) +
         '<div class="chart-wrap" style="margin-top:var(--s-3)">' +
-          MC.bars({ cats: cats, series: series, states: states, min: min,
+          MC.bars({ cats: cats, series: series, min: min,
                     focus: focusRow ? rowLabel(focusRow) : null,
                     pinned: pinnedBatchLabels(bs), h: 320, w: 940,
                     aria: (view.metric ? ms[0].label : "대표 지표") + " 배치별 비교" }) +
@@ -843,13 +569,12 @@ window.MeetingView = (function () {
         '<span style="font-weight:400;text-transform:none;color:var(--c-text-mute)">' +
         '— 누르면 그래프가 그 항목으로 바뀝니다</span></div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-        '<button class="mm-chip" data-metric="" aria-pressed="' + (!view.metric) + '"' + dis() + '>대표 지표</button>' +
+        '<button class="mm-chip" data-metric="" aria-pressed="' + (!view.metric) + '"' + '>대표 지표</button>' +
         mv.map(m => '<button class="mm-chip" data-metric="' + esc(m.key) + '" ' +
-          'aria-pressed="' + (view.metric === m.key) + '" title="' + esc(m.group + " · " + m.unit) + '"' + dis() + '>' +
+          'aria-pressed="' + (view.metric === m.key) + '" title="' + esc(m.group + " · " + m.unit) + '"' + '>' +
           esc(m.label) + '<span class="mm-chip-count">' + filled(m) + '</span></button>').join("") +
       '</div>';
     $$("[data-metric]", host).forEach(b => b.addEventListener("click", function () {
-      if (view.locked) return;
       const k = b.dataset.metric || null;
       view.metric = (view.metric === k) ? null : k;
       syncAll();
@@ -899,28 +624,32 @@ window.MeetingView = (function () {
       u: x.unit || ""
     }));
   }
+  /* ── 팀별 요약 — **대시보드와 같은 카드**입니다 ───────────────────────
+     회의를 열면 처음 보이는 화면이 평소 보던 대시보드와 달라야 할 이유가
+     없습니다. 같은 격자 · 같은 머리 · 같은 상태 칩 · 같은 지표 줄을 씁니다
+     (dash-page.js teamCards 와 같은 모양). 다른 것은 버튼 하나뿐입니다 —
+     대시보드는 [그래프 보기] · [Data 입력 →], 회의 모드는 그 자리에서
+     바로 들여다보는 [상세 →]. */
   function teamSummary(teamSets) {
-    const iss = issues();
-    const byTeam = {};
-    iss.forEach(i => { byTeam[i.team] = (byTeam[i.team] || 0) + 1; });
-    return '<div class="team-grid" style="margin-bottom:var(--s-4)">' +
+    return '<div class="team-grid">' +
       teamSets.map(function (t) {
-        const missing = byTeam[t.team] || 0;
+        const state = !t.defined ? "none" : t.hasData ? (t.filled >= t.total ? "full" : "part") : "none";
         return '<section class="card team-card" style="--team:' + t.color + '">' +
-          '<div class="team-head"><div>' +
-            '<div class="team-name">' + esc(t.ko) + '</div>' +
+          '<div class="team-head">' +
+            '<div><div class="team-name">' + esc(t.ko) + '</div>' +
             '<div style="font-size:11px;color:var(--c-text-mute)">' +
               (!t.defined ? "원본 데이터 없음" : t.filled + "/" + t.total + " 입력") + '</div></div>' +
-            (missing ? '<span class="spec spec-fail">미입력 ' + missing + '</span>'
-                     : t.defined ? '<span class="spec spec-pass">완전</span>'
-                                 : '<span class="spec spec-none">없음</span>') + '</div>' +
+            '<span class="team-chip" data-state="' + state + '"><span class="team-chip-dot"></span>' +
+              (!t.defined ? "없음" : t.hasData ? Math.round(t.filled / t.total * 100) + "%" : "미입력") +
+            '</span>' +
+          '</div>' +
           '<div class="team-metrics">' + headlineMetrics(t.team).map(x =>
             '<div class="team-metric"><span class="team-metric-k">' + esc(x.k) + '</span>' +
             '<span class="team-metric-v"' + (x.v === L.empty ? ' style="color:var(--c-text-soft)"' : "") + '>' +
               esc(x.v) + (x.u ? '<span class="team-metric-u">' + esc(x.u) + '</span>' : "") +
             '</span></div>').join("") + '</div>' +
           '<div class="card-body" style="padding-top:0">' +
-            '<button class="btn btn-ghost btn-sm" data-goto="' + t.team + '" style="width:100%"' + dis() + '>' +
+            '<button class="btn btn-ghost btn-sm" data-goto="' + t.team + '" style="width:100%">' +
               esc(t.ko) + ' 상세 →</button></div></section>';
       }).join("") + '</div>';
   }
@@ -1027,6 +756,63 @@ window.MeetingView = (function () {
       '<button class="mm-item-x" data-delnote="' + esc(n.id) + '" aria-label="기록 삭제">×</button></div>';
   }
 
+  /* 만든 회의록 — 패널을 다시 그려도 **남아 있어야** 합니다.
+     핀 하나만 더 찍어도 패널이 다시 그려지는데, 그때 회의록이 사라지면
+     저장 버튼을 누르러 가는 길에 글자가 없어집니다. */
+  function minutesBlock() {
+    if (!view.minutesOpen) return "";
+    const P = window.Pins;
+    const cur = P ? P.currentMeeting() : null;
+    if (!cur) return '<p class="mm-empty">아직 기록이 없어 회의록을 만들 수 없습니다.</p>';
+    const text = P.minutesText(cur.id);
+    const saved = !!cur.minutes;
+    return '<textarea class="ebr-input mm-ta" id="mm-min-text" rows="10" readonly>' +
+      esc(text) + '</textarea>' +
+      '<div class="mm-note-row" style="margin-top:6px">' +
+        '<button class="btn btn-accent btn-sm" id="mm-min-save" style="flex:1">' +
+          (saved ? "다시 저장" : "저장") + '</button>' +
+        '<button class="btn btn-ghost btn-sm" id="mm-min-copy" style="flex:1">복사</button>' +
+      '</div>' +
+      '<p class="mm-msg" id="mm-min-msg">' + esc(view.minutesMsg || "") + '</p>';
+  }
+
+  /* ── 지난 회의록 ───────────────────────────────────────────────────────
+     저장해 둔 회의록을 그 자리에서 펼쳐 봅니다. 회의 중에 "지난번에 뭐라고
+     정했더라" 는 말이 나오면, 그것을 찾으러 다른 화면으로 나가야 할 이유가
+     없습니다. */
+  function pastMinutesSection() {
+    const P = window.Pins;
+    if (!P || !P.savedMinutes) return "";
+    const cur = P.currentMeeting();
+    /* 이번 회의 것도 숨기지 않습니다 — 저장했는데 목록이 "없음" 이면
+       저장이 안 된 줄 압니다. 대신 이번 회의라고 적어 둡니다. */
+    const list = P.savedMinutes(8);
+    return '<section class="mm-sec"><div class="mm-sec-h">지난 회의록 ' +
+      '<span class="mm-sec-n">' + list.length + '건</span></div>' +
+      (list.length
+        ? list.map(function (m) {
+            const c = m.counts || {};
+            return '<details class="mm-item">' +
+              '<summary style="cursor:pointer;font-size:12.5px;font-weight:500">' +
+                esc(m.title || "회의") +
+                (cur && m.id === cur.id ? ' <span class="badge badge-accent" ' +
+                  'style="font-size:10px">이번 회의</span>' : "") +
+                '<span class="mm-item-m" style="display:block;font-weight:400">' +
+                  esc(String(m.minutesAt || m.startedAt).replace("T", " ").slice(0, 16)) +
+                  ' · 결정 ' + (c.decisions || 0) + ' · 조치 ' + (c.actions || 0) +
+                  ' · 핀 ' + (c.pins || 0) + '</span>' +
+              '</summary>' +
+              '<textarea class="ebr-input mm-ta" rows="8" readonly data-past="' + esc(m.id) + '">' +
+                esc(m.minutes) + '</textarea>' +
+              '<button class="btn btn-ghost btn-sm" data-pastcopy="' + esc(m.id) +
+                '" style="width:100%;margin-top:4px">이 회의록 복사</button>' +
+            '</details>';
+          }).join("")
+        : '<p class="mm-empty">저장된 회의록이 없습니다. 아래 [회의록 만들기] → [저장] 을 누르면 ' +
+          '다음 회의와 대시보드에서 다시 열어 볼 수 있습니다.</p>') +
+      '</section>';
+  }
+
   function paintPanel() {
     const host = $("#mv-side");
     if (!host) return;
@@ -1096,8 +882,11 @@ window.MeetingView = (function () {
           : '<p class="mm-empty">미완료 조치가 없습니다.</p>') + '</section>' +
 
       '<section class="mm-sec">' +
-        '<button class="btn btn-ghost btn-sm" id="mm-minutes" style="width:100%">회의록 만들기</button>' +
-        '<div id="mm-minutes-out"></div></section>' +
+        '<button class="btn btn-ghost btn-sm" id="mm-minutes" style="width:100%">' +
+          (view.minutesOpen ? "회의록 다시 만들기" : "회의록 만들기") + '</button>' +
+        '<div id="mm-minutes-out">' + minutesBlock() + '</div></section>' +
+
+      pastMinutesSection() +
       '</div>';
 
     wirePanel();
@@ -1210,23 +999,43 @@ window.MeetingView = (function () {
 
     const mn = $("#mm-minutes", host);
     if (mn) mn.addEventListener("click", function () {
-      const cur = P.currentMeeting();
-      const out = $("#mm-minutes-out");
-      if (!cur) { out.innerHTML = '<p class="mm-empty">아직 기록이 없어 회의록을 만들 수 없습니다.</p>'; return; }
-      const text = P.minutesText(cur.id);
-      out.innerHTML = '<textarea class="ebr-input mm-ta" id="mm-min-text" rows="10" readonly>' +
-        esc(text) + '</textarea>' +
-        '<button class="btn btn-ghost btn-sm" id="mm-min-copy" style="width:100%;margin-top:6px">복사</button>' +
-        '<p class="mm-msg" id="mm-min-msg"></p>';
-      $("#mm-min-copy").addEventListener("click", function () {
-        const ta = $("#mm-min-text");
-        const done = m => { const el = $("#mm-min-msg"); if (el) el.textContent = m; };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).then(() => done("복사했습니다."),
-            () => { ta.select(); done("직접 복사해 주세요 (Ctrl+C)."); });
-        } else { ta.select(); done("직접 복사해 주세요 (Ctrl+C)."); }
-      });
+      view.minutesOpen = true;
+      view.minutesMsg = "";
+      paintPanel();
     });
+
+    /* 저장해야 다음 회의 · 대시보드에서 다시 열립니다. 만들기만 하고 닫으면
+       글자는 사라집니다 — 그래서 저장을 **앞 버튼**으로 둡니다. */
+    const ms = $("#mm-min-save", host);
+    if (ms) ms.addEventListener("click", function () {
+      const cur = P.currentMeeting();
+      const r = cur ? P.saveMinutes(cur.id) : { ok: false, reason: "저장할 회의가 없습니다" };
+      view.minutesMsg = r.ok
+        ? "저장했습니다 — 다음 회의의 [지난 회의록] 과 대시보드에서 다시 열 수 있습니다."
+        : r.reason;
+      paintPanel();
+    });
+    const mc = $("#mm-min-copy", host);
+    if (mc) mc.addEventListener("click", function () {
+      const ta = $("#mm-min-text", host);
+      if (!ta) return;
+      const done = function (m) { view.minutesMsg = m; paintPanel(); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(ta.value).then(() => done("복사했습니다."),
+          () => { ta.select(); done("직접 복사해 주세요 (Ctrl+C)."); });
+      } else { ta.select(); done("직접 복사해 주세요 (Ctrl+C)."); }
+    });
+
+    /* 지난 회의록 복사 */
+    $$("[data-pastcopy]", host).forEach(b => b.addEventListener("click", function () {
+      const ta = $('[data-past="' + b.dataset.pastcopy + '"]', host);
+      if (!ta) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(ta.value).then(
+          () => { b.textContent = "복사했습니다"; },
+          () => { ta.select(); b.textContent = "직접 복사해 주세요 (Ctrl+C)"; });
+      } else { ta.select(); b.textContent = "직접 복사해 주세요 (Ctrl+C)"; }
+    }));
   }
 
   /* 핀 → 트러블슈팅 사례.
@@ -1256,92 +1065,65 @@ window.MeetingView = (function () {
   }
 
   /* ══════════════════════════════════════════════════════════════════════
-     AI 봇 연결
-     ══════════════════════════════════════════════════════════════════════ */
-  function askCtx() {
-    return {
-      batches: () => batches,
-      currentView: () => view,
-      rangeSlotFor: rangeSlotFor,
-      apply: applyAskCommand
-    };
-  }
-
-  function applyAskCommand(cmd) {
-    if (!cmd) return;
-    if (cmd.tab && cmd.tab !== view.tab) { view.tab = cmd.tab; view.metric = null; }
-    if (cmd.sortKey) view.sortKey = cmd.sortKey;
-    if (cmd.range) {
-      const r = view.ranges[cmd.range.id];
-      const b = boundsOf(cmd.range.key);
-      if (r && b) {
-        r.key = cmd.range.key;
-        r.on = true;
-        r.min = cmd.range.min === null ? b.lo : Math.max(b.lo, Math.min(cmd.range.min, b.hi));
-        r.max = cmd.range.max === null ? b.hi : Math.max(b.lo, Math.min(cmd.range.max, b.hi));
-        if (r.min > r.max) { const t = r.min; r.min = r.max; r.max = t; }
-      }
-    }
-    if (cmd.picked) view.picked = cmd.picked.slice();
-    if (cmd.focus) { view.focus = cmd.focus; view.focusDay = null; }
-    render();
-  }
-
-  function paintAsk() {
-    const host = $("#mm-ask-host");
-    if (!host || !window.MeetingAsk) return;
-    host.innerHTML = window.MeetingAsk.view();
-    window.MeetingAsk.wire(askCtx());
-  }
-
-  /* ══════════════════════════════════════════════════════════════════════
      화면 공유 코드 — 지금 보는 화면을 그대로 재현합니다
      ══════════════════════════════════════════════════════════════════════ */
-  function shareCode() {
-    const o = { t: view.tab, q: view.q, m: view.metric, sk: view.sortKey, sd: view.sortDir,
-                p: view.picked, f: view.focus, fd: view.focusDay, r: {} };
-    RANGE_DEFS.forEach(function (d) {
-      const r = view.ranges[d.id];
-      if (r && r.on) o.r[d.id] = [r.key, r.min, r.max];
-    });
-    try { return "MV1:" + btoa(unescape(encodeURIComponent(JSON.stringify(o)))); }
-    catch (e) { return ""; }
+  /* ── 같은 화면으로 부르기 ──────────────────────────────────────────────
+     붙여넣을 코드 대신 **주소(링크)** 를 건넵니다. 받는 사람은 누르기만
+     하면 회의 모드가 열리고 같은 자리에 섭니다.
+
+     ★ 화소를 보내는 것이 아닙니다. 담기는 것은 "무엇을 보고 있는가"
+       — 과제 · Study · 팀 · 펼친 시료 · 고른 지표 — 뿐이고, 숫자는 받는
+       사람의 브라우저가 자기 데이터로 다시 계산합니다. 그래서 상대가 그
+       과제를 볼 수 없으면 같은 화면이 되지 않습니다.
+     ★ 과제 · Study 를 함께 담는 이유: 이것이 빠지면 상대 화면에 걸려 있던
+       다른 과제 위에 조건만 얹혀, 같은 글자가 다른 데이터를 가리킵니다. */
+  function shareState() {
+    const sel = window.Scope.get();
+    return { t: view.tab, m: view.metric, sk: view.sortKey, sd: view.sortDir,
+             f: view.focus, fd: view.focusDay,
+             pj: sel.scopeId || null, st: sel.studyId || null };
   }
-  function applyShare(code) {
-    const s = String(code || "").trim();
-    if (s.indexOf("MV1:") !== 0) return { ok: false, reason: "회의 화면 코드가 아닙니다 (MV1: 로 시작합니다)" };
+  function shareLink() {
+    try {
+      const code = btoa(unescape(encodeURIComponent(JSON.stringify(shareState()))));
+      const base = location.origin + location.pathname;
+      return base + "#mv=" + encodeURIComponent(code);
+    } catch (e) { return location.href; }
+  }
+  /* 링크(또는 예전 MV1: 코드)를 받아 화면을 맞춥니다 */
+  function applyShare(raw) {
+    let s = String(raw || "").trim();
+    const at = s.indexOf("#mv=");
+    if (at > -1) s = decodeURIComponent(s.slice(at + 4));
+    else if (s.indexOf("MV1:") === 0) s = s.slice(4);
+    if (!s) return { ok: false, reason: "링크에서 화면 정보를 찾지 못했습니다" };
     let o;
-    try { o = JSON.parse(decodeURIComponent(escape(atob(s.slice(4))))); }
-    catch (e) { return { ok: false, reason: "코드를 읽지 못했습니다" }; }
+    try { o = JSON.parse(decodeURIComponent(escape(atob(s)))); }
+    catch (e) { return { ok: false, reason: "링크를 읽지 못했습니다" }; }
     view.tab = o.t || "all";
-    view.q = o.q || "";
     view.metric = o.m || null;
     view.sortKey = o.sk || "id";
     view.sortDir = o.sd === -1 ? -1 : 1;
-    view.picked = Array.isArray(o.p) ? o.p : [];
     view.focus = o.f || null;
     view.focusDay = o.fd || null;
-    RANGE_DEFS.forEach(function (d) {
-      const v = o.r ? o.r[d.id] : null;
-      view.ranges[d.id] = v
-        ? { on: true, key: v[0], min: v[1], max: v[2] }
-        : { on: false, key: (view.ranges[d.id] || {}).key || (d.fixed || d.picks[0][0]), min: null, max: null };
-    });
+    /* 과제 · Study 는 전역 선택이라 Scope 로 넘깁니다 — 화면 전체가 따라옵니다 */
+    if (o.pj && window.Scope.setScope) window.Scope.setScope("project", o.pj);
+    if (o.st && window.Scope.setStudy) window.Scope.setStudy(o.st);
     return { ok: true };
   }
 
   function sharePanel() {
     if (!view.shareOpen) return "";
     return '<div class="card mm-share"><div class="card-body">' +
-      '<div class="mm-brief-h">화면 공유 코드' +
+      '<div class="mm-brief-h">같은 화면으로 부르기' +
         '<button class="btn btn-ghost btn-sm" id="mm-share-x">닫기</button></div>' +
-      '<p class="mm-brief-sub">지금 보고 있는 탭 · 조건 · 선택을 코드로 담습니다. ' +
-        '다른 사람이 이 코드를 넣으면 똑같은 화면이 재현됩니다 (데이터는 각자 브라우저에서 계산됩니다).</p>' +
-      '<textarea class="ebr-input mm-ta" id="mm-share-code" rows="3" readonly>' + esc(shareCode()) + '</textarea>' +
+      '<p class="mm-brief-sub">이 링크를 받은 사람이 누르면 회의 모드가 열리고 ' +
+        '<b>지금 보고 계신 자리</b>(과제 · Study · 팀 · 펼친 시료)에 그대로 섭니다. ' +
+        '화면 영상이 아니라 "어디를 보는지"만 건네므로, 숫자는 각자 브라우저가 ' +
+        '자기 데이터로 계산합니다 — 그 과제를 볼 수 없는 사람에게는 열리지 않습니다.</p>' +
+      '<input class="ebr-input mono" id="mm-share-url" readonly value="' + esc(shareLink()) + '">' +
       '<div class="mm-note-row">' +
-        '<button class="btn btn-ghost btn-sm" id="mm-share-copy">복사</button>' +
-        '<input class="ebr-input" id="mm-share-in" placeholder="받은 코드를 여기에 붙여넣기" style="flex:1">' +
-        '<button class="btn btn-accent btn-sm" id="mm-share-go">이 화면으로</button>' +
+        '<button class="btn btn-accent btn-sm" id="mm-share-copy" style="flex:1">링크 복사</button>' +
       '</div>' +
       (view.shareMsg ? '<p class="mm-msg">' + esc(view.shareMsg) + '</p>' : "") +
       '</div></div>';
@@ -1351,15 +1133,17 @@ window.MeetingView = (function () {
      그리기
      ══════════════════════════════════════════════════════════════════════ */
   function syncAll() {
-    paintSummary();
-    /* 공유 코드는 화면 상태를 담습니다. 슬라이더는 render() 를 거치지 않으므로
-       여기서 다시 만들지 않으면 조건이 빠진 옛 코드가 복사됩니다. */
-    const sc = $("#mm-share-code");
-    if (sc) sc.value = shareCode();
-    if (view.tab === "all") { paintDay(); paintSync(); }
-    else paintChips();
-    paintTable();
-    paintChart();
+    /* 공유 링크는 화면 상태를 담습니다 — 화면이 바뀔 때마다 다시 만듭니다.
+       그러지 않으면 "지금 보는 화면" 이라고 적힌 옛 링크를 건네게 됩니다. */
+    const sl = $("#mm-share-url");
+    if (sl) sl.value = shareLink();
+    if (view.tab !== "all") {
+      paintChips();
+      paintDay();
+      paintSync();
+      paintTable();
+      paintChart();
+    }
     paintPanel();
     paintPanelToggle();
   }
@@ -1371,10 +1155,10 @@ window.MeetingView = (function () {
 
     $("#mv-sub").textContent = desc.scope
       ? desc.scope + (desc.study ? " · " + desc.study : "") : "과제 미선택";
-    const lockBtn = $("#mv-lock");
-    if (lockBtn) lockBtn.setAttribute("aria-pressed", String(view.locked));
+    const bigBtn = $("#mv-big");
+    if (bigBtn) bigBtn.setAttribute("aria-pressed", String(view.big));
     const mv = document.getElementById("mv");
-    if (mv) mv.classList.toggle("is-locked", view.locked);
+    if (mv) mv.classList.toggle("is-big", view.big);
 
     if (!sel.scopeId) {
       $("#mv-body").innerHTML = '<div class="empty"><div class="empty-title">과제를 선택하세요</div>' +
@@ -1403,19 +1187,12 @@ window.MeetingView = (function () {
         return;
       }
 
-      initRanges();
       outMap = window.MeetingStats ? window.MeetingStats.outlierMap(rawBatches) : {};
 
-      const ids = rows().map(x => x.id);
-      view.picked = view.picked.filter(id => ids.indexOf(id) > -1);
       if (view.focus && !batches.some(b => b.id === view.focus)) { view.focus = null; view.focusDay = null; }
-      /* ★ 처음 열었을 때 한 건을 바로 펼쳐 둡니다.
-
-         예전에는 **일자별 Titer(D14)가 있는 배치**만 골랐습니다. 지금
-         서식에는 일자축이 없어 그런 배치가 하나도 없고, 그래서 회의 모드를
-         열면 늘 "배치를 하나 선택하면…" 만 떠 있었습니다. 값이 하나라도
-         있는 시료를 고릅니다. */
-      if (!view.focus && view.tab === "all") {
+      /* ★ 상세로 들어갔을 때 한 건을 바로 펼쳐 둡니다 — 값이 하나라도 있는
+         시료로. 아무것도 펼쳐 있지 않으면 "시료를 고르세요" 만 보입니다. */
+      if (!view.focus && view.tab !== "all") {
         const first = batches.find(function (b) {
           return (window.DATA_ANALYTE_GROUPS || []).some(g => !g.empty &&
             g.items.some(it => num(valueOfRow(b, g.id, it.key))));
@@ -1423,160 +1200,56 @@ window.MeetingView = (function () {
         if (first) view.focus = first.id;
       }
 
+      /* ── 첫 화면은 **요약만** ─────────────────────────────────────────
+         회의를 여는 순간 보이는 것은 대시보드와 같은 팀별 요약 카드뿐입니다.
+         필터 · 브리핑 · 이탈 목록 · 봇은 내렸습니다 — 회의를 시작하는 자리에
+         조작할 것이 열 개 있으면, 첫 1분이 화면 맞추기로 갑니다.
+         들여다보는 일은 카드의 [상세 →] 에서 합니다. */
       $("#mv-body").innerHTML =
-        briefingCard() +
         sharePanel() +
-        '<div id="mm-ask-host"></div>' +
-        filterBar() +
         (view.tab === "all"
-          ? teamSummary(teamSets) + outlierCard() + syncView()
-          : outlierCard() +
-            '<div id="mm-chips" style="margin-bottom:var(--s-4)"></div>' +
-            '<section class="card" style="margin-bottom:var(--s-4)"><div id="mm-table"></div></section>' +
-            '<section class="card"><div id="mm-chart"></div></section>');
+          ? '<section><div class="card-head" style="padding:0 0 var(--s-3)"><div>' +
+              '<h2 class="card-title">팀별 요약</h2>' +
+              '<p class="card-sub">' + esc(window.Scope.describe().scope || "") +
+                (window.Scope.describe().study ? " · " + esc(window.Scope.describe().study) : "") +
+                ' 기준 · 카드의 [상세 →] 를 누르면 그 팀의 시료 표 · 3개 팀 동기화 · 그래프가 열립니다' +
+              '</p></div></div>' + teamSummary(teamSets) + '</section>'
+          : teamDetail());
 
-      paintAsk();
-      wireFilters();
+      wireBody();
       syncAll();
     });
   }
 
-  function wireFilters() {
-    const bx = $("#mm-brief-x");
-    if (bx) bx.addEventListener("click", function () { view.briefingSeen = true; render(); });
-
-    $$("[data-outgo]").forEach(el => el.addEventListener("click", function () {
-      const p = el.dataset.outgo.split("|");
-      view.tab = "all"; view.focus = p[0]; view.focusDay = null;
+  /* 화면에 남은 조작은 셋뿐입니다 — 팀 상세로 들어가기 · 요약으로 돌아오기 ·
+     공유 링크. 조건을 만지는 손잡이는 이 화면에 없습니다. */
+  function wireBody() {
+    $$("[data-goto]").forEach(b => b.addEventListener("click", function () {
+      view.tab = b.dataset.goto;
+      view.metric = null;
+      view.sortKey = "id";
       render();
-      setTimeout(() => openPinComposer(p[0], p[1], p[2]), 260);
     }));
+    const back = $("#mm-back");
+    if (back) back.addEventListener("click", function () {
+      view.tab = "all"; view.metric = null; render();
+    });
 
-    /* 공유 패널 */
     const sx = $("#mm-share-x");
-    if (sx) sx.addEventListener("click", function () { view.shareOpen = false; view.shareMsg = null; render(); });
+    if (sx) sx.addEventListener("click", function () {
+      view.shareOpen = false; view.shareMsg = null; render();
+    });
     const scp = $("#mm-share-copy");
     if (scp) scp.addEventListener("click", function () {
-      const ta = $("#mm-share-code");
+      const el = $("#mm-share-url");
+      if (!el) return;
+      const done = function (msg) { view.shareMsg = msg; render(); };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(ta.value).then(
-          () => { view.shareMsg = "복사했습니다."; render(); },
-          () => { ta.select(); view.shareMsg = "직접 복사해 주세요 (Ctrl+C)."; render(); });
-      } else { ta.select(); view.shareMsg = "직접 복사해 주세요 (Ctrl+C)."; render(); }
+        navigator.clipboard.writeText(el.value).then(
+          () => done("링크를 복사했습니다. 메신저에 붙여넣어 보내세요."),
+          () => { el.select(); done("직접 복사해 주세요 (Ctrl+C)."); });
+      } else { el.select(); done("직접 복사해 주세요 (Ctrl+C)."); }
     });
-    const sgo = $("#mm-share-go");
-    if (sgo) sgo.addEventListener("click", function () {
-      const r = applyShare(($("#mm-share-in") || {}).value || "");
-      view.shareMsg = r.ok ? "화면을 재현했습니다." : r.reason;
-      render();
-    });
-
-    if (view.locked) return;      // 발표자 모드에서는 조건 조작을 막습니다
-
-    $$("[data-view]").forEach(b => b.addEventListener("click", function () {
-      if (view.tab === b.dataset.view) return;
-      view.tab = b.dataset.view; view.metric = null; view.sortKey = "id";
-      render();
-    }));
-
-    const q = $("#mm-q");
-    if (q) {
-      let t = null;
-      q.addEventListener("input", function () {
-        clearTimeout(t);
-        const v = this.value;
-        t = setTimeout(function () { view.q = v; syncAll(); }, 200);
-      });
-    }
-    const s = $("#mm-sort");
-    if (s) s.addEventListener("change", function () { view.sortKey = this.value; paintTable(); });
-    const d = $("#mm-dir");
-    if (d) d.addEventListener("change", function () { view.sortDir = +this.value; paintTable(); });
-
-    $$("[data-ron]").forEach(el => el.addEventListener("change", function () {
-      view.ranges[el.dataset.ron].on = el.checked;
-      const box = el.closest(".mm-range");
-      if (box) box.classList.toggle("is-on", el.checked);
-      syncAll();
-    }));
-    $$("[data-rkey]").forEach(el => el.addEventListener("change", function () {
-      const r = view.ranges[el.dataset.rkey];
-      r.key = this.value; r.min = null; r.max = null;
-      repaintFilterBar();
-    }));
-    $$("[data-rmin],[data-rmax]").forEach(function (el) {
-      const id = el.dataset.rmin || el.dataset.rmax;
-      const isMin = !!el.dataset.rmin;
-      el.addEventListener("input", function () {
-        const r = view.ranges[id];
-        const b = boundsOf(r.key);
-        if (!b) return;
-        const v = Number(this.value);
-        if (isMin) r.min = Math.min(v, r.max); else r.max = Math.max(v, r.min);
-        if (isMin && v > r.max) this.value = r.max;
-        if (!isMin && v < r.min) this.value = r.min;
-        if (!r.on) {
-          r.on = true;
-          const cb = $('[data-ron="' + id + '"]');
-          if (cb) cb.checked = true;
-          const box = el.closest(".mm-range");
-          if (box) box.classList.add("is-on");
-        }
-        updateRangeLabel(id, b);
-        syncAll();
-      });
-    });
-
-    $$("[data-goto]").forEach(b => b.addEventListener("click", function () {
-      view.tab = b.dataset.goto; view.metric = null; render();
-    }));
-
-    const save = $("#mm-save");
-    if (save) save.addEventListener("click", function () {
-      const name = window.prompt("프리셋 이름을 입력하세요 (예: 주간회의 기본)");
-      if (!name || !name.trim()) return;
-      const list = presets();
-      list.push({ name: name.trim(), view: JSON.parse(JSON.stringify(view)) });
-      savePresets(list);
-      render();
-    });
-    const p = $("#mm-preset");
-    if (p) p.addEventListener("change", function () {
-      if (this.value === "") return;
-      const item = presets()[+this.value];
-      if (item) { view = Object.assign({}, view, item.view); view.pinTarget = null; render(); }
-    });
-    const reset = $("#mm-reset");
-    if (reset) reset.addEventListener("click", function () {
-      view.q = ""; view.picked = []; view.metric = null;
-      RANGE_DEFS.forEach(d2 => {
-        view.ranges[d2.id] = { on: false, key: view.ranges[d2.id].key, min: null, max: null };
-      });
-      render();
-    });
-  }
-
-  function updateRangeLabel(id, b) {
-    const r = view.ranges[id];
-    const dp = b.dp === undefined ? 1 : b.dp;
-    const lab = $('[data-rval="' + id + '"]');
-    if (lab) lab.textContent = r.min.toFixed(dp) + " ~ " + r.max.toFixed(dp) + (b.unit ? " " + b.unit : "");
-    const fill = $('[data-rfill="' + id + '"]');
-    if (fill) {
-      const pct = v => ((v - b.lo) / (b.hi - b.lo)) * 100;
-      fill.style.left = pct(r.min).toFixed(2) + "%";
-      fill.style.right = (100 - pct(r.max)).toFixed(2) + "%";
-    }
-  }
-
-  function repaintFilterBar() {
-    const host = $("#mm-filter");
-    if (!host) { render(); return; }
-    const wrap = document.createElement("div");
-    wrap.innerHTML = filterBar();
-    host.replaceWith(wrap.firstChild);
-    wireFilters();
-    syncAll();
   }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -1598,9 +1271,10 @@ window.MeetingView = (function () {
           '<div class="mm-title" id="mv-title">회의 모드</div>' +
           '<div class="mm-sub" id="mv-sub"></div>' +
         '</div>' +
-        '<button class="btn btn-ghost btn-sm" id="mv-lock" style="margin-left:auto" ' +
-          'aria-pressed="false" title="발표 중 조건이 바뀌지 않게 잠급니다">발표자 모드</button>' +
-        '<button class="btn btn-ghost btn-sm" id="mv-share">화면 공유</button>' +
+        '<button class="btn btn-ghost btn-sm" id="mv-big" style="margin-left:auto" ' +
+          'aria-pressed="false" title="빔프로젝터로 볼 때 — 글자와 표를 키웁니다">글자 크게</button>' +
+        '<button class="btn btn-ghost btn-sm" id="mv-share" ' +
+          'title="지금 보는 자리로 바로 열리는 링크를 만듭니다">같은 화면으로 부르기</button>' +
         '<button class="btn btn-ghost btn-sm" id="mv-panel-show" style="display:none">회의 기록 열기</button>' +
         '<button class="btn btn-ghost btn-sm" id="mv-exit">종료 (Esc)</button>' +
       '</div>' +
@@ -1613,8 +1287,8 @@ window.MeetingView = (function () {
     d.querySelector("#mv-panel-show").addEventListener("click", function () {
       view.panel = true; paintPanel(); paintPanelToggle();
     });
-    d.querySelector("#mv-lock").addEventListener("click", function () {
-      view.locked = !view.locked; render();
+    d.querySelector("#mv-big").addEventListener("click", function () {
+      view.big = !view.big; render();
     });
     d.querySelector("#mv-share").addEventListener("click", function () {
       view.shareOpen = !view.shareOpen; view.shareMsg = null; render();
@@ -1639,14 +1313,12 @@ window.MeetingView = (function () {
     document.body.classList.add("mm-open");
     document.getElementById("mv").classList.add("is-on");
 
-    const sel = window.Scope.get();
-    if (sel.team) view.tab = sel.team;
-
-    /* 브리핑은 회의를 이어받기 **전에** 계산해야 "지난 회의"가 잡힙니다 */
-    briefing = window.MeetingStats
-      ? window.MeetingStats.briefing({ exceptMeetingId: null }) : null;
-    view.briefingSeen = false;
-    if (window.MeetingAsk) window.MeetingAsk.reset();
+    /* 회의는 **팀별 요약**에서 시작합니다. 위쪽에서 팀을 고른 채로 들어와도
+       첫 화면은 셋이 함께 보이는 요약입니다 — 회의를 여는 자리에서 한 팀만
+       펼쳐져 있으면 나머지 두 팀은 자기 차례를 기다려야 합니다. */
+    view.tab = "all";
+    view.focus = null;
+    view.focusDay = null;
     if (window.Pins) window.Pins.resumeRecent();
 
     unsub = [
@@ -1671,5 +1343,17 @@ window.MeetingView = (function () {
     if (lastFocus && lastFocus.focus) lastFocus.focus();
   }
 
-  return { install, open, close };
+  /* 링크(#mv=…)로 들어온 사람을 같은 자리에 세웁니다 — 대시보드가 부릅니다 */
+  function openFromLink(hash) {
+    /* ★ 순서가 중요합니다. open() 은 "회의는 요약에서 시작한다" 는 규칙에
+       따라 탭을 요약으로 되돌립니다. 그래서 **열고 난 뒤에** 링크의 자리를
+       입힙니다 — 반대로 하면 링크를 눌러 들어온 사람이 늘 요약만 봅니다. */
+    open();
+    const r = applyShare(hash || location.hash || "");
+    if (!r.ok) view.shareMsg = r.reason;
+    render();
+    return r;
+  }
+
+  return { install, open, close, openFromLink };
 })();
