@@ -946,6 +946,70 @@ window.SSOTTest = (function () {
     })();
 
     /* ══════════════════════════════════════════════════════════════════
+       ㉔ 복합 질의 — "A 가 가장 높은 시료의 B 는?"
+
+       한 문장에 **고르는 기준**과 **보고 싶은 값**이 따로 들어 있습니다.
+       예전에는 둘을 한 바구니에 담아 먼저 걸린 쪽으로 최고값만 답했고,
+       물어본 값은 "비슷한 항목" 으로 흘렸습니다 — 답이 아니라 다른 답을
+       준 것입니다. 여기서는 **그 시료의 값이 맞는지**까지 봅니다.
+       ══════════════════════════════════════════════════════════════════ */
+    (function relationalQueries() {
+      const AE = window.AskEngine, AT = window.AskTables;
+      if (!AE || !AT) { T.add("㉔ 엔진 있음", false, "없음"); return; }
+      const t = AT.internal();
+      const has = k => t.columns.some(c => c.key === k);
+      if (!has("titerHCCF") || !has("maxVCD")) { T.add("㉔ 검사할 항목 있음", false, "항목 없음"); return; }
+
+      const r = AE.answer("Titer가 가장 높은 샘플의 Max VCD는 어때?", { table: t });
+      T.add("㉔ 복합 질의를 복합으로 읽음", r.kind === "relational",
+        "kind=" + r.kind + " / " + String(r.headline).slice(0, 60));
+
+      /* 답이 **그 시료의** 값인지 직접 대조합니다 */
+      const withT = t.rows.filter(x => typeof x.titerHCCF === "number");
+      const top = withT.slice().sort((a, b) => b.titerHCCF - a.titerHCCF)[0];
+      if (top && r.kind === "relational") {
+        const head = String(r.headline || "");
+        T.add("㉔ 기준 시료를 바르게 지목함", head.indexOf(top.__label) > -1,
+          "지목=" + head.slice(0, 60) + " / 실제=" + top.__label);
+        const v = top.maxVCD;
+        T.add("㉔ 답이 그 시료의 값",
+          v === null || v === undefined
+            ? /기록돼 있지 않/.test(head)
+            : head.indexOf(String(v)) > -1 || head.indexOf(String(Number(v).toFixed(1))) > -1 ||
+              head.indexOf(String(Number(v).toFixed(2))) > -1,
+          "그 시료의 Max VCD=" + v + " / 문장=" + head.slice(0, 80));
+        T.add("㉔ 묻지 않은 시료의 값을 섞지 않음",
+          !!(r.sortMetric && r.sortMetric.key === "titerHCCF" && r.metric && r.metric.key === "maxVCD"),
+          JSON.stringify({ sort: r.sortMetric, target: r.metric }));
+      }
+
+      /* 기준이 일반어("수율")여도 읽어야 합니다 — 일반어는 단일 질문에서는
+         버려지지만, 복합 질의에서는 그 말이 고르는 기준입니다 */
+      if (has("downstream_totalYield")) {
+        const r2 = AE.answer("가장 낮은 수율을 보인 배치의 titer는?", { table: t });
+        T.add("㉔ 일반어가 기준일 때도 복합으로 읽음",
+          r2.kind === "relational" && r2.sortMetric && r2.sortMetric.key === "downstream_totalYield",
+          "kind=" + r2.kind + " sort=" + (r2.sortMetric ? r2.sortMetric.key : "-"));
+      }
+
+      /* 지표가 하나뿐인 질문은 **예전 그대로** 최고값 경로로 가야 합니다 */
+      const r3 = AE.answer("Titer 가장 높은 배치", { table: t });
+      T.add("㉔ 단일 지표 질문은 그대로 최고값", r3.kind === "extreme",
+        "kind=" + r3.kind);
+
+      /* 이름을 조금 다르게 써도 — 되묻거나(가까운 이름) 바로 알아듣거나 */
+      const r4 = AE.answer("titor 평균 알려줘", { table: t });
+      T.add("㉔ 비슷한 이름이면 되물어 고르게 함",
+        (r4.suggestions || []).some(s => /titer/i.test(s)) || /혹시/.test(String(r4.headline)),
+        "제안=" + (r4.suggestions || []).join(", "));
+
+      const r5 = AE.answer("바이어빌리티는?", { table: t });
+      T.add("㉔ 음차 표기도 같은 항목으로 읽음",
+        !!(r5.metric && r5.metric.key === "finalViability"),
+        "metric=" + (r5.metric ? r5.metric.key : "-"));
+    })();
+
+    /* ══════════════════════════════════════════════════════════════════
        ⑯ 화면 조작 명령 — 읽는 것과 읽지 않는 것
 
        실행은 여기서 하지 않습니다 (화면을 옮기면 검사 페이지가 사라집니다).

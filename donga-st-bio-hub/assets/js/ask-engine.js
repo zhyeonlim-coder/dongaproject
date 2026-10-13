@@ -26,24 +26,28 @@ window.AskEngine = (function () {
   /* 내부 데이터 컬럼 키 → 인식할 표현들. 한글·영문을 함께 둡니다.
      긴 표현을 먼저 매칭해야 "vcd" 가 "max vcd" 를 가로채지 않습니다. */
   const ALIAS = {
-    titerHCCF:      ["titer hccf", "titerhccf", "hccf", "역가", "타이터", "titer", "생산량"],
+    titerHCCF:      ["titer hccf", "titerhccf", "hccf", "역가", "타이터", "타이타", "티터", "titer", "생산량"],
     qP:             ["qp", "비생산성", "비생산속도", "세포당 생산성"],
-    ivcd:           ["ivcd", "적산 세포", "적산세포", "누적 세포"],
-    maxVCD:         ["max vcd", "maxvcd", "최대 세포농도", "최대세포농도", "피크 vcd", "피크세포"],
-    finalVCD:       ["final vcd", "finalvcd", "최종 세포농도", "최종세포농도"],
-    finalViability: ["final viability", "viability", "생존율", "생존도", "세포 생존"],
+    ivcd:           ["ivcd", "적산 세포", "적산세포", "누적 세포", "누적세포", "아이브이씨디"],
+    maxVCD:         ["max vcd", "maxvcd", "최대 세포농도", "최대세포농도", "피크 vcd", "피크세포",
+                     "맥스 vcd", "맥스vcd", "맥스 브이씨디", "최대 브이씨디"],
+    finalVCD:       ["final vcd", "finalvcd", "최종 세포농도", "최종세포농도",
+                     "파이널 vcd", "파이널vcd", "최종 브이씨디"],
+    finalViability: ["final viability", "viability", "생존율", "생존률", "생존도", "세포 생존",
+                     "바이어빌리티", "바이아빌리티", "뷰어빌리티"],
 
-    downstream_proteinAYield: ["protein a", "proteina", "프로틴 a", "프로테인 a", "단백질 a"],
-    downstream_cexYield:      ["cex", "양이온교환", "양이온 교환"],
-    downstream_aexYield:      ["aex", "음이온교환", "음이온 교환"],
+    downstream_proteinAYield: ["protein a", "proteina", "프로틴 a", "프로테인 a", "단백질 a",
+                               "프로틴 에이", "프로틴에이", "프로테인 에이", "단백질 에이"],
+    downstream_cexYield:      ["cex", "양이온교환", "양이온 교환", "씨이엑스"],
+    downstream_aexYield:      ["aex", "음이온교환", "음이온 교환", "에이이엑스"],
     downstream_totalYield:    ["total yield", "totalyield", "총 수율", "총수율", "전체 수율", "최종 수율", "수율", "yield", "회수율", "recovery"],
     downstream_monomerPurity: ["sec-hplc monomer", "sec monomer", "단량체 순도", "monomer purity"],
-    downstream_hcp:           ["hcp", "숙주세포 단백", "숙주세포단백"],
+    downstream_hcp:           ["hcp", "숙주세포 단백", "숙주세포단백", "숙주 단백", "에이치씨피"],
     downstream_residualDNA:   ["residual dna", "잔류 dna", "잔류dna", "dna"],
 
-    seHPLC_hmw:  ["hmw", "고분자량", "응집체", "aggregate"],
+    seHPLC_hmw:  ["hmw", "고분자량", "응집체", "aggregate", "에이치엠더블유"],
     seHPLC_main: ["se-hplc main", "se hplc main", "sec main", "se-hplc", "sec"],
-    seHPLC_lmw:  ["lmw", "저분자량"],
+    seHPLC_lmw:  ["lmw", "저분자량", "엘엠더블유"],
 
     ieHPLC_acidic:       ["acidic", "산성 변이체", "산성변이체", "산성"],
     ieHPLC_main:         ["ie-hplc main", "ie hplc main", "main peak", "주peak", "메인 피크"],
@@ -52,7 +56,7 @@ window.AskEngine = (function () {
 
     nGlycan_g0f:          ["g0f"],
     nGlycan_g1f:          ["g1f"],
-    nGlycan_highMannose:  ["high mannose", "highmannose", "고만노스", "만노스"],
+    nGlycan_highMannose:  ["high mannose", "highmannose", "고만노스", "만노스", "하이 만노스", "하이만노스"],
     nGlycan_sialicAcid:   ["sialic acid", "sialic", "시알산"],
     nGlycan_afucosylated: ["afucosylated", "afuco", "비푸코실"],
 
@@ -63,7 +67,7 @@ window.AskEngine = (function () {
     ceSdsR_lcHc:     ["lc+hc", "lchc", "경쇄+중쇄"],
     ceSdsR_nghc:     ["nghc", "비당화 중쇄"],
 
-    cultureDays: ["배양 일수", "배양일수", "배양 기간", "culture day", "culture days"]
+    cultureDays: ["배양 일수", "배양일수", "배양 기간", "배양일", "culture day", "culture days"]
   };
 
   /* 일자별 Titer 별칭 — 손으로 11개를 적지 않고 데이터에서 만듭니다.
@@ -150,7 +154,19 @@ window.AskEngine = (function () {
   }
 
   function detectMetrics(text, table) {
-    if (table.kind === "upload") return detectUploadColumns(text, table);
+    const hits = metricHits(text, table);
+    if (!hits) return detectUploadColumns(text, table);
+    /* 일반어로만 걸린 항목은, 구체적인 항목이 함께 걸렸으면 내려놓습니다 */
+    const list = hits.some(h => !h.generic) ? hits.filter(h => !h.generic) : hits;
+    return list.map(h => h.col);
+  }
+
+  /* 걸린 항목을 **거르기 전** 그대로 — 복합 질의는 이쪽을 봅니다.
+     "가장 낮은 수율을 보인 배치의 Titer" 에서 '수율'은 일반어라 Titer 가
+     함께 걸리면 버려집니다. 한 항목만 볼 때는 그게 맞지만, 복합 질의에서는
+     버려진 그 말이 **고르는 기준**입니다. */
+  function metricHits(text, table) {
+    if (table.kind === "upload") return null;
     const hits = [];
     /* 승격된 별칭을 하드코딩 사전에 얹습니다 (덮어쓰지 않고 더합니다) */
     const extra = window.RuleLex ? window.RuleLex.metricAliases() : {};
@@ -167,21 +183,164 @@ window.AskEngine = (function () {
       if (best) hits.push({ col, score: best, generic: isGeneric(key, bestAlias) });
     });
 
-    /* 일반어로만 걸린 항목은, 구체적인 항목이 함께 걸렸으면 내려놓습니다 */
-    if (hits.some(h => !h.generic)) {
-      for (let i = hits.length - 1; i >= 0; i--) if (hits[i].generic) hits.splice(i, 1);
-    }
     /* "D14 값" 처럼 일자만 적은 경우 — 별칭에 안 걸렸어도 받아 줍니다 */
     const dm = String(text).match(DAY_ONLY);
     if (dm) {
       const key = "titerDay_D" + dm[2];
       if (!hits.some(h => h.col.key === key)) {
         const col = table.columns.find(c => c.key === key);
-        if (col) hits.push({ col: col, score: 3 });
+        if (col) hits.push({ col: col, score: 3, generic: false });
       }
     }
     hits.sort((a, b) => b.score - a.score);
-    return hits.map(h => h.col);
+    return hits;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     복합 질의 — "Titer 가 가장 높은 시료의 Max VCD 는?"
+
+     한 문장에 두 가지 일이 들어 있습니다.
+       ① 어느 시료인지 **고르는 기준**  (Titer · 가장 높은)
+       ② 그 시료에서 **보고 싶은 값**  (Max VCD)
+
+     예전에는 둘 다 "인식한 항목" 한 바구니에 담겨, 먼저 걸린 쪽으로
+     최고값을 답하고 나머지는 "비슷한 항목도 인식했습니다" 로 흘렸습니다.
+     물어본 값은 어디에도 없었습니다.
+
+     둘을 가르는 것은 **순서**입니다. 한국어에서 기준은 최상급 앞에 오고
+     (Titer**가** 가장 높은), 보고 싶은 값은 그 뒤에 옵니다 (…시료**의**
+     Max VCD). 그래서 문장에서의 위치로 나눕니다 — 품사 분석이 아니라
+     사람들이 실제로 쓰는 어순을 그대로 읽는 것입니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  /* 추천 질문에 붙이는 꼬리말 — 고른 항목으로 바로 물어볼 수 있게 */
+  const ASK_SUFFIX = { max: "가장 높은 시료는?", min: "가장 낮은 시료는?",
+                       stat: "평균", trend: "추이 보여줘", compare: "비교해줘" };
+  const SUPER_MAX = ["가장 높", "제일 높", "젤 높", "최고", "최대", "highest", "max", "top",
+                     "가장 좋", "제일 좋", "젤 좋", "가장 큰", "제일 큰", "가장 많"];
+  const SUPER_MIN = ["가장 낮", "제일 낮", "젤 낮", "최저", "최소", "lowest", "worst",
+                     "가장 나쁘", "제일 나쁘", "가장 작", "제일 작", "가장 적"];
+  /* 기준과 대상을 잇는 말 — 이게 없으면 그냥 두 항목을 나열한 문장입니다
+     ("Titer 와 Max VCD 평균" 은 복합 질의가 아닙니다) */
+  const REL_BRIDGE = ["시료", "샘플", "배치", "로트", "그것", "그거", "거기", "해당", "그때", "그 때"];
+
+  /* ══════════════════════════════════════════════════════════════════════
+     비슷한 이름 찾기 — "못 알아들었습니다" 로 끝내지 않기 위해
+
+     사람들은 항목 이름을 조금씩 다르게 씁니다 (타이타 · 바이어빌리티 ·
+     protien A). 별칭 사전을 아무리 늘려도 끝이 없습니다. 그래서 **가까운
+     이름**을 찾아 되묻습니다 — 답을 지어내는 것이 아니라, 고를 것을
+     내미는 일입니다.
+     ══════════════════════════════════════════════════════════════════════ */
+  function editDistance(a, b) {
+    const m = a.length, n = b.length;
+    if (!m || !n) return Math.max(m, n);
+    let prev = new Array(n + 1), cur = new Array(n + 1);
+    for (let j = 0; j <= n; j++) prev[j] = j;
+    for (let i = 1; i <= m; i++) {
+      cur[0] = i;
+      for (let j = 1; j <= n; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1,
+                          prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      const t = prev; prev = cur; cur = t;
+    }
+    return prev[n];
+  }
+
+  /* 질문 속 토큰과 가장 가까운 항목 이름들 */
+  function nearMetrics(text, table, limit) {
+    const tokens = String(text || "").split(/[\s,·]+/)
+      .map(t => t.replace(/[?!.,"'()]/g, "").replace(/(은|는|이|가|의|을|를|에|도|만)$/, ""))
+      .filter(t => t.length >= 2 && !/^\d+$/.test(t));
+    if (!tokens.length) return [];
+
+    const cands = [];
+    (table.columns || []).filter(c => c.type === "num").forEach(function (col) {
+      const names = [String(col.label || "")].concat(ALIAS[col.key] || []);
+      let best = 99;
+      names.forEach(function (nm) {
+        const a = String(nm).toLowerCase().replace(/\s+/g, "");
+        if (a.length < 2) return;
+        tokens.forEach(function (tk) {
+          const b = tk.toLowerCase().replace(/\s+/g, "");
+          if (b.length < 2) return;
+          /* 길이 차가 크면 견주지 않습니다 — "titer" 와 "데이터" 를 이웃으로
+             부르면 엉뚱한 것을 권하게 됩니다 */
+          if (Math.abs(a.length - b.length) > 3) return;
+          const d = editDistance(a, b);
+          const near = d <= (b.length <= 4 ? 1 : 2);
+          if (near && d < best) best = d;
+        });
+      });
+      if (best < 99) cands.push({ label: col.label, d: best });
+    });
+    cands.sort((a, b) => a.d - b.d);
+    return cands.slice(0, limit || 3).map(c => c.label);
+  }
+
+  function firstPos(text, terms) {
+    let best = -1;
+    (terms || []).forEach(function (t) {
+      if (!t) return;
+      const i = text.indexOf(String(t).toLowerCase());
+      if (i > -1 && (best === -1 || i < best)) best = i;
+    });
+    return best;
+  }
+  /* 그 항목이 문장 어디쯤에서 불렸는가 */
+  function metricPos(text, col) {
+    const extra = window.RuleLex ? (window.RuleLex.metricAliases()[col.key] || []) : [];
+    return firstPos(text, (ALIAS[col.key] || []).concat(extra, [String(col.label || "")]));
+  }
+
+  /* 복합 질의인가 — 맞으면 { sort, target, dir } 을 돌려줍니다 */
+  function detectRelational(text, table, metricsStrict) {
+    /* 거르기 전 목록으로 봅니다 — 일반어("수율")가 고르는 기준인 문장이
+       있기 때문입니다 ("가장 낮은 수율을 보인 배치의 Titer") */
+    const raw = metricHits(text, table);
+    const metrics = raw ? raw.map(h => h.col)
+                        : (metricsStrict || []);
+    if (!metrics || metrics.length < 2) return null;
+    /* ★ 최상급은 **항목 이름을 가린 글**에서 찾습니다.
+       "Max VCD 가 제일 높은 …" 의 'max' 는 항목 이름이지 최상급이 아닙니다.
+       가리지 않으면 최상급 위치가 문장 맨 앞으로 잡혀, 기준과 대상을
+       가르는 기준선이 무너집니다. (가린 자리는 같은 길이의 공백이라
+       위치는 그대로입니다) */
+    const masked = maskLabels(text, table);
+    const maxPos = firstPos(masked, SUPER_MAX);
+    const minPos = firstPos(masked, SUPER_MIN);
+    if (maxPos === -1 && minPos === -1) return null;
+    const dir = (minPos > -1 && (maxPos === -1 || minPos < maxPos)) ? "min" : "max";
+    const sPos = dir === "min" ? minPos : maxPos;
+
+    const placed = metrics.map(c => ({ col: c, at: metricPos(text, c) }))
+      .filter(x => x.at > -1)
+      .sort((a, b) => a.at - b.at);
+    if (placed.length < 2) return null;
+
+    /* 기준 = 최상급에 가장 가까이 붙은 항목(앞쪽 우선), 대상 = 그 뒤의 항목 */
+    const before = placed.filter(x => x.at < sPos);
+    const after  = placed.filter(x => x.at > sPos);
+    let sortX, targetX;
+    if (before.length && after.length) {
+      sortX = before[before.length - 1];        /* 최상급 바로 앞 */
+      targetX = after[after.length - 1];        /* 문장 끝 쪽 */
+    } else if (after.length >= 2) {
+      sortX = after[0];                         /* "가장 높은 Titer 의 Max VCD" */
+      targetX = after[after.length - 1];
+    } else {
+      return null;                              /* 둘 다 앞이면 나열에 가깝습니다 */
+    }
+    if (!sortX || !targetX || sortX.col.key === targetX.col.key) return null;
+
+    /* 기준과 대상 사이에 "…의 / 시료의 / 그 배치의" 같은 다리가 있어야
+       복합 질의입니다. 없으면 두 항목을 나란히 물은 것으로 둡니다. */
+    const gap = text.slice(Math.min(sortX.at, sPos), targetX.at);
+    const bridged = /의\s*$/.test(gap) || /의\s/.test(gap) ||
+                    REL_BRIDGE.some(w => gap.indexOf(w) > -1);
+    if (!bridged) return null;
+
+    return { sort: sortX.col, target: targetX.col, dir: dir };
   }
 
   /* 있지도 않은 일자(D25 · D3)를 물었을 때.
@@ -1967,6 +2126,19 @@ window.AskEngine = (function () {
         unknown = (cond.ignoredTokens || []).concat(unknownNameTokens(text, table))
           .filter(function (x, i, a) { return a.indexOf(x) === i; });
       }
+      /* ★ 이름이 비슷한 항목이 있으면 **그것부터** 내밉니다.
+         "바이어빌리티는?" 에 전체 요약만 주면, 사용자는 자기가 물은 항목이
+         없는 줄 압니다 — 실은 이름을 조금 다르게 쓴 것뿐입니다. */
+      const near = nearMetrics(text, table, 3);
+      if (near.length && !scope.label.length) {
+        const out = briefAnswer(base, table, rows, scope, missingAsked,
+          "혹시 " + near.join(" · ") + " 말씀이신가요? 아래 버튼으로 고르시면 그 값으로 답해 드립니다. 우선", true);
+        out.suggestions = near.map(function (lab) {
+          return lab + " " + (ASK_SUFFIX[intent] || "평균");
+        });
+        return decorate(out, cond, table);
+      }
+
       if (unknown.length) {
         lead = "\"" + unknown.join(" ") + "\" 는 아직 기록에 없는 이름입니다 —";
         /* 머리말에서 말했으니 끝에 또 적지 않습니다 */
@@ -2014,6 +2186,15 @@ window.AskEngine = (function () {
       cond.unhandled.push("\"" + badDays.join(" · ") + "\" — 그 일자의 Titer 컬럼이 없습니다 (" +
         (days.length ? days[0] + "~" + days[days.length - 1] : "없음") +
         " 만 있습니다). 대신 " + metric.label + " 으로 답했습니다");
+    }
+
+    /* ── 복합 질의가 먼저입니다 ────────────────────────────────────────
+       "Titer 가 가장 높은 시료의 Max VCD 는?" 을 최고값 경로로 보내면
+       Titer 최고값만 답하고 물어본 Max VCD 는 "비슷한 항목" 으로 흘러갑니다.
+       (슬롯이 직접 정해 준 경우에는 그 뜻을 따릅니다) */
+    if (!plan && (intent === "max" || intent === "min") && !metricInherited) {
+      const rel = detectRelational(text, table, metrics);
+      if (rel) return decorate(relationalAnswer(base, table, rows, rel, rank), cond, table);
     }
 
     let out;
@@ -2894,6 +3075,101 @@ window.AskEngine = (function () {
       rows: sorted.slice(0, Math.max(8, tieN)).map(r => evidence(r, table, metric)),
       evidenceCols: evidenceCols(table, metric),
       tie: tieN > 1 ? { count: tieN, value: topVal, labels: names } : null,
+      focusLabels: names,
+      note: notes.join(" ")
+    });
+  }
+
+  /* ── 복합 질의 — 기준으로 시료를 고르고, 그 시료의 다른 값을 봅니다 ──
+     "Titer 가 가장 높은 시료의 Max VCD 는?"
+       1) Titer 로 정렬해 그 시료를 지목하고
+       2) **그 시료의** Max VCD 를 읽습니다.
+
+     두 숫자를 한 문장에 쓰므로, 어느 쪽이 기준이고 어느 쪽이 답인지
+     문장에서 분명히 갈라 적습니다. 동점이면 한 건을 고르지 않고 전부
+     보여 줍니다 — 기준이 같은 시료가 둘인데 하나만 답하면, 나머지 하나의
+     값은 영영 보이지 않습니다. */
+  function relationalAnswer(base, table, rows, rel, rank) {
+    const sortCol = rel.sort, tgtCol = rel.target, dir = rel.dir;
+    const withVal = rows.filter(r => typeof r[sortCol.key] === "number" && isFinite(r[sortCol.key]));
+    if (!withVal.length) {
+      return Object.assign(base, {
+        ok: false, kind: "no-value",
+        headline: sortCol.label + " 값이 기록된 행이 " + base.scopeLabel + " 범위에 " +
+          rows.length + "건 중 하나도 없어, 그 기준으로 시료를 고를 수 없습니다.",
+        hints: filledElsewhere(table, sortCol, rows),
+        suggestions: suggestList(table)
+      });
+    }
+    const sorted = withVal.slice().sort((a, b) =>
+      dir === "max" ? b[sortCol.key] - a[sortCol.key] : a[sortCol.key] - b[sortCol.key]);
+    const n = Math.max(1, Math.round(Number(rank) || 1));
+    const tiers = rankGroups(sorted, sortCol.key);
+    if (n > tiers.length) {
+      return Object.assign(base, {
+        ok: false, kind: "no-rank",
+        headline: sortCol.label + " 의 " + n + "번째 순위 값이 없습니다 — " +
+          base.scopeLabel + " 범위에 서로 다른 값이 " + tiers.length + "개뿐입니다.",
+        metric: { key: sortCol.key, label: sortCol.label, unit: sortCol.unit },
+        rows: sorted.slice(0, 8).map(r => evidence(r, table, sortCol)),
+        evidenceCols: evidenceCols(table, sortCol),
+        note: "순위를 채우려고 없는 값을 만들지 않았습니다.",
+        suggestions: suggestList(table)
+      });
+    }
+    const tier = tiers[n - 1];
+    const anchor = tier[0];
+    const sortVal = anchor[sortCol.key];
+    const word = dir === "max" ? (n === 1 ? "가장 높은" : n + "번째로 높은")
+                               : (n === 1 ? "가장 낮은" : n + "번째로 낮은");
+    const names = tier.map(r => r.__label);
+
+    /* 그 시료에 대상 값이 적혀 있는가 — 없으면 "없다" 고 말합니다 */
+    const got = tier.filter(r => typeof r[tgtCol.key] === "number" && isFinite(r[tgtCol.key]));
+    const lead = base.scopeLabel === "전체" ? "" : base.scopeLabel + " 범위에서 ";
+
+    let headline;
+    if (tier.length === 1) {
+      headline = lead + sortCol.label + "이(가) " + word + " 시료는 " + anchor.__label +
+        " (" + fmt(sortVal, sortCol) + ") 이고, 그 시료의 " + tgtCol.label + " 은(는) " +
+        (got.length ? fmt(anchor[tgtCol.key], tgtCol) + " 입니다."
+                    : "기록돼 있지 않습니다 — 값을 지어내지 않았습니다.");
+    } else {
+      headline = lead + sortCol.label + "이(가) " + word + " 값은 " + fmt(sortVal, sortCol) +
+        " 이고, 그 값인 시료가 " + tier.length + "건입니다 — " + names.join(" · ") + ". " +
+        (got.length
+          ? "그 시료들의 " + tgtCol.label + " 은(는) " +
+            got.map(r => r.__label + " " + fmt(r[tgtCol.key], tgtCol)).join(" · ") + " 입니다."
+          : "그 시료들에는 " + tgtCol.label + " 이(가) 기록돼 있지 않습니다.");
+    }
+
+    const facts = [{ k: sortCol.label + " (고른 기준)", v: fmt(sortVal, sortCol) }]
+      .concat(got.length === 1 ? [{ k: tgtCol.label + " (물어보신 값)", v: fmt(got[0][tgtCol.key], tgtCol) }] : [])
+      .concat(tier.length === 1 ? rowMeta(anchor, table) : []);
+
+    const notes = [];
+    notes.push("두 단계로 답했습니다 — ① " + sortCol.label + " 기준으로 시료를 고르고 " +
+      "② 그 시료의 " + tgtCol.label + " 을(를) 읽었습니다.");
+    if (tier.length > 1) notes.push("기준 값이 같은 시료가 여럿이라 한 건을 고르지 않았습니다.");
+    if (!got.length) notes.push("고른 시료에 " + tgtCol.label + " 이(가) 비어 있습니다. " +
+      "다른 시료의 값을 대신 쓰지 않았습니다 — 그러면 묻지 않은 시료의 값을 답으로 드리게 됩니다.");
+    { const qn = qualityNote(tgtCol, rows); if (qn) notes.push(qn); }
+
+    /* 표에는 기준과 대상을 **나란히** 올립니다 — 둘을 함께 봐야 답이 보입니다 */
+    const cols = evidenceCols(table, sortCol);
+    cols.push({ key: tgtCol.key, label: tgtCol.label + (tgtCol.unit ? " (" + tgtCol.unit + ")" : "") });
+    const rowsOut = sorted.slice(0, Math.max(8, tier.length)).map(function (r) {
+      const e = evidence(r, table, sortCol);
+      e[tgtCol.key] = (r[tgtCol.key] === null || r[tgtCol.key] === undefined)
+        ? "미입력" : fmt(r[tgtCol.key], tgtCol);
+      return e;
+    });
+
+    return Object.assign(base, {
+      kind: "relational", headline: headline, facts: facts,
+      metric: { key: tgtCol.key, label: tgtCol.label, unit: tgtCol.unit },
+      sortMetric: { key: sortCol.key, label: sortCol.label, unit: sortCol.unit },
+      rows: rowsOut, evidenceCols: cols,
       focusLabels: names,
       note: notes.join(" ")
     });
