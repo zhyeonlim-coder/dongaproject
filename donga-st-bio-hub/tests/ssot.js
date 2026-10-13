@@ -894,6 +894,29 @@ window.SSOTTest = (function () {
           !!(mine && mine.counts && mine.counts.decisions >= 1),
           mine && mine.counts ? JSON.stringify(mine.counts) : "없음");
 
+        /* 저장해 둔 회의록을 지금 형식으로 다시 만들기 —
+           만든 시각 · 만든 사람은 그대로 두어야 합니다 (누가 언제 정리했는지는
+           표기를 바꿨다고 달라지지 않습니다) */
+        if (mine) {
+          const keepAt = mine.minutesAt, keepBy = mine.minutesBy;
+          mine.minutes = mine.minutes + "\n- 없음\n— 값은 Batch_Data_example.xlsx 원본에서 조회한 것입니다.";
+          const rf = P.refreshMinutes(mine.id);
+          T.add("㉓ 옛 형식 회의록을 지금 형식으로 다시 만들 수 있음",
+            rf.ok && rf.changed && !/- 없음|Batch_Data_example/.test(mine.minutes),
+            rf.reason || (rf.changed ? "문구가 남았습니다" : "바뀌지 않았습니다"));
+          T.add("㉓ 다시 만들어도 만든 시각 · 사람은 그대로",
+            mine.minutesAt === keepAt && mine.minutesBy === keepBy,
+            mine.minutesAt + " / " + mine.minutesBy);
+        }
+
+        /* 제목 지우기 — 잘못 적었을 때, 그리고 예전 자동 제목을 걷어낼 때 */
+        const rc = P.clearMeetingTitle(cur ? cur.id : null);
+        T.add("㉓ 회의 제목을 비울 수 있음",
+          rc.ok && !rc.meeting.title, rc.reason || "제목이 남았습니다");
+        T.add("㉓ 제목을 비우면 과제 · 날짜로 돌아감",
+          /\d{4}-\d{2}-\d{2}/.test(P.meetingLabel(rc.meeting || {})),
+          P.meetingLabel(rc.meeting || {}));
+
         /* ③ local 저장이 통째로 남는가 — 네 묶음이 같은 키를 쓰면서 마지막
            묶음이 빈 목록으로 덮으면, 새로고침 때 회의 기록이 통째로 사라집니다 */
         if (!(window.Persist && window.Persist.isServer && window.Persist.isServer())) {

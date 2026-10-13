@@ -706,6 +706,9 @@ window.MeetingView = (function () {
         '<input class="ebr-input" id="mm-title" style="flex:1" ' +
           'placeholder="오늘 회의 제목 · 주제" value="' + esc(view.titleDraft !== null ? view.titleDraft : t) + '">' +
         '<button class="btn btn-ghost btn-sm" id="mm-title-go">저장</button>' +
+        /* 잘못 적었을 때 되돌릴 길 — 비우면 과제 코드 · 날짜로 표시됩니다 */
+        (t ? '<button class="btn btn-ghost btn-sm" id="mm-title-x" ' +
+             'title="제목을 비웁니다 (과제 · 날짜로 표시)">지우기</button>' : "") +
       '</div>' +
       '<p class="mm-msg" id="mm-title-msg">' + esc(view.titleMsg || "") + '</p>' +
 
@@ -813,8 +816,14 @@ window.MeetingView = (function () {
               '</summary>' +
               '<textarea class="ebr-input mm-ta" rows="8" readonly data-past="' + esc(m.id) + '">' +
                 esc(m.minutes) + '</textarea>' +
-              '<button class="btn btn-ghost btn-sm" data-pastcopy="' + esc(m.id) +
-                '" style="width:100%;margin-top:4px">이 회의록 복사</button>' +
+              '<div class="mm-note-row" style="margin-top:4px">' +
+                '<button class="btn btn-ghost btn-sm" data-pastcopy="' + esc(m.id) +
+                  '" style="flex:1">복사</button>' +
+                /* 옛 형식으로 저장된 회의록을 지금 규칙으로 다시 만듭니다
+                   (만든 시각 · 만든 사람은 그대로 둡니다) */
+                '<button class="btn btn-ghost btn-sm" data-pastfix="' + esc(m.id) +
+                  '" title="지금 회의록 형식으로 다시 만듭니다">새 형식으로</button>' +
+              '</div>' +
             '</details>';
           }).join("")
         : '<p class="mm-empty">저장된 회의록이 없습니다. 아래 [회의록 만들기] → [저장] 을 누르면 ' +
@@ -925,6 +934,13 @@ window.MeetingView = (function () {
     };
     const tgo = $("#mm-title-go", host);
     if (tgo) tgo.addEventListener("click", saveTitle);
+    const tx = $("#mm-title-x", host);
+    if (tx) tx.addEventListener("click", function () {
+      const r = P.clearMeetingTitle();
+      view.titleDraft = null;
+      view.titleMsg = r.ok ? "제목을 비웠습니다 — 과제 · 날짜로 표시됩니다." : r.reason;
+      paintPanel();
+    });
     if (tin) tin.addEventListener("keydown", function (e) {
       if (e.key === "Enter") { e.preventDefault(); saveTitle(); }
     });
@@ -1040,6 +1056,13 @@ window.MeetingView = (function () {
           () => { ta.select(); done("직접 복사해 주세요 (Ctrl+C)."); });
       } else { ta.select(); done("직접 복사해 주세요 (Ctrl+C)."); }
     });
+
+    /* 지난 회의록 — 지금 형식으로 다시 만들기 */
+    $$("[data-pastfix]", host).forEach(b => b.addEventListener("click", function () {
+      const r = P.refreshMinutes(b.dataset.pastfix);
+      b.textContent = r.ok ? (r.changed ? "새 형식으로 바꿨습니다" : "이미 새 형식입니다") : r.reason;
+      if (r.ok && r.changed) setTimeout(paintPanel, 900);
+    }));
 
     /* 지난 회의록 복사 */
     $$("[data-pastcopy]", host).forEach(b => b.addEventListener("click", function () {

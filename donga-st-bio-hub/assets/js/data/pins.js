@@ -170,6 +170,16 @@ window.Pins = (function () {
     return { ok: true, meeting: m };
   }
 
+  /* 제목 지우기 — 잘못 적었을 때, 그리고 예전 자동 제목을 걷어낼 때.
+     비우면 화면과 회의록은 과제 코드 · 날짜로 가리킵니다. */
+  function clearMeetingTitle(meetingId) {
+    const m = meetingId ? M().find(x => x.id === meetingId) : currentMeeting();
+    if (!m) return { ok: false, reason: "회의를 찾지 못했습니다" };
+    m.title = null;
+    emit();
+    return { ok: true, meeting: m };
+  }
+
   /* ── 안건 및 논의 내용 (자유 메모) ────────────────────────────────────
      결정 · 조치는 한 줄씩 떨어지는 기록이고, 회의에서 오간 말의 대부분은
      그 사이를 잇는 이야기입니다. 그 이야기를 담을 칸이 없으면 사람들은
@@ -538,6 +548,24 @@ window.Pins = (function () {
     return { ok: true, meeting: m };
   }
 
+  /* 저장해 둔 회의록을 **지금 규칙으로 다시** 만듭니다.
+
+     회의록 본문은 저장 시점의 글자 그대로 보관됩니다(그래야 그때 무엇을
+     정리했는지가 남습니다). 그래서 회의록 형식을 바꿔도 옛 저장본은 옛
+     모양 그대로입니다 — 그걸 새 형식으로 맞추고 싶을 때 씁니다.
+
+     ★ 만든 시각 · 만든 사람은 바꾸지 않습니다. 본문 표기만 바뀐 것이지
+       누가 언제 정리했는지가 달라진 것은 아닙니다. */
+  function refreshMinutes(meetingId) {
+    const m = M().find(x => x.id === meetingId);
+    if (!m) return { ok: false, reason: "회의를 찾지 못했습니다" };
+    if (!m.minutes) return { ok: false, reason: "저장된 회의록이 없습니다" };
+    const before = m.minutes;
+    m.minutes = minutesText(m.id);
+    emit();
+    return { ok: true, meeting: m, changed: before !== m.minutes, before: before };
+  }
+
   /* 저장된 회의록 목록 — 최근 것이 앞 */
   function savedMinutes(limit) {
     const list = M().filter(m => m.minutes)
@@ -655,7 +683,7 @@ window.Pins = (function () {
     ensureMeeting, endMeeting, currentMeeting, resumeRecent, meetings,
     addAgenda, agenda, toggleAgenda, removeAgenda, moveAgenda,
     setCurrentAgenda, currentAgenda, carryOverAgenda,
-    minutes, minutesText, saveMinutes, savedMinutes, minutesOf,
-    setMeetingTitle, setMeetingNote, meetingLabel, hydrate
+    minutes, minutesText, saveMinutes, savedMinutes, minutesOf, refreshMinutes,
+    setMeetingTitle, clearMeetingTitle, setMeetingNote, meetingLabel, hydrate
   };
 })();
